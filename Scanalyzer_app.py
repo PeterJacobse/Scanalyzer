@@ -19,16 +19,17 @@ class ImageFunctions:
             print(f"Error: File \"{file_name}\" does not exist.")
             return
         else:
-            self.scan_data = nap.read.Scan(file_name)
+            self.scan_data = nap.read.Scan(file_name) # Read the scan data
             self.channels = np.array([key for key in self.scan_data.signals.keys()])
             self.scans = [self.scan_data.signals[key] for key in self.channels]
             self.scan_header = self.scan_data.header
             self.header_keys = [key for key in self.scan_header.keys()]
             self.header_values = [self.scan_header[key] for key in self.header_keys]
             self.up_or_down = self.scan_header.get("scan_dir", "down")
-
+            
+            # Stack the forward and backward scans for each channel in a big tensor. Flip the backward scan
             self.all_scans = np.stack([np.stack((np.array(self.scan_data.signals[channel]["forward"], dtype = float), np.flip(np.array(self.scan_data.signals[channel]["backward"], dtype = float), axis = 1))) for channel in self.channels])
-            if self.up_or_down == "up": all_scans = np.flip(all_scans, axis = 2)
+            if self.up_or_down == "up": all_scans = np.flip(all_scans, axis = 2) # Flip the scan if it recorded down to up
 
             if crop_unfinished:
                 # Determine which rows should be cropped off in an uncompleted scan
@@ -53,19 +54,20 @@ class ImageFunctions:
 class AppWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Scanalyzer")
+        self.setWindowTitle("Scanalyzer") # Make the app window
         self.setGeometry(100, 100, 900, 600) # x, y, width, height
 
-        # Initialize file name defaults
-        script_path = os.path.abspath(__file__)
-        script_directory = os.path.dirname(script_path)
+        # Initialize default parameters
+        script_path = os.path.abspath(__file__) # The default folder is the directory of the app
+        self.folder = os.path.dirname(script_path)
         self.file_label = "Select file"
-        self.folder = script_directory
         self.image_files = [""]
         self.index = 0
         self.max_index = 0
         self.selected_file = ""
         self.scans = []
+        self.channel = ""
+        self.background_subtraction = "plane"
 
         # Initialize an image
         self.image_functions = ImageFunctions()
