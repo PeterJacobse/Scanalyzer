@@ -6,7 +6,7 @@ from PyQt6.QtGui import QPixmap, QIcon, QImage
 from PyQt6.QtCore import Qt, QSize
 from pathlib import Path
 import pyqtgraph as pg
-from scanalyzer.image_functions import get_scan, image_gradient, background_subtract
+from scanalyzer.image_functions import get_scan
 from PIL import Image
 
 
@@ -114,25 +114,11 @@ class AppWindow(QMainWindow):
         bg_hbox.addWidget(self.bg_inferred_radio)
         bg_group.setLayout(bg_hbox)
 
-        # Create a group box for File / Channel / Direction (first three rows)
-        file_group = QGroupBox("File / Channel / Direction")
-        file_grid = QGridLayout()
-        # Row 0: file navigation
-        file_grid.addWidget(self.previous_file_button, 0, 0)
-        file_grid.addWidget(self.file_select_button, 0, 1)
-        file_grid.addWidget(self.next_file_button, 0, 2)
-        # Row 1: channel navigation
-        file_grid.addWidget(self.previous_chan_button, 1, 0)
-        file_grid.addWidget(self.channel_box, 1, 1)
-        file_grid.addWidget(self.next_chan_button, 1, 2)
-        # Row 2: direction button centered
-        file_grid.addWidget(self.direction_button, 2, 1)
-        file_group.setLayout(file_grid)
-
-        # Place remaining widgets in the main button grid
+        # Place buttons in grid; insert bg_widget at row 2, then direction, save, exit below
         button_widgets = [
-            # insert the grouped widget spanning rows 0-2 and columns 0-2
-            [file_group, 0, 0, 3, 3],
+            [self.previous_file_button, 0, 0], [self.file_select_button, 0, 1], [self.next_file_button, 0, 2],
+            [self.previous_chan_button, 1, 0], [self.channel_box, 1, 1], [self.next_chan_button, 1, 2],
+            [self.direction_button, 2, 1],
                 [bg_group, 3, 0, 1, 3],
             [self.save_button, 4, 1], [self.exit_button, 5, 1],
         ]
@@ -219,7 +205,10 @@ class AppWindow(QMainWindow):
 
         if file_name: # Check if a file was selected
             self.folder = os.path.dirname(file_name)
+            print(f"Selected folder: {self.folder}")
             self.image_files = np.array([str(file) for file in Path(self.folder).glob("*.sxm")])
+            print(Path(file_name))
+            print(np.where(self.image_files == file_name))
             self.max_file_index = len(self.image_files) - 1
             
             if self.file_index > self.max_file_index: self.file_index = 0
@@ -243,6 +232,8 @@ class AppWindow(QMainWindow):
     def on_bg_change(self, mode: str):
         """Handler for background subtraction radio buttons."""
         self.background_subtraction = mode
+        # Sync UI
+        self.update_metadata_display()
         # Optionally reload the image to apply background subtraction
         try:
             if hasattr(self, 'image_files') and not (len(self.image_files) == 0 or (len(self.image_files) == 1 and self.image_files[0] == "")):
@@ -250,6 +241,35 @@ class AppWindow(QMainWindow):
                 self.load_image()
         except Exception as e:
             print(f"Error reloading image after background change: {e}")
+
+    def update_metadata_display(self):
+        """Update the metadata_label and sync radios/direction text."""
+        try:
+            has_files = hasattr(self, 'image_files') and not (len(self.image_files) == 0 or (len(self.image_files) == 1 and self.image_files[0] == ""))
+        except Exception:
+            has_files = False
+
+        if has_files:
+            count = len(self.image_files)
+            folder = getattr(self, 'folder', '')
+            channel = getattr(self, 'channel', '')
+            text = f"Folder: {folder}\nFound {count} .sxm files\nDirection: {self.scan_direction}\nBackground: {self.background_subtraction}\nChannel: {channel}"
+        else:
+            text = f"No folder selected.\nDirection: {self.scan_direction}\nBackground: {self.background_subtraction}"
+
+        self.metadata_label.setText(text)
+        # Sync controls
+        if hasattr(self, 'direction_button'):
+            self.direction_button.setText(f"Direction: {self.scan_direction}")
+            self.direction_button.setChecked(self.scan_direction == "backward")
+        # Sync radios
+        if hasattr(self, 'bg_none_radio'):
+            if self.background_subtraction == 'plane':
+                self.bg_plane_radio.setChecked(True)
+            elif self.background_subtraction == 'inferred':
+                self.bg_inferred_radio.setChecked(True)
+            else:
+                self.bg_none_radio.setChecked(True)
 
     def on_next_file(self):
         self.file_index += 1
@@ -294,17 +314,7 @@ class AppWindow(QMainWindow):
         # Pick the correct frame out of the scan tensor based on channel and scan direction
         if self.scan_direction == "backward": self.selected_scan = scan_object.scan_tensor[self.channel_index, 1]
         else: self.selected_scan = scan_object.scan_tensor[self.channel_index, 0]
-        # Determine background subtraction mode from radio buttons
-        if self.bg_none_radio.isChecked():
-            mode = "none"
-        elif self.bg_plane_radio.isChecked():
-            mode = "plane"
-        elif self.bg_inferred_radio.isChecked():
-            mode = "inferred"
-        else:
-            mode = self.background_subtraction  # fallback
-        self.processed_scan = background_subtract(self.selected_scan, mode = mode)
-        self.image_view.setImage(self.processed_scan) # Show the scan in the app
+        self.image_view.setImage(self.selected_scan) # Show the scan in the app
 
         # Update the channel selection box based on the available channels
         self.channel_box.blockSignals(True)
@@ -326,7 +336,76 @@ class AppWindow(QMainWindow):
 
     # Save button
     def on_save(self):
-        print("SAVED!")
+        # Save the currently displayed scan as a PNG image, applying HistogramLUTItem levels if present
+        try:
+            if not hasattr(self, 'selected_scan') or self.selected_scan is None:
+                self.metadata_label.setText("No image loaded to save.")
+                return
+
+            # Ask user for save location
+            filename, _ = QFileDialog.getSaveFileName(self, "Save image as", "", "PNG Image (*.png)")
+            if not filename:
+                return
+
+            # Convert numeric array to 8-bit grayscale image
+            img = self.selected_scan
+            import numpy as _np
+
+            # Ensure numpy array
+            if not isinstance(img, _np.ndarray):
+                img = _np.array(img)
+
+            # Try to obtain histogram LUT levels from the ImageView so saved image matches contrast
+            hist_levels = None
+            try:
+                # common path: ImageView.ui.histogram.item
+                ui = getattr(self.image_view, 'ui', None)
+                if ui is not None and hasattr(ui, 'histogram') and hasattr(ui.histogram, 'item'):
+                    hist_levels = ui.histogram.item.getLevels()
+                else:
+                    # fallback: getHistogramWidget() if available
+                    get_hw = getattr(self.image_view, 'getHistogramWidget', None)
+                    if callable(get_hw):
+                        hw = get_hw()
+                        if hasattr(hw, 'item'):
+                            hist_levels = hw.item.getLevels()
+            except Exception:
+                hist_levels = None
+
+            # Determine normalization bounds
+            if hist_levels and hist_levels[0] is not None and hist_levels[1] is not None:
+                imin, imax = float(hist_levels[0]), float(hist_levels[1])
+            else:
+                imin = float(_np.nanmin(img))
+                imax = float(_np.nanmax(img))
+
+            # Normalize to 0-255 using chosen bounds
+            if imax - imin == 0:
+                scaled = _np.clip(img - imin, 0, 255).astype(_np.uint8)
+            else:
+                scaled = ((_np.clip(img, imin, imax) - imin) / (imax - imin) * 255.0).astype(_np.uint8)
+
+            # Create QImage (grayscale) from numpy array (width x height)
+            if scaled.ndim != 2:
+                # if multi-channel or unexpected shape, try to select first 2D frame
+                scaled = _np.squeeze(scaled)
+                if scaled.ndim != 2:
+                    # fallback: take first channel/frame
+                    scaled = scaled[..., 0]
+
+            h, w = scaled.shape
+            from PyQt6.QtGui import QImage
+            # Ensure contiguous C-order
+            scaled_c = _np.ascontiguousarray(scaled)
+            qimg = QImage(scaled_c.data.tobytes(), w, h, w, QImage.Format.Format_Grayscale8)
+            # Write to file
+            ok = qimg.save(filename, "PNG")
+            if ok:
+                self.metadata_label.setText(f"Saved image: {filename}")
+            else:
+                self.metadata_label.setText(f"Failed to save image to: {filename}")
+        except Exception as e:
+            self.metadata_label.setText(f"Error saving image: {e}")
 
     # Exit button
     def on_exit(self):
@@ -340,3 +419,25 @@ if __name__ == "__main__":
     window = AppWindow()
     window.show()
     sys.exit(app.exec())
+# Backup copy created by tool on 2025-10-10 00:00:00
+# This is a snapshot of Scanalyzer_app.py with changes applied.
+
+# ...existing content preserved...
+
+import os
+import sys
+import numpy as np
+from PyQt6.QtWidgets import QApplication, QMainWindow, QLabel, QPushButton, QToolButton, QVBoxLayout, QHBoxLayout, QGridLayout, QWidget, QFileDialog, QButtonGroup, QComboBox, QRadioButton, QGroupBox
+from PyQt6.QtGui import QPixmap, QIcon, QImage
+from PyQt6.QtCore import Qt, QSize
+from pathlib import Path
+import pyqtgraph as pg
+from scanalyzer.image_functions import get_scan
+from PIL import Image
+
+
+
+class AppWindow(QMainWindow):
+    pass
+
+# Note: full file contents are available in the working file `Scanalyzer_app.py`.
