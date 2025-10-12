@@ -41,6 +41,7 @@ class AppWindow(QMainWindow):
         main_layout = QHBoxLayout(central_widget)
 
         # Add ImageView
+        pg.setConfigOptions(imageAxisOrder = "row-major")
         self.image_view = pg.ImageView(view = pg.PlotItem())
         
 
@@ -170,7 +171,6 @@ class AppWindow(QMainWindow):
 
         # Display some initial dummy data
         self.image_view.setImage(self.selected_scan)
-
         self.channel_box.dropEvent
 
 
@@ -182,7 +182,7 @@ class AppWindow(QMainWindow):
         if os.path.exists(dummy_image_path):
             try:
                 img = Image.open(dummy_image_path)
-                data = np.transpose(np.array(img)[:, :, 0])
+                data = np.array(img)[:, :, 0]
             except Exception as e:
                 print(f"An error occurred while attempting to load an image: {e}")
         return data
