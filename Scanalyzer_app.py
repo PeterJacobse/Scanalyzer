@@ -3,12 +3,13 @@ import sys
 import yaml
 import numpy as np
 from PyQt6.QtWidgets import QApplication, QMainWindow, QLabel, QPushButton, QToolButton, QVBoxLayout, QHBoxLayout, QGridLayout, QWidget, QFileDialog, QButtonGroup, QComboBox, QRadioButton, QGroupBox
-from PyQt6.QtGui import QPixmap, QIcon, QImage
 from PyQt6.QtCore import Qt, QSize
 from pathlib import Path
 import pyqtgraph as pg
-from scanalyzer.image_functions import get_scan, image_gradient, background_subtract
+from pyqtgraph.Qt import QtCore, QtWidgets
+from scanalyzer.image_functions import get_scan, image_gradient, background_subtract, get_image_statistics
 from PIL import Image
+from datetime import datetime
 
 
 
@@ -16,7 +17,15 @@ class AppWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Scanalyzer") # Make the app window
-        self.setGeometry(100, 100, 900, 600) # x, y, width, height
+        self.setGeometry(100, 100, 1100, 700) # x, y, width, height
+
+        # Add ImageView
+        pg.setConfigOptions(imageAxisOrder = "row-major")
+        self.image_view = pg.ImageView(view = pg.PlotItem())
+        self.script_path = os.path.abspath(__file__) # The full path of Scanalyzer.py
+        self.script_folder = os.path.dirname(self.script_path) # The parent directory of Scanalyzer.py
+        self.scanalyzer_folder = self.script_folder + "\\scanalyzer" # The directory of the scanalyzer package
+        self.folder = self.scanalyzer_folder
 
         # Initialize default parameters
         self.image_files = [""]
@@ -32,32 +41,45 @@ class AppWindow(QMainWindow):
         self.scan_direction = "forward"
         self.background_subtraction = "none"
         
-        self.script_path = os.path.abspath(__file__) # The full path of Scanalyzer.py
-        self.script_folder = os.path.dirname(self.script_path) # The parent directory of Scanalyzer.py
-        self.scanalyzer_folder = self.script_folder + "\\scanalyzer" # The directory of the scanalyzer package
-        self.selected_scan = self.load_dummy_image() # Default dummy image
-        
-        try: # Read the last scan file from the config yaml file
-            with open(self.scanalyzer_folder + "\\config.yml", "r") as f:
-                config = yaml.safe_load(f)
-                last_file = config.get("last_file")
-                self.load_file(last_file)
-        except:
-            print("Failed to load the last scan folder from the config.yml file.")
-            self.folder = self.scanalyzer_folder
-
-
-
         # Set the central widget of the QMainWindow
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         main_layout = QHBoxLayout(central_widget)
 
-        # Add ImageView
-        pg.setConfigOptions(imageAxisOrder = "row-major")
-        self.image_view = pg.ImageView(view = pg.PlotItem())
-        
+        # draw buttons and right-column layout
+        right_column = self.draw_buttons()
 
+        # Combine nested layouts: image view and left column
+        main_layout.addWidget(self.image_view, 3)
+        main_layout.addLayout(right_column, 1)
+        
+        # Ensure the central widget can receive keyboard focus
+        central_widget.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        central_widget.setFocus()
+
+        # Ensure the main window also accepts focus and is active
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setFocus()
+        self.activateWindow()
+        self.channel_box.dropEvent
+
+        # Initialize the ImageView
+        try: # Read the last scan file from the config yaml file
+            with open(self.scanalyzer_folder + "\\config.yml", "r") as file:
+                config = yaml.safe_load(file)
+                last_file = config.get("last_file")
+                self.load_folder(last_file)
+        except:  # Display the dummy scan
+            self.folder = self.scanalyzer_folder
+            self.sxm_file = self.scanalyzer_folder + "dummy_scan.sxm"
+            self.load_folder(self.sxm_file)
+
+
+
+    def draw_buttons(self):
+        # Metadata label (displayed above all buttons)
+        self.metadata_label = QLabel("")
+        self.metadata_label.setAlignment(Qt.AlignmentFlag.AlignHCenter)
 
         # Buttons
         # Make file toggling/selecting buttons
@@ -81,11 +103,15 @@ class AppWindow(QMainWindow):
         self.next_chan_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
         self.next_chan_button.clicked.connect(self.on_next_chan)
 
-        # Direction toggle button (above the other buttons)
-        self.direction_button = QPushButton(f"Direction: {self.scan_direction}")
+        # Direction toggle button (above the other buttons) - show 'forward'/'backward' text
+        self.direction_button = QPushButton()
         self.direction_button.setCheckable(True)
+        # checked == True -> backward, checked == False -> forward
         self.direction_button.setChecked(self.scan_direction == "backward")
-        self.direction_button.clicked.connect(self.on_toggle_direction)
+        # initialize text
+        self.direction_button.setText("backward" if self.direction_button.isChecked() else "forward")
+        # use toggled signal to update state and UI
+        self.direction_button.toggled.connect(self.on_direction_toggled)
 
         # Background subtraction radio buttons (none, plane, inferred)
         self.bg_none_radio = QRadioButton("none")
@@ -116,7 +142,6 @@ class AppWindow(QMainWindow):
         self.save_button.clicked.connect(self.on_save)
         self.exit_button.clicked.connect(self.on_exit)
 
-
         # --- Fix button overlap: Redesign button layout ---
         button_layout = QVBoxLayout()
         button_layout.setSpacing(12)
@@ -133,11 +158,23 @@ class AppWindow(QMainWindow):
         file_nav_hbox.addWidget(self.previous_file_button)
         file_nav_hbox.addWidget(self.file_select_button)
         file_nav_hbox.addWidget(self.next_file_button)
-        fcd_vbox.addWidget(QLabel("File Selected:"))
+        file_selected_label = QLabel("File Selected:")
+        file_selected_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        fcd_vbox.addWidget(file_selected_label)
         fcd_vbox.addLayout(file_nav_hbox)
-        fcd_vbox.addWidget(QLabel("in folder"))
-        fcd_vbox.addWidget(QLabel(self.folder))
-        fcd_vbox.addWidget(QLabel(f"which contains {self.max_file_index} sxm files"))
+        in_folder_label = QLabel("in folder")
+        in_folder_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        fcd_vbox.addWidget(in_folder_label)
+        self.folder_name_label = QLabel(self.folder)
+        self.folder_name_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        fcd_vbox.addWidget(self.folder_name_label)
+        if self.max_file_index == 0: self.contains_n_files_label = QLabel(f"which contains 1 sxm file")
+        else: self.contains_n_files_label = QLabel(f"which contains {self.max_file_index + 1} sxm files")
+        self.contains_n_files_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        fcd_vbox.addWidget(self.contains_n_files_label)
+        channel_selected_box = QLabel("Channel selected:")
+        channel_selected_box.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        fcd_vbox.addWidget(channel_selected_box)
 
         # Channel navigation
         channel_hbox = QHBoxLayout()
@@ -168,6 +205,11 @@ class AppWindow(QMainWindow):
         bg_group.setLayout(bg_hbox)
         button_layout.addWidget(bg_group)
 
+        # Info label between background options and I/O buttons
+        self.info_label = QLabel("Statistics")
+        self.info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        button_layout.addWidget(self.info_label)
+
         # Save and Exit buttons
         io_hbox = QHBoxLayout()
         io_hbox.addWidget(self.save_button)
@@ -176,36 +218,16 @@ class AppWindow(QMainWindow):
 
         # Add a stretch at the end to push buttons up
         button_layout.addStretch(1)
-        
-
 
         # Right column: metadata + buttons
         right_column = QVBoxLayout()
-        self.metadata_label = QLabel("")
-        self.metadata_label.setAlignment(Qt.AlignmentFlag.AlignHCenter)
         right_column.addWidget(self.metadata_label)
         right_column.addLayout(button_layout)
 
+        # Populate initial metadata text
+        self.metadata_label.setText("Scanalyzer by Peter H. Jacobse")
 
-
-        # Combine nested layouts: image view and left column
-        main_layout.addWidget(self.image_view, 3)
-        main_layout.addLayout(right_column, 1)
-        
-        # Ensure the central widget can receive keyboard focus
-        central_widget.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        central_widget.setFocus()
-
-        # Ensure the main window also accepts focus and is active
-        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.setFocus()
-        self.activateWindow()
-
-        # Display some initial dummy data
-        self.image_view.setImage(self.load_dummy_image())
-        self.channel_box.dropEvent
-
-
+        return right_column
 
     # The dummy image is the Scanalyzer background picture
     def load_dummy_image(self):
@@ -229,7 +251,14 @@ class AppWindow(QMainWindow):
         if key == Qt.Key.Key_Down: self.on_previous_chan()
         if key == Qt.Key.Key_Up: self.on_next_chan()
         if key == Qt.Key.Key_S: self.on_save()
-        if key == Qt.Key.Key_D: self.on_toggle_direction()
+        if key == Qt.Key.Key_D:
+            # toggle the pushbutton state so the UI and internal state stay in sync
+            try:
+                current = self.direction_button.isChecked()
+                self.direction_button.setChecked(not current)
+            except Exception:
+                # fallback
+                self.on_toggle_direction()
         # Background subtraction shortcuts: P -> plane, I -> inferred, N -> none
         if key == Qt.Key.Key_P: self.on_bg_change("plane")
         if key == Qt.Key.Key_I: self.on_bg_change("inferred")
@@ -247,29 +276,7 @@ class AppWindow(QMainWindow):
 
     def on_file_select(self):
         file_name, _ = QFileDialog.getOpenFileName(self, "Open file", "", "SXM files (*.sxm)")
-        if file_name: self.load_file(file_name)
-    
-    def on_toggle_direction(self):
-        # Toggle between forward and backward
-        self.scan_direction = "backward" if self.scan_direction == "forward" else "forward"
-        try:
-            if hasattr(self, 'image_files') and not (len(self.image_files) == 0 or (len(self.image_files) == 1 and self.image_files[0] == "")):
-                self.load_image()
-        except: # Toggle back if an error occurs
-            self.scan_direction = "backward" if self.scan_direction == "forward" else "forward"
-            self.load_image()
-        self.direction_button.setText(f"&Direction: {self.scan_direction}")
-
-    def on_bg_change(self, mode: str):
-        """Handler for background subtraction radio buttons."""
-        self.background_subtraction = mode
-        # Optionally reload the image to apply background subtraction
-        try:
-            if hasattr(self, 'image_files') and not (len(self.image_files) == 0 or (len(self.image_files) == 1 and self.image_files[0] == "")):
-                # reload current image to reflect background change
-                self.load_image()
-        except Exception as e:
-            print(f"Error reloading image after background change: {e}")
+        if file_name: self.load_folder(file_name)
 
     def on_next_file(self):
         self.file_index += 1
@@ -277,6 +284,36 @@ class AppWindow(QMainWindow):
         self.load_image()
 
 
+
+    def on_toggle_direction(self):
+        # Toggle the button's checked state; the toggled handler will update internal state and UI
+        try:
+            current = self.direction_button.isChecked()
+            self.direction_button.setChecked(not current)
+        except Exception:
+            # fallback: directly toggle scan_direction and update
+            self.scan_direction = "backward" if self.scan_direction == "forward" else "forward"
+            try:
+                if hasattr(self, 'image_files') and not (len(self.image_files) == 0 or (len(self.image_files) == 1 and self.image_files[0] == "")):
+                    self.load_image()
+            except Exception:
+                pass
+            self.direction_button.setText(self.scan_direction)
+
+    def on_direction_toggled(self, checked: bool):
+        # Update scan_direction based on the checked state and refresh UI
+        self.scan_direction = "backward" if checked else "forward"
+        # Update the button text to reflect the state
+        try:
+            self.direction_button.setText("backward" if checked else "forward")
+        except Exception:
+            pass
+        # Always reload image to reflect direction change
+        self.load_image()
+
+    def on_bg_change(self, mode: str):
+        self.background_subtraction = mode
+        self.load_image()
 
     # Channel buttons
     def on_previous_chan(self):
@@ -299,17 +336,25 @@ class AppWindow(QMainWindow):
 
 
     # Routine for loading a new image
-    def load_file(self, file_name):
+    def load_folder(self, file_name):
         try:
             self.folder = os.path.dirname(file_name) # Set the folder to the directory of the file
             self.sxm_files = np.array([str(file) for file in Path(self.folder).glob("*.sxm")]) # Read all the sxm files
             self.max_file_index = len(self.sxm_files) - 1
             self.file_index = np.where([os.path.samefile(sxm_file, file_name) for sxm_file in self.sxm_files])[0][0]
-            
+
             if self.file_index > self.max_file_index: self.file_index = 0
-            self.selected_file = self.sxm_files[self.file_index]
-            self.file_label = os.path.basename(self.selected_file) # The file label is the file name without the directory path
-            
+            self.sxm_file = self.sxm_files[self.file_index]
+
+            self.file_label = os.path.basename(self.sxm_file) # The file label is the file name without the directory path
+            # Update folder/contents labels
+            try:
+                self.folder_name_label.setText(self.folder)
+                if self.max_file_index == 0: self.contains_n_files_label.setText(f"which contains 1 sxm file")
+                else: self.contains_n_files_label.setText(f"which contains {self.max_file_index + 1} sxm files")
+            except Exception:
+                pass
+
             self.load_image()
         except:
             print("Error loading files")
@@ -318,31 +363,18 @@ class AppWindow(QMainWindow):
         self.file_select_button.setText(self.file_label)
 
     def load_image(self):
-        self.selected_file = self.sxm_files[self.file_index]
-        self.file_label = os.path.basename(self.selected_file)
+        self.sxm_file = self.sxm_files[self.file_index]
+        self.file_label = os.path.basename(self.sxm_file)
         self.file_select_button.setText(self.file_label) # Make the select file button display the file name
 
-        self.scan_object = get_scan(self.selected_file) # Load the scan data
+        # Load the scan object using nanonispy
+        self.scan_object = get_scan(self.sxm_file)
+        scan_tensor = self.scan_object.scan_tensor_nm_pA # Use self.scan_object.scan_tensor if no reunitization to nm and pA is desired
         self.channels = self.scan_object.channels # Load which channels have been recorded
         if self.channel not in self.channels: # If the requested channel does not exist in the scan, default the requested channel to be the first channel in the list of channels
             self.channel = self.channels[0]
         self.channel_index = np.where(self.channels == self.channel)[0][0]
         self.max_channel_index = len(self.channels) - 1
-    
-        # Pick the correct frame out of the scan tensor based on channel and scan direction
-        if self.scan_direction == "backward": self.selected_scan = self.scan_object.scan_tensor[self.channel_index, 1]
-        else: self.selected_scan = self.scan_object.scan_tensor[self.channel_index, 0]
-        # Determine background subtraction mode from radio buttons
-        if self.bg_none_radio.isChecked():
-            mode = "none"
-        elif self.bg_plane_radio.isChecked():
-            mode = "plane"
-        elif self.bg_inferred_radio.isChecked():
-            mode = "inferred"
-        else:
-            mode = self.background_subtraction  # fallback
-        self.processed_scan = background_subtract(self.selected_scan, mode = mode)
-        self.image_view.setImage(self.processed_scan) # Show the scan in the app
 
         # Update the channel selection box based on the available channels
         self.channel_box.blockSignals(True)
@@ -356,25 +388,74 @@ class AppWindow(QMainWindow):
         self.scan_range = self.scan_object.scan_range_nm
         self.feedback = self.scan_object.feedback
         self.setpoint = self.scan_object.setpoint_pA
+        self.dt_object = self.scan_object.date_time
 
+        # Display scan data in the app
         if self.feedback:
-            self.metadata_label.setText(f"STM topographic scan\nV = {self.bias} V\nI_fb = {self.setpoint} pA\nScan range: {self.scan_range} nm\nChannel: {self.channel}\nScan direction: {self.scan_direction}")
+            self.metadata_label.setText(f"STM topographic scan recorded on\n{self.dt_object.strftime('%Y/%m/%d   at   %H:%M:%S')}\n\n(V = {self.bias} V; I_fb = {self.setpoint} pA)\nScan range: {self.scan_range[0]} nm by {self.scan_range[1]} nm")
         else:
-            self.metadata_label.setText(f"Constant height scan\nV = {self.bias} V\nScan range: {self.scan_range}\nChannel: {self.channel} nm\nScan direction: {self.scan_direction}")
+            self.metadata_label.setText(f"Constant height scan recorded on\n{self.dt_object.strftime('%Y/%m/%d   at   %H:%M:%S')}\n\n(V = {self.bias} V)\nScan range: {self.scan_range[0]} nm by {self.scan_range[1]} nm")
+
+
+
+        # Channel / scan direction selection
+        # Pick the correct frame out of the scan tensor based on channel and scan direction
+        if self.scan_direction == "backward": self.selected_scan = scan_tensor[self.channel_index, 1]
+        else: self.selected_scan = scan_tensor[self.channel_index, 0]
+
+        # Determine background subtraction mode from radio buttons
+        if self.bg_none_radio.isChecked():
+            mode = "none"
+        elif self.bg_plane_radio.isChecked():
+            mode = "plane"
+        elif self.bg_inferred_radio.isChecked():
+            mode = "inferred"
+        else:
+            mode = self.background_subtraction  # fallback
+        self.processed_scan = background_subtract(self.selected_scan, mode = mode)
+
+        self.png_image_path = self.scanalyzer_folder + "\\Test_output.png"
+
+        # Calculate the image statistics
+        self.statistics = get_image_statistics(self.processed_scan)
+        if self.channel == "X" or self.channel == "Y" or self.channel == "Z":
+            self.info_label.setText(f"range of values:\n({round(self.statistics.range_min, 3)} to {round(self.statistics.range_max, 3)}) nm\nmean ± std dev: {round(self.statistics.range_mean, 3)} ± {round(self.statistics.standard_deviation, 3)} nm")
+        elif self.channel == "Current":
+            self.info_label.setText(f"range of values:\n({round(self.statistics.range_min, 3)} to {round(self.statistics.range_max, 3)}) pA\nmean ± std dev: {round(self.statistics.range_mean, 3)} ± {round(self.statistics.standard_deviation, 3)} pA")
+        else:
+            self.info_label.setText(f"range of values:\n({round(self.statistics.range_min, 3)} to {round(self.statistics.range_max, 3)})\nmean ± std dev: {round(self.statistics.range_mean, 3)} ± {round(self.statistics.standard_deviation, 3)}")
+
+        # Show the scan        
+        self.image_view.setImage(self.processed_scan, autoRange = True) # Show the scan in the app
+        #self.image_view.setImage((self.processed_scan - self.statistics.range_min) / self.statistics.range_max, autoRange = True) # Show the scan in the app
+        image_item = self.image_view.getImageItem()
+        image_item.setRect(QtCore.QRectF(0, 0, self.scan_range[0], self.scan_range[1])) # Add dimensions to the ImageView object
+        self.image_view.autoRange()
 
     # Save button
     def on_save(self):
+        # Properly rescale to 0-255
+        min_val = self.statistics.range_min
+        max_val = self.statistics.range_max
+        denom = max_val - min_val if max_val != min_val else 1
+        rescaled_array = (self.processed_scan - min_val) / denom
+        rescaled_array = np.clip(rescaled_array, 0, 1)  # Ensure within [0,1]
+        uint8_array = (255 * rescaled_array).astype(np.uint8)
+        
+        pil_img = Image.fromarray(uint8_array, 'L')
+        pil_img.save(self.png_image_path)
         print("SAVED!")
 
     # Exit button
     def on_exit(self):
-        print(self.scanalyzer_folder + "\\config.yml")
+        """
         try: # Save the scan folder to the config yaml file so it opens automatically on startup next time
             with open(self.scanalyzer_folder + "\\config.yml", "w") as f:
-                yaml.safe_dump({"last_file": self.selected_file}, f)
+                yaml.safe_dump({"last_file": self.sxm_file}, f)
         except Exception as e:
             print("Failed to save the scan folder to the config.yml file.")
             print(e)
+        """
         print("Thank you for using Scanalyzer!")
         QApplication.instance().quit()
 

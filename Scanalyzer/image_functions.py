@@ -2,6 +2,8 @@ import os
 import numpy as np
 import nanonispy2 as nap
 from scipy.signal import convolve2d
+from datetime import datetime
+from types import SimpleNamespace
 
 def get_scan(file_name, crop_unfinished: bool = True):
     if not os.path.exists(file_name):
@@ -27,25 +29,48 @@ def get_scan(file_name, crop_unfinished: bool = True):
         
         pixels = np.shape(scan_tensor[0, 0]) # The number of pixels is recalculated on the basis of the scans potentially being cropped
         scan_range = np.array([scan_range_uncropped[0], scan_range_uncropped[1] * pixels[1] / pixels_uncropped[1]]) # Recalculate the size of the slow scan direction after cropping
-        scan_range_nm = scan_range * 1E9 # Return the scan range in nanometer
+        scan_range_nm = [round(scan_dimension, 3) for scan_dimension in scan_range * 1E9] # Return the scan range in nanometer
         
-        z_controller = scan_header.get("z-controller")
-        feedback = bool(z_controller.get("on", 0)[0])
-        setpoint_str = z_controller.get("Setpoint", 0)[0]
-        setpoint_pA = float(setpoint_str.split()[0]) * 1E12
-        bias = scan_data.header.get("bias", 0)
+        # Get the bias
+        bias = round(float(scan_header.get("bias", 0)), 3)
 
-        setattr(scan_data, "channels", channels) # Add new attributes to the nap.Scan object
-        setattr(scan_data, "scan_tensor_uncropped", scan_tensor_uncropped)
+        # Extract and convert z-controller parameters
+        z_controller = scan_header.get("z-controller")
+        feedback = bool(z_controller.get("on")[0])
+        setpoint_str = z_controller.get("Setpoint")[0]
+        
+        # Extract and convert time parameters
+        rec_date = [int(element) for element in scan_data.header.get("rec_date", "00.00.1900").split(".")]
+        rec_time = [int(element) for element in scan_data.header.get("rec_time", "00:00:00").split(":")]
+        dt_object = datetime(rec_date[2], rec_date[1], rec_date[0], rec_time[0], rec_time[1], rec_time[2])
+
+        # Re-unitize
+        scan_range_nm = [round(dimension * 1E9, 3) for dimension in scan_range] # Scan range in nanometer
+        setpoint_pA = round(float(setpoint_str.split()[0]) * 1E12, 3) # Setpoint in pA
+        scan_tensor_nm_pA = scan_tensor
+        for index in range(len(channels)):
+            channel = channels[index]
+            if channel == "X" or channel == "Y" or channel == "Z":
+                scan_tensor_nm_pA[index, 0] *= 1E9
+                scan_tensor_nm_pA[index, 1] *= 1E9
+            elif channel == "Current":
+                scan_tensor_nm_pA[index, 0] *= 1E12
+                scan_tensor_nm_pA[index, 1] *= 1E12
+
+        # Add new attributes to the scan object
+        setattr(scan_data, "bias", bias)
+        setattr(scan_data, "channels", channels)
+        setattr(scan_data, "scan_tensor_uncropped", scan_tensor_uncropped) # Uncropped means the size of the scan before deleting the rows that were not recorded
         setattr(scan_data, "pixels_uncropped", pixels_uncropped)
         setattr(scan_data, "scan_range_uncropped", scan_range_uncropped)
         setattr(scan_data, "scan_tensor", scan_tensor)
+        setattr(scan_data, "scan_tensor_nm_pA", scan_tensor_nm_pA)
         setattr(scan_data, "pixels", pixels)
         setattr(scan_data, "scan_range", scan_range)
         setattr(scan_data, "scan_range_nm", scan_range_nm)
         setattr(scan_data, "feedback", feedback)
         setattr(scan_data, "setpoint_pA", setpoint_pA)
-        setattr(scan_data, "bias", bias)
+        setattr(scan_data, "date_time", dt_object)
 
         return scan_data
 
@@ -75,3 +100,40 @@ def background_subtract(image, mode: str = "plane"):
         return image - avg_image
     else:
         return image
+
+def get_image_statistics(image, pixels_per_bin: int = 200):
+    data_sorted = np.sort(image.flatten())
+    n_pixels = len(data_sorted)
+    data_firsthalf = data_sorted[:int(n_pixels / 2)]
+    data_secondhalf = data_sorted[-int(n_pixels / 2):]
+
+    range_mean = np.mean(data_sorted) # Calculate the mean
+    Q1 = np.mean(data_firsthalf) # Calculate the first and third quartiles
+    Q2 = data_secondhalf[0] # Q2 is the median
+    Q3 = np.mean(data_secondhalf)
+    range_min, range_max = (data_sorted[0], data_sorted[-1]) # Calculate the total range
+    range_total = range_max - range_min
+    standard_deviation = np.sum(np.sqrt((data_sorted - range_mean) ** 2) / n_pixels) # Calculate the standard deviation
+    
+    n_bins = int(np.floor(n_pixels / pixels_per_bin))
+    counts, bounds = np.histogram(data_sorted, bins = n_bins)
+    binsize = bounds[1] - bounds[0]
+    padded_counts = np.pad(counts, 1, mode = "constant")
+    bincenters = np.concatenate([[bounds[0] - .5 * binsize], np.convolve(bounds, [.5, .5], mode = "valid"), [bounds[-1] + .5 * binsize]])
+    histogram = np.array([bincenters, padded_counts])
+
+    image_statistics = SimpleNamespace()
+    
+    setattr(image_statistics, "data_sorted", data_sorted)
+    setattr(image_statistics, "n_pixels", n_pixels)
+    setattr(image_statistics, "range_min", range_min)
+    setattr(image_statistics, "Q1", Q1)
+    setattr(image_statistics, "range_mean", range_mean)
+    setattr(image_statistics, "Q2", Q2)
+    setattr(image_statistics, "median", Q2)
+    setattr(image_statistics, "Q3", Q3)
+    setattr(image_statistics, "range_max", range_max)
+    setattr(image_statistics, "range_total", range_total)
+    setattr(image_statistics, "standard_deviation", standard_deviation)
+    
+    return image_statistics
