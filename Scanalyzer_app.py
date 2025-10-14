@@ -113,9 +113,9 @@ class AppWindow(QMainWindow):
         self.direction_button.toggled.connect(self.on_direction_toggled)
 
         # Background subtraction radio buttons (none, plane, inferred)
-        self.bg_none_radio = QRadioButton("none")
-        self.bg_plane_radio = QRadioButton("plane")
-        self.bg_inferred_radio = QRadioButton("inferred")
+        self.bg_none_radio = QRadioButton("None")
+        self.bg_plane_radio = QRadioButton("Plane")
+        self.bg_inferred_radio = QRadioButton("Inferred")
 
         # Group them for exclusive selection
         self.bg_button_group = QButtonGroup(self)
@@ -310,9 +310,15 @@ class AppWindow(QMainWindow):
                 # fallback
                 self.on_toggle_direction()
         # Background subtraction shortcuts: P -> plane, I -> inferred, N -> none
-        if key == Qt.Key.Key_N: self.on_bg_change("none")
-        if key == Qt.Key.Key_P: self.on_bg_change("plane")
-        if key == Qt.Key.Key_I: self.on_bg_change("inferred")
+        if key == Qt.Key.Key_N:
+            self.bg_none_radio.setChecked(True)
+            self.on_bg_change("none")
+        if key == Qt.Key.Key_P:
+            self.bg_plane_radio.setChecked(True)
+            self.on_bg_change("plane")
+        if key == Qt.Key.Key_I:
+            self.bg_inferred_radio.setChecked(True)
+            self.on_bg_change("inferred")
         if key == Qt.Key.Key_Q or key == Qt.Key.Key_X or key == Qt.Key.Key_E or key == Qt.Key.Key_Escape: self.on_exit()
         super().keyPressEvent(event)
 
@@ -442,7 +448,6 @@ class AppWindow(QMainWindow):
 
     def on_bg_change(self, mode: str):
         self.background_subtraction = mode
-        print(self.background_subtraction)
         self.load_image()
 
     # Channel buttons
@@ -536,6 +541,7 @@ class AppWindow(QMainWindow):
         else: self.selected_scan = scan_tensor[self.channel_index, 0]
 
         # Determine background subtraction mode from radio buttons
+        """
         if self.bg_none_radio.isChecked():
             mode = "none"
         elif self.bg_plane_radio.isChecked():
@@ -544,12 +550,14 @@ class AppWindow(QMainWindow):
             mode = "inferred"
         else:
             mode = self.background_subtraction  # fallback
+        """
+        mode = self.background_subtraction
         self.processed_scan = background_subtract(self.selected_scan, mode = mode)
 
         if self.scan_direction == "backward":
-            self.png_file_name = f"Img{self.file_index:03d}_{self.channel}_bwd.png"
+            self.png_file_name = f"Img{self.file_index + 1:03d}_{self.channel}_bwd.png"
         else:
-            self.png_file_name = f"Img{self.file_index:03d}_{self.channel}_fwd.png"
+            self.png_file_name = f"Img{self.file_index + 1:03d}_{self.channel}_fwd.png"
 
         # Update displayed png filename (show basename)
         self.png_file_box.setText(os.path.basename(self.png_file_name))
