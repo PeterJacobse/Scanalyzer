@@ -5,71 +5,104 @@ from scipy.signal import convolve2d
 from datetime import datetime
 from types import SimpleNamespace
 
-def get_scan(file_name, crop_unfinished: bool = True):
+def get_scan(file_name, units: dict = {"length": "m", "current": "A"}, default_channel_units: dict = {"X": "m", "Y": "m", "Z": "m", "Current": "A", "LI Demod 1 X": "A", "LI Demod 1 Y": "A", "LI Demod 2 X": "A", "LI Demod 2 Y": "A"}):
     if not os.path.exists(file_name):
         print(f"Error: File \"{file_name}\" does not exist.")
         return
     else:
         scan_data = nap.read.Scan(file_name) # Read the scan data. scan_data is an object whose attributes contain all the data of the scan
-        channels = np.array(list(scan_data.signals.keys())) # Read the various channels
+        channels = np.array(list(scan_data.signals.keys())) # Read the channels
         scan_header = scan_data.header
         up_or_down = scan_header.get("scan_dir", "down") # Read whether the scan was recorded in the upward or downward direction
+        pixels_uncropped = scan_header.get("scan_pixels", np.array([100, 100], dtype = int)) # Read the number of pixels in the scan
+        scan_range_uncropped = scan_header.get("scan_range", np.array([1E-8, 1E-8], dtype = float)) # Read the size of the scan
+        bias = round(float(scan_header.get("bias", 0)), 3) # Get the bias (present in the header as a string, passed more directly as a float)
+        z_controller = scan_header.get("z-controller") # Extract and convert z-controller parameters
+        feedback = bool(z_controller.get("on")[0]) # Bool, true or false
+        setpoint_str = z_controller.get("Setpoint")[0]
         
-        # Stack the forward and backward scans for each channel in a big tensor. Flip the backward scan
+        # Extract and convert time parameters and convert to datetime object
+        rec_date = [int(element) for element in scan_data.header.get("rec_date", "00.00.1900").split(".")]
+        rec_time = [int(element) for element in scan_data.header.get("rec_time", "00:00:00").split(":")]
+        dt_object = datetime(rec_date[2], rec_date[1], rec_date[0], rec_time[0], rec_time[1], rec_time[2])
+        
+        # Compute the re-unitization factors
+        # Lengths
+        channel_units = default_channel_units.copy() # Initialize channel_units to the default setting
+        match units.get("length", "m"):
+            case "m": L_multiplication_factor = 1
+            case "dm": L_multiplication_factor = 10
+            case "cm": L_multiplication_factor = 100
+            case "mm": L_multiplication_factor = 1E3
+            case "um": L_multiplication_factor = 1E6
+            case "nm": L_multiplication_factor = 1E9
+            case "A": L_multiplication_factor = 1E10
+            case "pm": L_multiplication_factor = 1E12
+            case "fm": L_multiplication_factor = 1E15
+            case _: L_multiplication_factor = 1
+        if L_multiplication_factor == 1: units["length"] = "m" # Fall back to m
+     
+        # Current
+        match units.get("current", "A"):
+            case "A": I_multiplication_factor = 1
+            case "dA": I_multiplication_factor = 10
+            case "cA": I_multiplication_factor = 100
+            case "mA": I_multiplication_factor = 1E3
+            case "uA": I_multiplication_factor = 1E6
+            case "nA": I_multiplication_factor = 1E9
+            case "pA": I_multiplication_factor = 1E12
+            case "fA": I_multiplication_factor = 1E15
+            case _: I_multiplication_factor = 1
+        if I_multiplication_factor == 1: units["current"] = "A" # Fall back to A
+        
+        # Update the unit in channel_units (which will now be different from default_channel_units)
+        length_channels = [key for key, value in default_channel_units.items() if value == "m"]
+        current_channels = [key for key, value in default_channel_units.items() if value == "A"]
+        for channel in length_channels:
+            if channel in channel_units: channel_units[channel] = units.get("length", "m")
+        for channel in current_channels:
+            if channel in channel_units: channel_units[channel] = units.get("current", "A")
+        filtered_channel_units = {str(key): channel_units[key] for key in channels if key in channel_units} # Remove channels that are not present in the scan
+        channel_units = filtered_channel_units
+        
+        # Rescale the scan data by the multiplication factors determined in the reunitization        
+        for channel in channels:
+            for direction in ["forward", "backward"]:
+                if channel in length_channels: scan_data.signals[channel][direction] = np.array(scan_data.signals[channel][direction] * L_multiplication_factor, dtype = float)
+                elif channel in current_channels: scan_data.signals[channel][direction] = np.array(scan_data.signals[channel][direction] * I_multiplication_factor, dtype = float)
+        
+        # Stack the forward and backward scans for each channel in a tensor. Flip the backward scan
         scan_tensor_uncropped = np.stack([np.stack((np.array(scan_data.signals[channel]["forward"], dtype = float), np.flip(np.array(scan_data.signals[channel]["backward"], dtype = float), axis = 1))) for channel in channels])
         if up_or_down == "up": scan_tensor_uncropped = np.flip(scan_tensor_uncropped, axis = 2) # Flip the scan if it recorded in the upward direction
+        # scan_tensor: axis 0 = direction (0 for forward, 1 for backward); axis 1 = channel; axis 2 and 3 are x and y
 
         # Determine which rows should be cropped off in case the scan was not completed
-        pixels_uncropped = scan_header.get("scan_pixels", np.array([100, 100], dtype = int)) # Read the old number of pixels in the scan
-        scan_range_uncropped = scan_header.get("scan_range", np.array([1E-8, 1E-8], dtype = float)) # Read the old size of the scan
         masked_array = np.isnan(scan_tensor_uncropped[0, 1]) # All channels have the same number of NaN values. The backward scan has more NaN values because the scan always starts in the forward direction.
         nan_counts = np.array([sum([int(masked_array[j, i]) for i in range(len(masked_array))]) for j in range(len(masked_array[0]))])
         good_rows = np.where(nan_counts == 0)[0]
         scan_tensor = np.array([[scan_tensor_uncropped[channel, 0, good_rows], scan_tensor_uncropped[channel, 1, good_rows]] for channel in range(len(channels))])
         
-        pixels = np.shape(scan_tensor[0, 0]) # The number of pixels is recalculated on the basis of the scans potentially being cropped
-        scan_range = np.array([scan_range_uncropped[0], scan_range_uncropped[1] * pixels[1] / pixels_uncropped[1]]) # Recalculate the size of the slow scan direction after cropping
-        scan_range_nm = [round(scan_dimension, 3) for scan_dimension in scan_range * 1E9] # Return the scan range in nanometer
+        pixels = np.asarray(np.shape(scan_tensor[0, 0])) # The number of pixels is recalculated on the basis of the scans potentially being cropped
+        scan_range = np.array([scan_range_uncropped[0] * pixels[0] / pixels_uncropped[0], scan_range_uncropped[1]]) # Recalculate the size of the slow scan direction after cropping
         
-        # Get the bias
-        bias = round(float(scan_header.get("bias", 0)), 3)
-
-        # Extract and convert z-controller parameters
-        z_controller = scan_header.get("z-controller")
-        feedback = bool(z_controller.get("on")[0])
-        setpoint_str = z_controller.get("Setpoint")[0]
-        
-        # Extract and convert time parameters
-        rec_date = [int(element) for element in scan_data.header.get("rec_date", "00.00.1900").split(".")]
-        rec_time = [int(element) for element in scan_data.header.get("rec_time", "00:00:00").split(":")]
-        dt_object = datetime(rec_date[2], rec_date[1], rec_date[0], rec_time[0], rec_time[1], rec_time[2])
-
-        # Re-unitize
-        scan_range_nm = [round(dimension * 1E9, 3) for dimension in scan_range] # Scan range in nanometer
-        setpoint_pA = round(float(setpoint_str.split()[0]) * 1E12, 3) # Setpoint in pA
-        scan_tensor_nm_pA = scan_tensor
-        for index in range(len(channels)):
-            channel = channels[index]
-            if channel == "X" or channel == "Y" or channel == "Z":
-                scan_tensor_nm_pA[index, 0] *= 1E9
-                scan_tensor_nm_pA[index, 1] *= 1E9
-            elif channel == "Current":
-                scan_tensor_nm_pA[index, 0] *= 1E12
-                scan_tensor_nm_pA[index, 1] *= 1E12
+        # Apply the re-unitization to various attributes in the header
+        scan_range = [scan_dimension * L_multiplication_factor for scan_dimension in scan_range]
+        setpoint = float(setpoint_str.split()[0]) * I_multiplication_factor
 
         # Add new attributes to the scan object
+        setattr(scan_data, "default_channel_units", default_channel_units)
+        setattr(scan_data, "channel_units", channel_units)
+        setattr(scan_data, "units", units)
         setattr(scan_data, "bias", bias)
         setattr(scan_data, "channels", channels)
         setattr(scan_data, "scan_tensor_uncropped", scan_tensor_uncropped) # Uncropped means the size of the scan before deleting the rows that were not recorded
         setattr(scan_data, "pixels_uncropped", pixels_uncropped)
         setattr(scan_data, "scan_range_uncropped", scan_range_uncropped)
         setattr(scan_data, "scan_tensor", scan_tensor)
-        setattr(scan_data, "scan_tensor_nm_pA", scan_tensor_nm_pA)
         setattr(scan_data, "pixels", pixels)
         setattr(scan_data, "scan_range", scan_range)
-        setattr(scan_data, "scan_range_nm", scan_range_nm)
         setattr(scan_data, "feedback", feedback)
-        setattr(scan_data, "setpoint_pA", setpoint_pA)
+        setattr(scan_data, "setpoint", setpoint)
         setattr(scan_data, "date_time", dt_object)
 
         return scan_data

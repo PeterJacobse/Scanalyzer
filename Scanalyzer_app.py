@@ -137,7 +137,7 @@ class AppWindow(QMainWindow):
         self.bg_inferred_radio.toggled.connect(lambda checked: self.on_bg_change("inferred") if checked else None)
 
         # Make I/O buttons
-        self.save_button, self.exit_button = (QPushButton("Save image"), QPushButton("Exit app"))
+        self.save_button, self.exit_button = (QPushButton("Save image"), QPushButton("Exit Scanalyzer"))
         self.save_button.clicked.connect(self.on_save)
         self.exit_button.clicked.connect(self.on_exit)
 
@@ -331,7 +331,7 @@ class AppWindow(QMainWindow):
         self.load_image()
 
     def on_file_select(self):
-        file_name, _ = QFileDialog.getOpenFileName(self, "Open file", "", "SXM files (*.sxm)")
+        file_name, _ = QFileDialog.getOpenFileName(self, "Open file", self.folder, "SXM files (*.sxm)")
         if file_name: self.load_folder(file_name)
 
     def on_next_file(self):
@@ -504,8 +504,8 @@ class AppWindow(QMainWindow):
         self.file_select_button.setText(self.file_label) # Make the select file button display the file name
 
         # Load the scan object using nanonispy
-        self.scan_object = get_scan(self.sxm_file)
-        scan_tensor = self.scan_object.scan_tensor_nm_pA # Use self.scan_object.scan_tensor if no reunitization to nm and pA is desired
+        self.scan_object = get_scan(self.sxm_file, units = {"length": "nm", "current": "pA"})
+        scan_tensor = self.scan_object.scan_tensor # Use self.scan_object.scan_tensor if no reunitization to nm and pA is desired
         self.channels = self.scan_object.channels # Load which channels have been recorded
         if self.channel not in self.channels: # If the requested channel does not exist in the scan, default the requested channel to be the first channel in the list of channels
             self.channel = self.channels[0]
@@ -521,9 +521,9 @@ class AppWindow(QMainWindow):
 
         # Read the header and save the scan parameters
         self.bias = self.scan_object.bias
-        self.scan_range = self.scan_object.scan_range_nm
+        self.scan_range = [round(dimension, 3) for dimension in self.scan_object.scan_range]
         self.feedback = self.scan_object.feedback
-        self.setpoint = self.scan_object.setpoint_pA
+        self.setpoint = round(self.scan_object.setpoint, 3)
         self.dt_object = self.scan_object.date_time
 
         # Display scan data in the app
@@ -541,16 +541,6 @@ class AppWindow(QMainWindow):
         else: self.selected_scan = scan_tensor[self.channel_index, 0]
 
         # Determine background subtraction mode from radio buttons
-        """
-        if self.bg_none_radio.isChecked():
-            mode = "none"
-        elif self.bg_plane_radio.isChecked():
-            mode = "plane"
-        elif self.bg_inferred_radio.isChecked():
-            mode = "inferred"
-        else:
-            mode = self.background_subtraction  # fallback
-        """
         mode = self.background_subtraction
         self.processed_scan = background_subtract(self.selected_scan, mode = mode)
 
@@ -581,7 +571,7 @@ class AppWindow(QMainWindow):
         # Show the scan        
         self.image_view.setImage(self.processed_scan, autoRange=True)  # Show the scan in the app
         image_item = self.image_view.getImageItem()
-        image_item.setRect(QtCore.QRectF(0, 0, self.scan_range[0], self.scan_range[1]))  # Add dimensions to the ImageView object
+        image_item.setRect(QtCore.QRectF(0, 0, self.scan_range[1], self.scan_range[0]))  # Add dimensions to the ImageView object
         self.image_view.autoRange()
         # Get the histogram LUT
         self.hist = self.image_view.getHistogramWidget()
