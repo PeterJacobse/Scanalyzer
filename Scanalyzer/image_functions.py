@@ -126,14 +126,16 @@ def get_image_statistics(image, pixels_per_bin: int = 200):
     
     setattr(image_statistics, "data_sorted", data_sorted)
     setattr(image_statistics, "n_pixels", n_pixels)
-    setattr(image_statistics, "range_min", range_min)
+    setattr(image_statistics, "min", range_min)
     setattr(image_statistics, "Q1", Q1)
-    setattr(image_statistics, "range_mean", range_mean)
+    setattr(image_statistics, "mean", range_mean)
+    setattr(image_statistics, "average", range_mean)
     setattr(image_statistics, "Q2", Q2)
     setattr(image_statistics, "median", Q2)
     setattr(image_statistics, "Q3", Q3)
-    setattr(image_statistics, "range_max", range_max)
+    setattr(image_statistics, "max", range_max)
     setattr(image_statistics, "range_total", range_total)
     setattr(image_statistics, "standard_deviation", standard_deviation)
+    setattr(image_statistics, "histogram", histogram)
     
     return image_statistics

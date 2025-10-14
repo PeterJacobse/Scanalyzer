@@ -2,13 +2,13 @@ import os
 import sys
 import yaml
 import numpy as np
-from PyQt6.QtWidgets import QApplication, QMainWindow, QLabel, QPushButton, QToolButton, QVBoxLayout, QHBoxLayout, QGridLayout, QWidget, QFileDialog, QButtonGroup, QComboBox, QRadioButton, QGroupBox
-from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtWidgets import QApplication, QMainWindow, QLabel, QPushButton, QToolButton, QVBoxLayout, QHBoxLayout, QGridLayout, QWidget, QFileDialog, QButtonGroup, QComboBox, QRadioButton, QGroupBox, QLineEdit
+from PyQt6.QtCore import Qt, QSize, QByteArray
 from pathlib import Path
 import pyqtgraph as pg
 from pyqtgraph.Qt import QtCore, QtWidgets
+from PyQt6.QtGui import QImage, QImageWriter
 from scanalyzer.image_functions import get_scan, image_gradient, background_subtract, get_image_statistics
-from PIL import Image
 from datetime import datetime
 
 
@@ -16,8 +16,8 @@ from datetime import datetime
 class AppWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Scanalyzer") # Make the app window
-        self.setGeometry(100, 100, 1100, 700) # x, y, width, height
+        self.setWindowTitle("Scanalyzer by Peter H. Jacobse") # Make the app window
+        self.setGeometry(100, 100, 1200, 800) # x, y, width, height
 
         # Add ImageView
         pg.setConfigOptions(imageAxisOrder = "row-major")
@@ -26,6 +26,8 @@ class AppWindow(QMainWindow):
         self.script_folder = os.path.dirname(self.script_path) # The parent directory of Scanalyzer.py
         self.scanalyzer_folder = self.script_folder + "\\scanalyzer" # The directory of the scanalyzer package
         self.folder = self.scanalyzer_folder
+        self.output_folder_name = "Extracted Files"
+        self.output_folder = self.folder + "\\" + self.output_folder_name
 
         # Initialize default parameters
         self.image_files = [""]
@@ -33,6 +35,7 @@ class AppWindow(QMainWindow):
         self.max_file_index = 0
         self.selected_file = ""
         self.file_label = "Select file"
+        self.png_file_name = ""
         self.scan_tensor = []
         self.channels = []
         self.channel = ""
@@ -77,10 +80,6 @@ class AppWindow(QMainWindow):
 
 
     def draw_buttons(self):
-        # Metadata label (displayed above all buttons)
-        self.metadata_label = QLabel("")
-        self.metadata_label.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-
         # Buttons
         # Make file toggling/selecting buttons
         self.previous_file_button, self.file_select_button, self.next_file_button = (QToolButton(), QPushButton(self.file_label), QToolButton())
@@ -142,12 +141,22 @@ class AppWindow(QMainWindow):
         self.save_button.clicked.connect(self.on_save)
         self.exit_button.clicked.connect(self.on_exit)
 
+
+
+
         # --- Fix button overlap: Redesign button layout ---
         button_layout = QVBoxLayout()
         button_layout.setSpacing(12)
-        button_layout.setContentsMargins(10, 10, 10, 10)
+        button_layout.setContentsMargins(8, 8, 8, 8)
 
-
+        # Scan summary
+        scan_summary_group = QGroupBox("Scan summary")
+        summary_vbox = QVBoxLayout()
+        self.metadata_label = QLabel("Hi")
+        self.metadata_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        summary_vbox.addWidget(self.metadata_label)
+        scan_summary_group.setLayout(summary_vbox)
+        button_layout.addWidget(scan_summary_group)
 
         # Regroup File, Channel, and Direction into one group box
         file_chan_dir_group = QGroupBox("File / Channel / Direction")
@@ -205,23 +214,64 @@ class AppWindow(QMainWindow):
         bg_group.setLayout(bg_hbox)
         button_layout.addWidget(bg_group)
 
-        # Info label between background options and I/O buttons
+        # Histogram control group: put the statistics/info label here
+        hist_group = QGroupBox("Histogram control")
+        hist_vbox = QVBoxLayout()
         self.info_label = QLabel("Statistics")
         self.info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        button_layout.addWidget(self.info_label)
+        hist_vbox.addWidget(self.info_label)
 
-        # Save and Exit buttons
-        io_hbox = QHBoxLayout()
-        io_hbox.addWidget(self.save_button)
-        io_hbox.addWidget(self.exit_button)
-        button_layout.addLayout(io_hbox)
+        # Full scale button: set histogram levels to the image statistics min/max
+        self.full_scale_button = QPushButton("Full scale")
+        self.full_scale_button.clicked.connect(self.on_full_scale)
+        hist_vbox.addWidget(self.full_scale_button)
+
+        # Tie min/max buttons
+        tie_hbox = QHBoxLayout()
+        self.tie_min_zero_button = QPushButton("Tie min to 0")
+        self.tie_min_zero_button.clicked.connect(self.on_tie_min_zero)
+        self.tie_max_zero_button = QPushButton("Tie max to 0")
+        self.tie_max_zero_button.clicked.connect(self.on_tie_max_zero)
+        tie_hbox.addWidget(self.tie_min_zero_button)
+        tie_hbox.addWidget(self.tie_max_zero_button)
+        hist_vbox.addLayout(tie_hbox)
+        hist_group.setLayout(hist_vbox)
+        button_layout.addWidget(hist_group)
+
+        # I/O group: Save and Exit rows
+        io_group = QGroupBox("I/O")
+        io_box = QGridLayout()
+        io_box.setColumnStretch(0, 1)
+        io_box.setColumnStretch(1, 1)
+
+        # Save row: save button + png filename label
+        self.save_button.setText("Save image as")
+        self.png_file_box = QLineEdit()
+        self.png_file_box.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        in_output_folder_label = QLabel("in output folder")
+        in_output_folder_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.output_folder_box = QLineEdit()
+        self.check_exists_box = QPushButton()
+        #self.check_exists_box.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.check_exists_box.clicked.connect(self.on_save)
+
+        io_box.addWidget(self.save_button, 0, 0)
+        io_box.addWidget(self.png_file_box, 0, 1)
+        io_box.addWidget(in_output_folder_label, 1, 0)
+        io_box.addWidget(self.output_folder_box, 1, 1)
+        io_box.addWidget(self.check_exists_box, 2, 0)
+        io_box.addWidget(self.exit_button, 2, 1)        
+
+        io_group.setLayout(io_box)
+        button_layout.addWidget(io_group)
 
         # Add a stretch at the end to push buttons up
         button_layout.addStretch(1)
 
-        # Right column: metadata + buttons
+
+
         right_column = QVBoxLayout()
-        right_column.addWidget(self.metadata_label)
+        #right_column.addWidget(scan_summary_group)
         right_column.addLayout(button_layout)
 
         # Populate initial metadata text
@@ -260,9 +310,9 @@ class AppWindow(QMainWindow):
                 # fallback
                 self.on_toggle_direction()
         # Background subtraction shortcuts: P -> plane, I -> inferred, N -> none
+        if key == Qt.Key.Key_N: self.on_bg_change("none")
         if key == Qt.Key.Key_P: self.on_bg_change("plane")
         if key == Qt.Key.Key_I: self.on_bg_change("inferred")
-        if key == Qt.Key.Key_N: self.on_bg_change("none")
         if key == Qt.Key.Key_Q or key == Qt.Key.Key_X or key == Qt.Key.Key_E or key == Qt.Key.Key_Escape: self.on_exit()
         super().keyPressEvent(event)
 
@@ -311,8 +361,88 @@ class AppWindow(QMainWindow):
         # Always reload image to reflect direction change
         self.load_image()
 
+    def on_full_scale(self):
+        """Set the histogram widget levels to the image statistics min/max."""
+        try:
+            if not hasattr(self, 'hist') or self.hist is None:
+                self.info_label.setText("No histogram available")
+                return
+            # Use the computed statistics if available
+            if hasattr(self, 'statistics'):
+                lo = float(self.statistics.min)
+                hi = float(self.statistics.max)
+            else:
+                # fallback: try query image min/max
+                arr = getattr(self, 'processed_scan', None) or getattr(self, 'selected_scan', None)
+                if arr is None:
+                    self.info_label.setText("No image to compute full scale")
+                    return
+                import numpy as _np
+                lo = float(_np.nanmin(arr))
+                hi = float(_np.nanmax(arr))
+            # Avoid degenerate levels
+            if hi - lo == 0:
+                hi = lo + 1.0
+            try:
+                self.hist.setLevels(lo, hi)
+            except:
+                pass
+        except:
+            pass
+
+    def on_tie_min_zero(self):
+        """Set the histogram min level to 0, keep current max (or statistics.max)."""
+        try:
+            if not hasattr(self, 'hist') or self.hist is None:
+                self.info_label.setText("No histogram available")
+                return
+            cur_min, cur_max = self.hist.getLevels() if self.hist is not None else (None, None)
+            # determine current max fallback
+            if cur_max is None and hasattr(self, 'statistics'):
+                cur_max = float(self.statistics.max)
+            if cur_max is None:
+                arr = getattr(self, 'processed_scan', None) or getattr(self, 'selected_scan', None)
+                if arr is None:
+                    self.info_label.setText("No image to compute levels")
+                    return
+                import numpy as _np
+                cur_max = float(_np.nanmax(arr))
+            # set min to 0
+            try:
+                self.hist.setLevels(0.0, float(cur_max))
+            except:
+                pass
+        except:
+            pass
+
+    def on_tie_max_zero(self):
+        """Set the histogram max level to 0, keep current min (or statistics.min)."""
+        try:
+            if not hasattr(self, 'hist') or self.hist is None:
+                self.info_label.setText("No histogram available")
+                return
+            cur_min, cur_max = self.hist.getLevels() if self.hist is not None else (None, None)
+            # determine current min fallback
+            if cur_min is None and hasattr(self, 'statistics'):
+                cur_min = float(self.statistics.min)
+            if cur_min is None:
+                arr = getattr(self, 'processed_scan', None) or getattr(self, 'selected_scan', None)
+                if arr is None:
+                    self.info_label.setText("No image to compute levels")
+                    return
+                import numpy as _np
+                cur_min = float(_np.nanmin(arr))
+            # set max to 0
+            try:
+                self.hist.setLevels(float(cur_min), 0.0)
+            except:
+                pass
+        except:
+            pass
+
     def on_bg_change(self, mode: str):
         self.background_subtraction = mode
+        print(self.background_subtraction)
         self.load_image()
 
     # Channel buttons
@@ -342,6 +472,7 @@ class AppWindow(QMainWindow):
             self.sxm_files = np.array([str(file) for file in Path(self.folder).glob("*.sxm")]) # Read all the sxm files
             self.max_file_index = len(self.sxm_files) - 1
             self.file_index = np.where([os.path.samefile(sxm_file, file_name) for sxm_file in self.sxm_files])[0][0]
+            self.output_folder = self.folder + "\\" + self.output_folder_name
 
             if self.file_index > self.max_file_index: self.file_index = 0
             self.sxm_file = self.sxm_files[self.file_index]
@@ -392,9 +523,10 @@ class AppWindow(QMainWindow):
 
         # Display scan data in the app
         if self.feedback:
-            self.metadata_label.setText(f"STM topographic scan recorded on\n{self.dt_object.strftime('%Y/%m/%d   at   %H:%M:%S')}\n\n(V = {self.bias} V; I_fb = {self.setpoint} pA)\nScan range: {self.scan_range[0]} nm by {self.scan_range[1]} nm")
+            self.summary_text = f"STM topographic scan recorded on\n{self.dt_object.strftime('%Y/%m/%d   at   %H:%M:%S')}\n\n(V = {self.bias} V; I_fb = {self.setpoint} pA)\nScan range: {self.scan_range[0]} nm by {self.scan_range[1]} nm"
         else:
-            self.metadata_label.setText(f"Constant height scan recorded on\n{self.dt_object.strftime('%Y/%m/%d   at   %H:%M:%S')}\n\n(V = {self.bias} V)\nScan range: {self.scan_range[0]} nm by {self.scan_range[1]} nm")
+            self.summary_text = f"Constant height scan recorded on\n{self.dt_object.strftime('%Y/%m/%d   at   %H:%M:%S')}\n\n(V = {self.bias} V)\nScan range: {self.scan_range[0]} nm by {self.scan_range[1]} nm"
+        self.metadata_label.setText(self.summary_text)
 
 
 
@@ -414,48 +546,74 @@ class AppWindow(QMainWindow):
             mode = self.background_subtraction  # fallback
         self.processed_scan = background_subtract(self.selected_scan, mode = mode)
 
-        self.png_image_path = self.scanalyzer_folder + "\\Test_output.png"
+        if self.scan_direction == "backward":
+            self.png_file_name = f"Img{self.file_index:03d}_{self.channel}_bwd.png"
+        else:
+            self.png_file_name = f"Img{self.file_index:03d}_{self.channel}_fwd.png"
+
+        # Update displayed png filename (show basename)
+        self.png_file_box.setText(os.path.basename(self.png_file_name))
+        self.output_folder_box.setText(self.output_folder_name)
+        if os.path.exists(self.output_folder + "\\" + self.png_file_name):
+            self.check_exists_box.setText("png already exists!")
+            self.check_exists_box.setStyleSheet("background-color: orange")
+        else:
+            self.check_exists_box.setText("ok to save")
+            self.check_exists_box.setStyleSheet("background-color: green")
 
         # Calculate the image statistics
         self.statistics = get_image_statistics(self.processed_scan)
         if self.channel == "X" or self.channel == "Y" or self.channel == "Z":
-            self.info_label.setText(f"range of values:\n({round(self.statistics.range_min, 3)} to {round(self.statistics.range_max, 3)}) nm\nmean ± std dev: {round(self.statistics.range_mean, 3)} ± {round(self.statistics.standard_deviation, 3)} nm")
+            self.info_label.setText(f"range of values:\n({round(self.statistics.min, 3)} to {round(self.statistics.max, 3)}) nm\nmean ± std dev: {round(self.statistics.mean, 3)} ± {round(self.statistics.standard_deviation, 3)} nm")
         elif self.channel == "Current":
-            self.info_label.setText(f"range of values:\n({round(self.statistics.range_min, 3)} to {round(self.statistics.range_max, 3)}) pA\nmean ± std dev: {round(self.statistics.range_mean, 3)} ± {round(self.statistics.standard_deviation, 3)} pA")
+            self.info_label.setText(f"range of values:\n({round(self.statistics.min, 3)} to {round(self.statistics.max, 3)}) pA\nmean ± std dev: {round(self.statistics.mean, 3)} ± {round(self.statistics.standard_deviation, 3)} pA")
         else:
-            self.info_label.setText(f"range of values:\n({round(self.statistics.range_min, 3)} to {round(self.statistics.range_max, 3)})\nmean ± std dev: {round(self.statistics.range_mean, 3)} ± {round(self.statistics.standard_deviation, 3)}")
+            self.info_label.setText(f"range of values:\n({round(self.statistics.min, 3)} to {round(self.statistics.max, 3)})\nmean ± std dev: {round(self.statistics.mean, 3)} ± {round(self.statistics.standard_deviation, 3)}")
 
         # Show the scan        
-        self.image_view.setImage(self.processed_scan, autoRange = True) # Show the scan in the app
-        #self.image_view.setImage((self.processed_scan - self.statistics.range_min) / self.statistics.range_max, autoRange = True) # Show the scan in the app
+        self.image_view.setImage(self.processed_scan, autoRange=True)  # Show the scan in the app
         image_item = self.image_view.getImageItem()
-        image_item.setRect(QtCore.QRectF(0, 0, self.scan_range[0], self.scan_range[1])) # Add dimensions to the ImageView object
+        image_item.setRect(QtCore.QRectF(0, 0, self.scan_range[0], self.scan_range[1]))  # Add dimensions to the ImageView object
         self.image_view.autoRange()
+        # Get the histogram LUT
+        self.hist = self.image_view.getHistogramWidget()
 
     # Save button
     def on_save(self):
         # Properly rescale to 0-255
-        min_val = self.statistics.range_min
-        max_val = self.statistics.range_max
+        if self.hist is not None:
+            min_val, max_val = self.hist.getLevels()
+        else:
+            min_val, max_val = (self.statistics.min, self.statistics.max)
         denom = max_val - min_val if max_val != min_val else 1
         rescaled_array = (self.processed_scan - min_val) / denom
         rescaled_array = np.clip(rescaled_array, 0, 1)  # Ensure within [0,1]
         uint8_array = (255 * rescaled_array).astype(np.uint8)
-        
-        pil_img = Image.fromarray(uint8_array, 'L')
-        pil_img.save(self.png_image_path)
-        print("SAVED!")
+
+        try:
+            output_file_name = self.output_folder + "\\" + self.png_file_name
+            qimg = QImage(uint8_array, np.shape(uint8_array)[1], np.shape(uint8_array)[0], np.shape(uint8_array)[1], QImage.Format.Format_Grayscale8)
+            os.makedirs(self.output_folder, exist_ok = True)
+            qimg.save(output_file_name)
+            self.check_exists_box.setText("png already exists!")
+            self.check_exists_box.setStyleSheet("background-color: orange")
+
+            # writer = QImageWriter(output_file_name, b"png")
+            # writer.setText(str(self.summary_text), "Metadata")
+            #if writer.write(qimg):
+            #    print("Done adding metadata")
+        except Exception as e:
+            print(e)
+            pass
 
     # Exit button
     def on_exit(self):
-        """
-        try: # Save the scan folder to the config yaml file so it opens automatically on startup next time
-            with open(self.scanalyzer_folder + "\\config.yml", "w") as f:
-                yaml.safe_dump({"last_file": self.sxm_file}, f)
+        try: # Save the currently opened scan folder to the config yaml file so it opens automatically on startup next time
+            with open(self.scanalyzer_folder + "\\config.yml", "w") as file:
+                yaml.safe_dump({"last_file": str(self.sxm_file)}, file)
         except Exception as e:
             print("Failed to save the scan folder to the config.yml file.")
             print(e)
-        """
         print("Thank you for using Scanalyzer!")
         QApplication.instance().quit()
 
