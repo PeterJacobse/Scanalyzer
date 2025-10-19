@@ -1,3 +1,4 @@
+from pathlib import Path
 import os
 import numpy as np
 import nanonispy2 as nap
@@ -172,3 +173,27 @@ def get_image_statistics(image, pixels_per_bin: int = 200):
     setattr(image_statistics, "histogram", histogram)
     
     return image_statistics
+
+def spec_times(folder):
+    dat_files = np.array([str(file) for file in Path(folder).glob("*.dat")]) # Read all the dat files
+
+    spec_files = []
+    spec_times = []
+
+    for spec_file in dat_files:
+        try:
+            spec_object = nap.read.Spec(spec_file)
+            [spec_date, spec_time] = spec_object.header.get("Start time").split()
+    
+            # Extract and convert time parameters and convert to datetime object
+            rec_date = [int(element) for element in spec_date.split(".")]
+            rec_time = [int(element) for element in spec_time.split(":")]
+            dt_object = datetime(rec_date[2], rec_date[1], rec_date[0], rec_time[0], rec_time[1], rec_time[2])
+            
+            spec_times.append(dt_object)
+            spec_files.append(Path(spec_file).name)
+
+        except:
+            pass
+
+    return [np.asarray(spec_files, dtype = str), np.array(spec_times)]

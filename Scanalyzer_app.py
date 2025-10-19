@@ -8,7 +8,7 @@ from pathlib import Path
 import pyqtgraph as pg
 from pyqtgraph.Qt import QtCore, QtWidgets
 from PyQt6.QtGui import QImage, QImageWriter
-from scanalyzer.image_functions import get_scan, image_gradient, background_subtract, get_image_statistics
+from scanalyzer.image_functions import get_scan, image_gradient, background_subtract, get_image_statistics, spec_times
 from datetime import datetime
 
 
@@ -22,12 +22,16 @@ class AppWindow(QMainWindow):
         # Add ImageView
         pg.setConfigOptions(imageAxisOrder = "row-major")
         self.image_view = pg.ImageView(view = pg.PlotItem())
+
+        # I/O paths
         self.script_path = os.path.abspath(__file__) # The full path of Scanalyzer.py
         self.script_folder = os.path.dirname(self.script_path) # The parent directory of Scanalyzer.py
-        self.scanalyzer_folder = self.script_folder + "\\scanalyzer" # The directory of the scanalyzer package
-        self.folder = self.scanalyzer_folder
-        self.output_folder_name = "Extracted Files"
+        self.scanalyzer_folder = self.script_folder + "\\scanalyzer" # The directory of the Scanalyzer package
+        self.folder = self.scanalyzer_folder # Set current folder to Scanalyzer folder
+        self.output_folder_name = "Extracted Files" # Set output folder for saving images
         self.output_folder = self.folder + "\\" + self.output_folder_name
+        self.spec_files = []
+        self.spec_times = []
 
         # Initialize default parameters
         self.image_files = [""]
@@ -43,6 +47,9 @@ class AppWindow(QMainWindow):
         self.max_channel_index = 0
         self.scan_direction = "forward"
         self.background_subtraction = "none"
+        self.scale_toggle_index = 0
+        self.min_percentile = 2
+        self.max_percentile = 98
         
         # Set the central widget of the QMainWindow
         central_widget = QWidget()
@@ -80,27 +87,83 @@ class AppWindow(QMainWindow):
 
 
     def draw_buttons(self):
-        # Buttons
-        # Make file toggling/selecting buttons
-        self.previous_file_button, self.file_select_button, self.next_file_button = (QToolButton(), QPushButton(self.file_label), QToolButton())
+        # Overal layout is a QVBoxLayout
+        button_layout = QVBoxLayout()
+        button_layout.setSpacing(2)
+        button_layout.setContentsMargins(4, 4, 4, 4)
+
+        # Scan summary group
+        scan_summary_group = QGroupBox("Scan summary")
+        scan_summary_vbox = QVBoxLayout()
+        self.scan_summary_label = QLabel("Scanalyzer by Peter H. Jacobse") # Only for initialization
+        self.scan_summary_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        scan_summary_vbox.addWidget(self.scan_summary_label)
+        scan_summary_group.setLayout(scan_summary_vbox)
+        button_layout.addWidget(scan_summary_group)
+
+
+
+        # File/Channel/Direction group
+        file_chan_dir_group = QGroupBox("File / Channel / Direction")
+        fcd_vbox = QVBoxLayout()
+
+        # Row 1: "Load file"
+        file_selected_label = QLabel("Load file:")
+        file_selected_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        fcd_vbox.addWidget(file_selected_label)
+
+        # Row 2: file navigation
+        file_nav_hbox = QHBoxLayout()
+        (self.previous_file_button, self.file_select_button, self.next_file_button) = (QToolButton(), QPushButton(self.file_label), QToolButton())
         self.previous_file_button.setArrowType(Qt.ArrowType.LeftArrow)
         self.previous_file_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
-        self.previous_file_button.clicked.connect(self.on_previous_file)
-        self.file_select_button.clicked.connect(self.on_file_select)
         self.next_file_button.setArrowType(Qt.ArrowType.RightArrow)
         self.next_file_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+        self.previous_file_button.clicked.connect(self.on_previous_file)
+        self.file_select_button.clicked.connect(self.on_file_select)
         self.next_file_button.clicked.connect(self.on_next_file)
+        for button in (self.previous_file_button, self.file_select_button, self.next_file_button): file_nav_hbox.addWidget(button)        
+        fcd_vbox.addLayout(file_nav_hbox)
 
-        # Make channel toggling/selecting buttons
+        # Row 3: "in folder"
+        in_folder_label = QLabel("in folder")
+        in_folder_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        fcd_vbox.addWidget(in_folder_label)
+        
+        # Row 4: folder name
+        self.folder_name_label = QLabel(self.folder)
+        self.folder_name_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        fcd_vbox.addWidget(self.folder_name_label)
+
+        # Row 5: "which contains n sxm files" 
+        if self.max_file_index == 0: self.contains_n_files_label = QLabel(f"which contains 1 sxm file")
+        else: self.contains_n_files_label = QLabel(f"which contains {self.max_file_index + 1} sxm files")
+        self.contains_n_files_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        fcd_vbox.addWidget(self.contains_n_files_label)
+
+        # Row 6: "Channel selected"
+        channel_selected_box = QLabel("Channel selected:")
+        channel_selected_box.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        fcd_vbox.addWidget(channel_selected_box)
+
+        # Row 7: channel navigation
+        channel_hbox = QHBoxLayout()
         self.previous_chan_button, self.channel_box, self.next_chan_button = (QToolButton(), QComboBox(), QToolButton())
         self.previous_chan_button.setArrowType(Qt.ArrowType.DownArrow)
         self.previous_chan_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
         self.previous_chan_button.clicked.connect(self.on_previous_chan)
+
         self.channel_box.addItems(["Channels"])
         self.channel_box.currentIndexChanged.connect(self.on_chan_change)
+
         self.next_chan_button.setArrowType(Qt.ArrowType.UpArrow)
         self.next_chan_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
         self.next_chan_button.clicked.connect(self.on_next_chan)
+        for box in (self.previous_chan_button, self.channel_box, self.next_chan_button): channel_hbox.addWidget(box)
+        fcd_vbox.addLayout(channel_hbox)
+
+        # Direction button
+        direction_hbox = QHBoxLayout()
 
         # Direction toggle button (above the other buttons) - show 'forward'/'backward' text
         self.direction_button = QPushButton()
@@ -108,9 +171,35 @@ class AppWindow(QMainWindow):
         # checked == True -> backward, checked == False -> forward
         self.direction_button.setChecked(self.scan_direction == "backward")
         # initialize text
-        self.direction_button.setText("backward" if self.direction_button.isChecked() else "forward")
+        self.direction_button.setText("Direction: backward" if self.direction_button.isChecked() else "Direction: forward")
         # use toggled signal to update state and UI
         self.direction_button.toggled.connect(self.on_direction_toggled)
+
+        # direction_hbox.addStretch(1)
+        direction_hbox.addWidget(self.direction_button)
+        # direction_hbox.addStretch(1)
+        fcd_vbox.addLayout(direction_hbox)
+        fcd_vbox.setSpacing(0)
+
+        file_chan_dir_group.setLayout(fcd_vbox)
+        button_layout.addWidget(file_chan_dir_group)
+
+
+
+        # Associated spectra dropdown menu
+        spectra_group = QGroupBox("Associated spectra")
+        spectra_hbox = QHBoxLayout()
+
+        self.spectra_box = QComboBox()
+        spectra_hbox.addWidget(self.spectra_box)
+        spectra_group.setLayout(spectra_hbox)
+        button_layout.addWidget(spectra_group)
+
+
+
+        # Background subtraction group
+        bg_group = QGroupBox("Background subtraction")
+        bg_hbox = QHBoxLayout()
 
         # Background subtraction radio buttons (none, plane, inferred)
         self.bg_none_radio = QRadioButton("None")
@@ -136,83 +225,12 @@ class AppWindow(QMainWindow):
         self.bg_plane_radio.toggled.connect(lambda checked: self.on_bg_change("plane") if checked else None)
         self.bg_inferred_radio.toggled.connect(lambda checked: self.on_bg_change("inferred") if checked else None)
 
-        # Make I/O buttons
-        self.save_button, self.exit_button = (QPushButton("Save image"), QPushButton("Exit Scanalyzer"))
-        self.save_button.clicked.connect(self.on_save)
-        self.exit_button.clicked.connect(self.on_exit)
-
-
-
-
-        # --- Fix button overlap: Redesign button layout ---
-        button_layout = QVBoxLayout()
-        button_layout.setSpacing(12)
-        button_layout.setContentsMargins(8, 8, 8, 8)
-
-        # Scan summary
-        scan_summary_group = QGroupBox("Scan summary")
-        summary_vbox = QVBoxLayout()
-        self.metadata_label = QLabel("Hi")
-        self.metadata_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        summary_vbox.addWidget(self.metadata_label)
-        scan_summary_group.setLayout(summary_vbox)
-        button_layout.addWidget(scan_summary_group)
-
-        # Regroup File, Channel, and Direction into one group box
-        file_chan_dir_group = QGroupBox("File / Channel / Direction")
-        fcd_vbox = QVBoxLayout()
-
-        # File navigation
-        file_nav_hbox = QHBoxLayout()
-        file_nav_hbox.addWidget(self.previous_file_button)
-        file_nav_hbox.addWidget(self.file_select_button)
-        file_nav_hbox.addWidget(self.next_file_button)
-        file_selected_label = QLabel("File Selected:")
-        file_selected_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        fcd_vbox.addWidget(file_selected_label)
-        fcd_vbox.addLayout(file_nav_hbox)
-        in_folder_label = QLabel("in folder")
-        in_folder_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        fcd_vbox.addWidget(in_folder_label)
-        self.folder_name_label = QLabel(self.folder)
-        self.folder_name_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        fcd_vbox.addWidget(self.folder_name_label)
-        if self.max_file_index == 0: self.contains_n_files_label = QLabel(f"which contains 1 sxm file")
-        else: self.contains_n_files_label = QLabel(f"which contains {self.max_file_index + 1} sxm files")
-        self.contains_n_files_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        fcd_vbox.addWidget(self.contains_n_files_label)
-        channel_selected_box = QLabel("Channel selected:")
-        channel_selected_box.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        fcd_vbox.addWidget(channel_selected_box)
-
-        # Channel navigation
-        channel_hbox = QHBoxLayout()
-        channel_hbox.addWidget(self.previous_chan_button)
-        channel_hbox.addWidget(self.channel_box)
-        channel_hbox.addWidget(self.next_chan_button)
-        fcd_vbox.addSpacing(8)
-        fcd_vbox.addLayout(channel_hbox)
-
-        # Direction button
-        direction_hbox = QHBoxLayout()
-        direction_hbox.addStretch(1)
-        direction_hbox.addWidget(self.direction_button)
-        direction_hbox.addStretch(1)
-        fcd_vbox.addSpacing(8)
-        fcd_vbox.addLayout(direction_hbox)
-
-        file_chan_dir_group.setLayout(fcd_vbox)
-        button_layout.addWidget(file_chan_dir_group)
-
-        # Background subtraction group
-        bg_group = QGroupBox("Background subtraction")
-        bg_hbox = QHBoxLayout()
-        bg_hbox.setContentsMargins(6, 6, 6, 6)
-        bg_hbox.addWidget(self.bg_none_radio)
-        bg_hbox.addWidget(self.bg_plane_radio)
-        bg_hbox.addWidget(self.bg_inferred_radio)
+        bg_hbox.setContentsMargins(4, 4, 4, 4)
+        for button in [self.bg_none_radio, self.bg_plane_radio, self.bg_inferred_radio]: bg_hbox.addWidget(button)
         bg_group.setLayout(bg_hbox)
         button_layout.addWidget(bg_group)
+
+
 
         # Histogram control group: put the statistics/info label here
         hist_group = QGroupBox("Histogram control")
@@ -221,39 +239,43 @@ class AppWindow(QMainWindow):
         self.info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         hist_vbox.addWidget(self.info_label)
 
-        # Full scale button: set histogram levels to the image statistics min/max
-        self.full_scale_button = QPushButton("Full scale")
-        self.full_scale_button.clicked.connect(self.on_full_scale)
-        hist_vbox.addWidget(self.full_scale_button)
+        # Scale toggle button
+        self.scale_toggle_button = QPushButton()
+        self.scale_toggle_button.setText("Toggle limits: min - max")
+        self.scale_toggle_button.clicked.connect(self.on_scale_toggle)
+        hist_vbox.addWidget(self.scale_toggle_button)
 
-        # Tie min/max buttons
-        tie_hbox = QHBoxLayout()
-        self.tie_min_zero_button = QPushButton("Tie min to 0")
-        self.tie_min_zero_button.clicked.connect(self.on_tie_min_zero)
-        self.tie_max_zero_button = QPushButton("Tie max to 0")
-        self.tie_max_zero_button.clicked.connect(self.on_tie_max_zero)
-        tie_hbox.addWidget(self.tie_min_zero_button)
-        tie_hbox.addWidget(self.tie_max_zero_button)
-        hist_vbox.addLayout(tie_hbox)
+        # Percentiles
+        percentiles_group_layout = QHBoxLayout()
+        (self.min_percentile_box, self.set_percentile_button, self.max_percentile_box) = (QLineEdit(), QPushButton("set data range percentiles"), QLineEdit())
+        self.min_percentile_box.setText(str(self.min_percentile))
+        self.max_percentile_box.setText(str(self.max_percentile))
+        for box in [self.min_percentile_box, self.set_percentile_button, self.max_percentile_box]: percentiles_group_layout.addWidget(box)
+        hist_vbox.addLayout(percentiles_group_layout)
+        
         hist_group.setLayout(hist_vbox)
         button_layout.addWidget(hist_group)
 
-        # I/O group: Save and Exit rows
+
+
+        # I/O group
         io_group = QGroupBox("I/O")
         io_box = QGridLayout()
         io_box.setColumnStretch(0, 1)
         io_box.setColumnStretch(1, 1)
 
-        # Save row: save button + png filename label
+        # Make I/O buttons
+        self.save_button, self.exit_button = (QPushButton("Save image"), QPushButton("Exit Scanalyzer"))
         self.save_button.setText("Save image as")
         self.png_file_box = QLineEdit()
         self.png_file_box.setAlignment(Qt.AlignmentFlag.AlignLeft)
         in_output_folder_label = QLabel("in output folder")
         in_output_folder_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.output_folder_box = QLineEdit()
+        self.output_folder_box = QPushButton()
         self.check_exists_box = QPushButton()
-        #self.check_exists_box.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.check_exists_box.clicked.connect(self.on_save)
+        self.save_button.clicked.connect(self.on_save)
+        self.check_exists_box.clicked.connect(self.on_save)        
+        self.exit_button.clicked.connect(self.on_exit)
 
         io_box.addWidget(self.save_button, 0, 0)
         io_box.addWidget(self.png_file_box, 0, 1)
@@ -268,27 +290,7 @@ class AppWindow(QMainWindow):
         # Add a stretch at the end to push buttons up
         button_layout.addStretch(1)
 
-
-
-        right_column = QVBoxLayout()
-        #right_column.addWidget(scan_summary_group)
-        right_column.addLayout(button_layout)
-
-        # Populate initial metadata text
-        self.metadata_label.setText("Scanalyzer by Peter H. Jacobse")
-
-        return right_column
-
-    # The dummy image is the Scanalyzer background picture
-    def load_dummy_image(self):
-        dummy_image_path = self.scanalyzer_folder + "\\Scanalyzer_drawing.png"
-        if os.path.exists(dummy_image_path):
-            try:
-                img = Image.open(dummy_image_path)
-                data = np.array(img)[:, :, 0]
-            except Exception as e:
-                data = np.random.rand((100, 100))
-        return data
+        return button_layout
 
     # Key event handler
     def keyPressEvent(self, event):
@@ -296,11 +298,12 @@ class AppWindow(QMainWindow):
         modifiers = event.modifiers()
 
         if key == Qt.Key.Key_Left: self.on_previous_file()
-        if key == Qt.Key.Key_F: self.on_file_select()
+        if key == Qt.Key.Key_L: self.on_file_select()
         if key == Qt.Key.Key_Right: self.on_next_file()
         if key == Qt.Key.Key_Down: self.on_previous_chan()
         if key == Qt.Key.Key_Up: self.on_next_chan()
         if key == Qt.Key.Key_S: self.on_save()
+        if key == Qt.Key.Key_T: self.on_scale_toggle()
         if key == Qt.Key.Key_D:
             # toggle the pushbutton state so the UI and internal state stay in sync
             try:
@@ -361,88 +364,48 @@ class AppWindow(QMainWindow):
         self.scan_direction = "backward" if checked else "forward"
         # Update the button text to reflect the state
         try:
-            self.direction_button.setText("backward" if checked else "forward")
+            self.direction_button.setText("Direction: backward" if checked else "Direction: forward")
         except Exception:
             pass
         # Always reload image to reflect direction change
         self.load_image()
 
-    def on_full_scale(self):
+    def on_scale_toggle(self):
         """Set the histogram widget levels to the image statistics min/max."""
         try:
-            if not hasattr(self, 'hist') or self.hist is None:
+            if not hasattr(self, "hist") or self.hist is None:
                 self.info_label.setText("No histogram available")
                 return
             # Use the computed statistics if available
-            if hasattr(self, 'statistics'):
-                lo = float(self.statistics.min)
-                hi = float(self.statistics.max)
-            else:
-                # fallback: try query image min/max
-                arr = getattr(self, 'processed_scan', None) or getattr(self, 'selected_scan', None)
-                if arr is None:
-                    self.info_label.setText("No image to compute full scale")
-                    return
-                import numpy as _np
-                lo = float(_np.nanmin(arr))
-                hi = float(_np.nanmax(arr))
-            # Avoid degenerate levels
-            if hi - lo == 0:
-                hi = lo + 1.0
-            try:
-                self.hist.setLevels(lo, hi)
-            except:
-                pass
-        except:
-            pass
-
-    def on_tie_min_zero(self):
-        """Set the histogram min level to 0, keep current max (or statistics.max)."""
-        try:
-            if not hasattr(self, 'hist') or self.hist is None:
-                self.info_label.setText("No histogram available")
+            if not hasattr(self, "statistics"):
+                self.info_label.setText("No image statistics available")
                 return
-            cur_min, cur_max = self.hist.getLevels() if self.hist is not None else (None, None)
-            # determine current max fallback
-            if cur_max is None and hasattr(self, 'statistics'):
-                cur_max = float(self.statistics.max)
-            if cur_max is None:
-                arr = getattr(self, 'processed_scan', None) or getattr(self, 'selected_scan', None)
-                if arr is None:
-                    self.info_label.setText("No image to compute levels")
-                    return
-                import numpy as _np
-                cur_max = float(_np.nanmax(arr))
-            # set min to 0
-            try:
-                self.hist.setLevels(0.0, float(cur_max))
-            except:
-                pass
-        except:
-            pass
+            
+            lo = float(self.statistics.min)
+            hi = float(self.statistics.max)
 
-    def on_tie_max_zero(self):
-        """Set the histogram max level to 0, keep current min (or statistics.min)."""
-        try:
-            if not hasattr(self, 'hist') or self.hist is None:
-                self.info_label.setText("No histogram available")
-                return
-            cur_min, cur_max = self.hist.getLevels() if self.hist is not None else (None, None)
-            # determine current min fallback
-            if cur_min is None and hasattr(self, 'statistics'):
-                cur_min = float(self.statistics.min)
-            if cur_min is None:
-                arr = getattr(self, 'processed_scan', None) or getattr(self, 'selected_scan', None)
-                if arr is None:
-                    self.info_label.setText("No image to compute levels")
-                    return
-                import numpy as _np
-                cur_min = float(_np.nanmin(arr))
-            # set max to 0
-            try:
-                self.hist.setLevels(float(cur_min), 0.0)
-            except:
-                pass
+            # Change the new toggle index
+            if self.scale_toggle_index == 0:
+                # Toggle index 1 (min to zero) does not work if lo > 0
+                if lo < 0: self.scale_toggle_index = 1
+                else: self.scale_toggle_index = 2
+            elif self.scale_toggle_index == 1:
+                # Toggle index 2 (zero to max) does not work if hi < 0
+                if hi > 0: self.scale_toggle_index = 2
+                else: self.scale_toggle_index = 0
+            else: self.scale_toggle_index = 0
+            
+            match self.scale_toggle_index: # Reset the toggle buttons and set the image histogram levels
+                case 0:
+                    self.scale_toggle_button.setText("Toggle limits: min - max")
+                    self.hist.setLevels(lo, hi)
+                case 1:
+                    self.scale_toggle_button.setText("Toggle limits: min - 0")
+                    self.hist.setLevels(lo, 0)
+                case 2:
+                    self.scale_toggle_button.setText("Toggle limits: 0 - max")
+                    self.hist.setLevels(0, hi)
+            
         except:
             pass
 
@@ -481,6 +444,9 @@ class AppWindow(QMainWindow):
 
             if self.file_index > self.max_file_index: self.file_index = 0
             self.sxm_file = self.sxm_files[self.file_index]
+
+            # Read all the spectroscopy files in the same folder and create a list of spectroscopy times
+            [self.spec_files, self.spec_times] = spec_times(self.folder)
 
             self.file_label = os.path.basename(self.sxm_file) # The file label is the file name without the directory path
             # Update folder/contents labels
@@ -524,16 +490,30 @@ class AppWindow(QMainWindow):
         self.scan_range = [round(dimension, 3) for dimension in self.scan_object.scan_range]
         self.feedback = self.scan_object.feedback
         self.setpoint = round(self.scan_object.setpoint, 3)
-        self.dt_object = self.scan_object.date_time
+        self.scan_time = self.scan_object.date_time
 
         # Display scan data in the app
         if self.feedback:
-            self.summary_text = f"STM topographic scan recorded on\n{self.dt_object.strftime('%Y/%m/%d   at   %H:%M:%S')}\n\n(V = {self.bias} V; I_fb = {self.setpoint} pA)\nScan range: {self.scan_range[0]} nm by {self.scan_range[1]} nm"
+            self.summary_text = f"STM topographic scan recorded on\n{self.scan_time.strftime('%Y/%m/%d   at   %H:%M:%S')}\n\n(V = {self.bias} V; I_fb = {self.setpoint} pA)\nScan range: {self.scan_range[0]} nm by {self.scan_range[1]} nm"
         else:
-            self.summary_text = f"Constant height scan recorded on\n{self.dt_object.strftime('%Y/%m/%d   at   %H:%M:%S')}\n\n(V = {self.bias} V)\nScan range: {self.scan_range[0]} nm by {self.scan_range[1]} nm"
-        self.metadata_label.setText(self.summary_text)
+            self.summary_text = f"Constant height scan recorded on\n{self.scan_time.strftime('%Y/%m/%d   at   %H:%M:%S')}\n\n(V = {self.bias} V)\nScan range: {self.scan_range[0]} nm by {self.scan_range[1]} nm"
+        self.scan_summary_label.setText(self.summary_text)
 
-
+        # Determine when the next scan was recorded, then calculate which spectra were recorded within the time interval between this scan and the next one
+        if self.file_index < self.max_file_index:
+            next_sxm_file = self.sxm_files[self.file_index + 1]
+            next_scan = get_scan(next_sxm_file)
+            next_scan_time = next_scan.date_time
+        else:
+            next_scan_time = datetime(2999, 12, 31, 23, 59, 59)        
+        spectra_in_interval = [self.scan_time < spec_time < next_scan_time for spec_time in self.spec_times]
+        self.associated_spectra_indices = np.where(spectra_in_interval)[0]
+        self.associated_spectra = np.array([self.spec_files[index] for index in self.associated_spectra_indices])
+        
+        self.spectra_box.blockSignals(True)
+        self.spectra_box.clear()
+        self.spectra_box.addItems(self.associated_spectra)
+        self.spectra_box.blockSignals(False)
 
         # Channel / scan direction selection
         # Pick the correct frame out of the scan tensor based on channel and scan direction
@@ -562,11 +542,11 @@ class AppWindow(QMainWindow):
         # Calculate the image statistics
         self.statistics = get_image_statistics(self.processed_scan)
         if self.channel == "X" or self.channel == "Y" or self.channel == "Z":
-            self.info_label.setText(f"range of values:\n({round(self.statistics.min, 3)} to {round(self.statistics.max, 3)}) nm\nmean ± std dev: {round(self.statistics.mean, 3)} ± {round(self.statistics.standard_deviation, 3)} nm")
+            self.info_label.setText(f"value range: ({round(self.statistics.min, 3)} to {round(self.statistics.max, 3)}) nm; tot: {round(self.statistics.range_total, 3)} nm\nmean ± std dev: {round(self.statistics.mean, 3)} ± {round(self.statistics.standard_deviation, 3)} nm")
         elif self.channel == "Current":
-            self.info_label.setText(f"range of values:\n({round(self.statistics.min, 3)} to {round(self.statistics.max, 3)}) pA\nmean ± std dev: {round(self.statistics.mean, 3)} ± {round(self.statistics.standard_deviation, 3)} pA")
+            self.info_label.setText(f"value range: ({round(self.statistics.min, 3)} to {round(self.statistics.max, 3)}) pA; tot: {round(self.statistics.range_total, 3)} pA\nmean ± std dev: {round(self.statistics.mean, 3)} ± {round(self.statistics.standard_deviation, 3)} pA")
         else:
-            self.info_label.setText(f"range of values:\n({round(self.statistics.min, 3)} to {round(self.statistics.max, 3)})\nmean ± std dev: {round(self.statistics.mean, 3)} ± {round(self.statistics.standard_deviation, 3)}")
+            self.info_label.setText(f"value range: ({round(self.statistics.min, 3)} to {round(self.statistics.max, 3)}); tot: {round(self.statistics.range_total, 3)}\nmean ± std dev: {round(self.statistics.mean, 3)} ± {round(self.statistics.standard_deviation, 3)}")
 
         # Show the scan        
         self.image_view.setImage(self.processed_scan, autoRange=True)  # Show the scan in the app
