@@ -13,7 +13,6 @@ from nanonisTCP.BiasSpectr import BiasSpectr
 from nanonisTCP.TipShaper import TipShaper
 import nanonispy as nap
 import numpy as np
-from pynput import keyboard
 from datetime import datetime
 import time
 from time import sleep
@@ -98,17 +97,6 @@ class parameters:
         self.scan_channels = scan_channels
 
 # Miscellaneous
-
-def on_release(key):
-    # A keystroke listener for manual abort
-    global exit_flag
-    try:
-        if key == keyboard.Key.esc or key.char == "q":
-            print("KEYSTROKE")
-            exit_flag = True
-            return False
-    finally:
-        pass
 
 def logprint(message, timestamp: bool = True, logfile: str = ""):
     current_time = datetime.now().strftime("%H:%M:%S")
