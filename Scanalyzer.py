@@ -11,7 +11,7 @@ from pathlib import Path
 import pyqtgraph as pg
 from pyqtgraph.Qt import QtCore
 from PyQt6.QtGui import QImage, QDragEnterEvent, QDropEvent, QDragMoveEvent, QShortcut, QKeySequence
-from scanalyzer.image_functions import get_scan, image_gradient, background_subtract, get_image_statistics, spec_times
+from scanalyzer.image_functions import get_scan, apply_gaussian, apply_fft, image_gradient, compute_normal, apply_laplace, complex_image_to_colors, background_subtract, get_image_statistics, spec_times
 from datetime import datetime
 from time import sleep
 
@@ -21,7 +21,7 @@ class SpectroscopyWindow(QMainWindow):
     def __init__(self, processed_scan):
         super().__init__()
         self.setWindowTitle("Spectrum viewer")
-        self.setGeometry(200, 200, 700, 450)
+        self.setGeometry(200, 200, 900, 600)
         
         # Add ImageView
         self.image_view = pg.ImageView()
@@ -91,10 +91,12 @@ class AppWindow(QMainWindow):
                 config = yaml.safe_load(file)
                 last_file = config.get("last_file")
                 self.load_folder(last_file)
+                self.on_full_scale("both")
         except:  # Display the dummy scan
             self.folder = self.scanalyzer_folder
             self.sxm_file = self.scanalyzer_folder + "dummy_scan.sxm"
             self.load_folder(self.sxm_file)
+            self.on_full_scale("both")
 
 
 
@@ -116,7 +118,6 @@ class AppWindow(QMainWindow):
         self.selected_file = ""
         self.file_label = "Select file"
         self.png_file_name = ""
-        self.scan_tensor = []
         self.channels = []
         self.channel = ""
         self.channel_index = 0
@@ -130,6 +131,12 @@ class AppWindow(QMainWindow):
         self.max_std_dev = 2
         self.min_selection = 0
         self.max_selection = 0
+
+        self.apply_sobel = False
+        self.apply_gaussian = False
+        self.apply_laplace = False
+        self.apply_fft = False
+        self.apply_normal = False
 
     def draw_buttons(self):
 
@@ -171,7 +178,7 @@ class AppWindow(QMainWindow):
             fcd_layout.addLayout(file_nav_hbox)
 
             # Row 3: "in folder"
-            in_folder_label = QLabel("in folder (click or \"N\" opens in explorer)")
+            in_folder_label = QLabel("in folder (click or \"1\" opens in explorer)")
             in_folder_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             fcd_layout.addWidget(in_folder_label)
             
@@ -227,7 +234,7 @@ class AppWindow(QMainWindow):
             
             # Background subtraction group
             bg_layout = QGridLayout()
-            [self.bg_none_radio, self.bg_plane_radio, self.bg_inferred_radio, self.bg_linewise_radio] = background_buttons = [QRadioButton("None"), QRadioButton("Plane"), QRadioButton("Inferred"), QRadioButton("lineWise")]
+            [self.bg_none_radio, self.bg_plane_radio, self.bg_inferred_radio, self.bg_linewise_radio] = background_buttons = [QRadioButton("none (0)"), QRadioButton("Plane"), QRadioButton("Inferred"), QRadioButton("lineWise")]
             # Group them for exclusive selection
             self.bg_button_group = QButtonGroup(self)
             [self.bg_button_group.addButton(button) for button in background_buttons]
@@ -264,12 +271,16 @@ class AppWindow(QMainWindow):
 
             matrix_layout = QGridLayout()
             matrix_layout.setSpacing(1)
-            [self.sobel_button, self.normal_button, self.laplace_button, self.gauss_button, self.fft_button] = matrix_buttons = [QCheckBox("soBel (d/dx + i d/dy)"), QCheckBox("Normal_z"), QCheckBox("laplaCe (∇2)"), QCheckBox("Gaussian"), QCheckBox("Fft")]
-            [button.setEnabled(False) for button in matrix_buttons]
+            [self.sobel_button, self.normal_button, self.laplace_button, self.gauss_button, self.fft_button, self.project_complex_box] = matrix_buttons = [QCheckBox("soBel (d/dx + i d/dy)"), QCheckBox("Normal_z"), QCheckBox("laplaCe (∇2)"), QCheckBox("Gaussian"), QCheckBox("Fft"), QComboBox()]
+            #self.derivative_button_group = QButtonGroup(self)
+            #[self.derivative_button_group.addButton(button) for button in [self.sobel_button, self.normal_button, self.laplace_button]]
+            self.project_complex_box.addItems(["re", "im", "abs", "arg (b/w)", "arg (hue)", "complex", "abs^2", "log(abs)"])
 
             gaussian_width_label = QLabel("width (nm):")
             gaussian_width_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self.gaussian_width_box = QLineEdit("1")
+            show_label = QLabel("sHow:")
+            show_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
             matrix_layout.addWidget(self.sobel_button, 0, 0)
             matrix_layout.addWidget(self.normal_button, 0, 1)
@@ -277,7 +288,10 @@ class AppWindow(QMainWindow):
             matrix_layout.addWidget(self.gauss_button, 1, 0)
             matrix_layout.addWidget(gaussian_width_label, 1, 1)
             matrix_layout.addWidget(self.gaussian_width_box, 1, 2)
-            matrix_layout.addWidget(self.fft_button, 2, 1)
+            matrix_layout.addWidget(self.fft_button, 2, 0)
+            matrix_layout.addWidget(show_label, 2, 1)
+            matrix_layout.addWidget(self.project_complex_box, 2, 2)
+
             im_proc_layout.addLayout(matrix_layout)
 
             # Add another line
@@ -298,7 +312,7 @@ class AppWindow(QMainWindow):
             [self.min_range_box, self.min_range_set, self.full_scale_button, self.max_range_set, self.max_range_box] = range_boxes = [QLineEdit(), QRadioButton(), QPushButton("by fUll data range"), QRadioButton(), QLineEdit()]
             [box.setEnabled(False) for box in [self.min_range_box, self.max_range_box]]
 
-            [self.min_percentile_box, self.min_percentile_set, self.set_percentile_button, self.max_percentile_set, self.max_percentile_box] = percentile_boxes = [QLineEdit(), QRadioButton(), QPushButton("by data Range percentiles"), QRadioButton(), QLineEdit()]
+            [self.min_percentile_box, self.min_percentile_set, self.set_percentile_button, self.max_percentile_set, self.max_percentile_box] = percentile_boxes = [QLineEdit(), QRadioButton(), QPushButton("by peRcentiles"), QRadioButton(), QLineEdit()]
             self.min_percentile_box.setText(str(self.min_percentile))
             self.max_percentile_box.setText(str(self.max_percentile))
 
@@ -408,15 +422,44 @@ class AppWindow(QMainWindow):
         self.bg_inferred_radio.setEnabled(False)
         self.bg_linewise_radio.setEnabled(False)
 
-        # Histogram control group
+        # Matrix operations
+        self.sobel_button.clicked.connect(lambda checked: self.toggle_matrix_processing("sobel", checked))
+        self.normal_button.clicked.connect(lambda checked: self.toggle_matrix_processing("normal", checked))
+        self.gauss_button.clicked.connect(lambda checked: self.toggle_matrix_processing("gaussian", checked))
+        self.gaussian_width_box.editingFinished.connect(lambda: self.toggle_matrix_processing("sobel", self.sobel_button.isChecked()))
+        self.laplace_button.clicked.connect(lambda checked: self.toggle_matrix_processing("laplace", checked))
+        self.fft_button.clicked.connect(lambda checked: self.toggle_matrix_processing("fft", checked))
+        self.project_complex_box.currentTextChanged.connect(lambda: self.toggle_matrix_processing("sobel", self.sobel_button.isChecked()))
+
+        # Limits control group
         self.min_range_set.clicked.connect(lambda: self.on_full_scale("min"))
         self.full_scale_button.clicked.connect(lambda: self.on_full_scale("both"))
         self.max_range_set.clicked.connect(lambda: self.on_full_scale("max"))
+
+        self.min_percentile_box.editingFinished.connect(lambda: self.on_percentiles("min"))
+        self.min_percentile_set.clicked.connect(lambda: self.on_percentiles("min"))
+        self.set_percentile_button.clicked.connect(lambda: self.on_percentiles("both"))
+        self.max_percentile_set.clicked.connect(lambda: self.on_percentiles("max"))
+        self.max_percentile_box.editingFinished.connect(lambda: self.on_percentiles("max"))
+        
+        self.min_std_dev_box.editingFinished.connect(lambda: self.on_standard_deviations("min"))
+        self.min_std_dev_set.clicked.connect(lambda: self.on_standard_deviations("min"))
+        self.set_std_dev_button.clicked.connect(lambda: self.on_standard_deviations("both"))
+        self.max_std_dev_set.clicked.connect(lambda: self.on_standard_deviations("max"))
+        self.max_std_dev_box.editingFinished.connect(lambda: self.on_standard_deviations("max"))
+        
+        self.min_abs_val_box.editingFinished.connect(lambda: self.on_absolute_values("min"))
+        self.min_abs_val_set.clicked.connect(lambda: self.on_absolute_values("min"))
+        self.set_abs_val_button.clicked.connect(lambda: self.on_absolute_values("both"))
+        self.max_abs_val_set.clicked.connect(lambda: self.on_absolute_values("max"))
+        self.max_abs_val_box.editingFinished.connect(lambda: self.on_absolute_values("max"))
 
 
 
         # Associated spectra group
         self.open_spectrum_button.clicked.connect(self.load_spectroscopy_window)
+
+
 
         # I/O group
         self.save_button.clicked.connect(self.on_save)
@@ -433,6 +476,10 @@ class AppWindow(QMainWindow):
         select_file_shortcut.activated.connect(self.on_file_select)
         next_file_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Right), self)
         next_file_shortcut.activated.connect(self.on_next_file)
+
+        # Open folder in file explorer
+        open_folder_shortcut = QShortcut(QKeySequence(Qt.Key.Key_1), self)
+        open_folder_shortcut.activated.connect(lambda: os.startfile(self.folder))
         
         # Channel toggling
         previous_channel_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Down), self)
@@ -448,7 +495,7 @@ class AppWindow(QMainWindow):
 
         # Image processing group
         # Background subtraction toggle buttons
-        background_none_shortcut = QShortcut(QKeySequence(Qt.Key.Key_N), self)
+        background_none_shortcut = QShortcut(QKeySequence(Qt.Key.Key_0), self)
         background_none_shortcut.activated.connect(lambda: self.on_bg_change("none"))
         background_plane_shortcut = QShortcut(QKeySequence(Qt.Key.Key_P), self)
         background_plane_shortcut.activated.connect(lambda: self.on_bg_change("plane"))
@@ -456,6 +503,35 @@ class AppWindow(QMainWindow):
         background_inferred_shortcut.activated.connect(lambda: self.on_bg_change("inferred"))
         background_linewise_shortcut = QShortcut(QKeySequence(Qt.Key.Key_W), self)
         background_linewise_shortcut.activated.connect(lambda: self.on_bg_change("linewise"))
+
+        # Matrix operations
+        sobel_shortcut = QShortcut(QKeySequence(Qt.Key.Key_B), self)
+        sobel_shortcut.activated.connect(lambda: self.toggle_matrix_processing("sobel", not self.sobel_button.isChecked()))
+        normal_shortcut = QShortcut(QKeySequence(Qt.Key.Key_N), self)
+        normal_shortcut.activated.connect(lambda: self.toggle_matrix_processing("normal", not self.normal_button.isChecked()))
+        gauss_shortcut = QShortcut(QKeySequence(Qt.Key.Key_G), self)
+        gauss_shortcut.activated.connect(lambda: self.toggle_matrix_processing("gaussian", not self.gauss_button.isChecked()))
+        laplace_shortcut = QShortcut(QKeySequence(Qt.Key.Key_C), self)
+        laplace_shortcut.activated.connect(lambda: self.toggle_matrix_processing("laplace", not self.laplace_button.isChecked()))
+        fft_shortcut = QShortcut(QKeySequence(Qt.Key.Key_F), self)
+        fft_shortcut.activated.connect(lambda: self.toggle_matrix_processing("fft", not self.fft_button.isChecked()))
+        toggle_projections_shortcut = QShortcut(QKeySequence(Qt.Key.Key_H), self)
+        toggle_projections_shortcut.activated.connect(self.toggle_projections)
+
+        # Limits control group
+        full_scale_shortcut = QShortcut(QKeySequence(Qt.Key.Key_U), self)
+        full_scale_shortcut.activated.connect(lambda: self.on_full_scale("both"))
+        percentile_shortcut = QShortcut(QKeySequence(Qt.Key.Key_R), self)
+        percentile_shortcut.activated.connect(lambda: self.on_percentiles("both"))
+        std_dev_shortcut = QShortcut(QKeySequence(Qt.Key.Key_V), self)
+        std_dev_shortcut.activated.connect(lambda: self.on_standard_deviations("both"))
+        abs_val_shortcut = QShortcut(QKeySequence(Qt.Key.Key_A), self)
+        abs_val_shortcut.activated.connect(lambda: self.on_absolute_values("both"))
+
+        toggle_min_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Minus), self)
+        toggle_min_shortcut.activated.connect(lambda: self.toggle_limits("min"))
+        toggle_max_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Equal), self)
+        toggle_max_shortcut.activated.connect(lambda: self.toggle_limits("max"))
 
         # Associated spectra group
         open_spectrum_shortcut = QShortcut(QKeySequence(Qt.Key.Key_O), self)
@@ -473,7 +549,9 @@ class AppWindow(QMainWindow):
     def on_previous_file(self):
         self.file_index -= 1
         if self.file_index < 0: self.file_index = self.max_file_index
-        self.load_image()
+        self.current_scan = self.load_scan()
+        processed_scan = self.process_scan(self.current_scan)
+        self.display(processed_scan)
 
     def on_file_select(self):
         file_name, _ = QFileDialog.getOpenFileName(self, "Open file", self.folder, "SXM files (*.sxm)")
@@ -482,7 +560,9 @@ class AppWindow(QMainWindow):
     def on_next_file(self):
         self.file_index += 1
         if self.file_index > self.max_file_index: self.file_index = 0
-        self.load_image()
+        self.current_scan = self.load_scan()
+        processed_scan = self.process_scan(self.current_scan)
+        self.display(processed_scan)
 
 
 
@@ -510,46 +590,9 @@ class AppWindow(QMainWindow):
         except Exception:
             pass
         # Always reload image to reflect direction change
-        self.load_image()
-
-    def on_scale_toggle(self):
-        """Set the histogram widget levels to the image statistics min/max."""
-        try:
-            if not hasattr(self, "hist") or self.hist is None:
-                self.statistics_info.setText("No histogram available")
-                return
-            # Use the computed statistics if available
-            if not hasattr(self, "statistics"):
-                self.statistics_info.setText("No image statistics available")
-                return
-            
-            lo = float(self.statistics.min)
-            hi = float(self.statistics.max)
-
-            # Change the new toggle index
-            if self.scale_toggle_index == 0:
-                # Toggle index 1 (min to zero) does not work if lo > 0
-                if lo < 0: self.scale_toggle_index = 1
-                else: self.scale_toggle_index = 2
-            elif self.scale_toggle_index == 1:
-                # Toggle index 2 (zero to max) does not work if hi < 0
-                if hi > 0: self.scale_toggle_index = 2
-                else: self.scale_toggle_index = 0
-            else: self.scale_toggle_index = 0
-            
-            match self.scale_toggle_index: # Reset the toggle buttons and set the image histogram levels
-                case 0:
-                    self.scale_toggle_button.setText("Toggle limits: min - max")
-                    self.hist.setLevels(lo, hi)
-                case 1:
-                    self.scale_toggle_button.setText("Toggle limits: min - 0")
-                    self.hist.setLevels(lo, 0)
-                case 2:
-                    self.scale_toggle_button.setText("Toggle limits: 0 - max")
-                    self.hist.setLevels(0, hi)
-            
-        except:
-            pass
+        self.current_scan = self.load_scan()
+        processed_scan = self.process_scan(self.current_scan)
+        self.display(processed_scan)
 
     def on_bg_change(self, mode: str):
         if mode in ["none", "plane", "inferred", "linewise"]:
@@ -559,25 +602,34 @@ class AppWindow(QMainWindow):
             elif mode == "inferred": self.bg_inferred_radio.setChecked(True)
             else: self.bg_linewise_radio.setChecked(True)
             
-            self.load_image()
+            if not hasattr(self, "current_scan"):
+                self.current_scan = self.load_scan()
+            processed_scan = self.process_scan(self.current_scan)
+            self.display(processed_scan)
 
     # Channel buttons
     def on_previous_chan(self):
         self.channel_index -= 1
         if self.channel_index < 0: self.channel_index = self.max_channel_index
         self.channel = self.channels[self.channel_index]
-        self.load_image()
+        self.current_scan = self.load_scan()
+        processed_scan = self.process_scan(self.current_scan)
+        self.display(processed_scan)
 
     def on_chan_change(self, index):
         self.channel_index = index
         self.channel = self.channels[index]
-        self.load_image()
+        self.current_scan = self.load_scan()
+        processed_scan = self.process_scan(self.current_scan)
+        self.display(processed_scan)
 
     def on_next_chan(self):
         self.channel_index += 1
         if self.channel_index > self.max_channel_index: self.channel_index = 0
         self.channel = self.channels[self.channel_index]
-        self.load_image()
+        self.current_scan = self.load_scan()
+        processed_scan = self.process_scan(self.current_scan)
+        self.display(processed_scan)
 
 
 
@@ -605,14 +657,18 @@ class AppWindow(QMainWindow):
             except Exception as e:
                 print(f"Error: {e}")
 
-            if self.max_file_index > -1: self.load_image() # Load the image if there is a file
+            if self.max_file_index > -1:
+                self.current_scan = self.load_scan() # Load the image if there is a file
+                processed_scan = self.process_scan(self.current_scan)
+                self.display(processed_scan)
+
         except:
             print("Error loading files")
             self.file_label = "Select file"
         
         self.file_select_button.setText(self.file_label)
 
-    def load_image(self):
+    def load_scan(self):
         self.sxm_file = self.sxm_files[self.file_index]
         self.file_label = os.path.basename(self.sxm_file)
         self.file_select_button.setText(self.file_label) # Make the select file button display the file name
@@ -663,16 +719,10 @@ class AppWindow(QMainWindow):
         self.spectra_box.addItems(self.associated_spectra)
         self.spectra_box.blockSignals(False)
 
-
-
         # Channel / scan direction selection
         # Pick the correct frame out of the scan tensor based on channel and scan direction
-        if self.scan_direction == "backward": self.selected_scan = scan_tensor[self.channel_index, 1]
-        else: self.selected_scan = scan_tensor[self.channel_index, 0]
-
-        # Determine background subtraction mode from radio buttons and apply it
-        mode = self.background_subtraction
-        self.processed_scan = background_subtract(self.selected_scan, mode = mode)
+        if self.scan_direction == "backward": selected_scan = scan_tensor[self.channel_index, 1]
+        else: selected_scan = scan_tensor[self.channel_index, 0]
 
         # Update displayed png filename (show basename)
         if self.scan_direction == "backward":
@@ -688,12 +738,37 @@ class AppWindow(QMainWindow):
             self.check_exists_box.setText("ok to save")
             self.check_exists_box.setStyleSheet("background-color: green")
 
+        return selected_scan
+    
+    def process_scan(self, scan):
+        # Determine background subtraction mode from radio buttons and apply it
+        mode = self.background_subtraction
+        processed_scan = background_subtract(scan, mode = mode)
+
         # Apply matrix operations
+        if self.apply_sobel: processed_scan = image_gradient(processed_scan, self.scan_range)
+        if self.apply_normal: processed_scan = compute_normal(processed_scan, self.scan_range)
+        if self.apply_laplace: processed_scan = apply_laplace(processed_scan, self.scan_range)
 
-
+        gaussian_sigma = float(self.gaussian_width_box.text())
+        if self.apply_gaussian: processed_scan = apply_gaussian(processed_scan, sigma = gaussian_sigma, scan_range = self.scan_range)
+        if self.apply_fft:
+            processed_scan, reciprocal_range = apply_fft(processed_scan, self.scan_range)
+            # self.scan_range = reciprocal_range
+        
+        match self.project_complex_box.currentText():
+            case "re": processed_scan = np.real(processed_scan)
+            case "im": processed_scan = np.imag(processed_scan)
+            case "abs": processed_scan = np.abs(processed_scan)
+            case "abs^2": processed_scan = np.abs(processed_scan) ** 2
+            case "arg (b/w)": processed_scan = np.angle(processed_scan)
+            case "arg (hue)": processed_scan = complex_image_to_colors(processed_scan, saturate = True)
+            case "complex": processed_scan = complex_image_to_colors(processed_scan, saturate = False)
+            case "log(abs)": processed_scan = np.log(np.abs(processed_scan))
+            case _: processed_scan = np.real(processed_scan)
 
         # Calculate the image statistics and display them
-        self.statistics = get_image_statistics(self.processed_scan)
+        self.statistics = get_image_statistics(processed_scan)
         rounded_min = round(self.statistics.min, 3)
         rounded_max = round(self.statistics.max, 3)
         
@@ -706,9 +781,12 @@ class AppWindow(QMainWindow):
             self.statistics_info.setText(f"\nValue range: {round(self.statistics.range_total, 3)} pA; Mean ± std dev: {round(self.statistics.mean, 3)} ± {round(self.statistics.standard_deviation, 3)} pA")
         else:
             self.statistics_info.setText(f"\nValue range: {round(self.statistics.range_total, 3)}; Mean ± std dev: {round(self.statistics.mean, 3)} ± {round(self.statistics.standard_deviation, 3)}")
+        
+        return processed_scan
 
+    def display(self, scan):
         # Show the scan
-        self.image_view.setImage(self.processed_scan, autoRange = True)  # Show the scan in the app
+        self.image_view.setImage(scan, autoRange = True)  # Show the scan in the app
         image_item = self.image_view.getImageItem()
         image_item.setRect(QtCore.QRectF(0, 0, self.scan_range[1], self.scan_range[0]))  # Add dimensions to the ImageView object
         self.image_view.autoRange()
@@ -716,49 +794,266 @@ class AppWindow(QMainWindow):
         # Get the new histogram levels
         self.hist_levels = list(self.hist_item.getLevels())
 
+
+
+    # Spectroscopy
     def load_spectroscopy_window(self):
         if not hasattr(self, "second_window") or self.second_window is None: # Create only if not already created:
-            self.second_window = SpectroscopyWindow(self.processed_scan)
+            self.current_scan = self.load_scan()
+            processed_scan = self.process_scan(self.current_scan)
+            self.second_window = SpectroscopyWindow(processed_scan)
         self.second_window.show()
 
     # Scale limit functions
     def on_full_scale(self, side: str = "both"):
-        (min, max) = self.hist_item.getLevels()
+        (min, max) = self.hist_item.getLevels() # Read the old levels
         if side == "min":
             if hasattr(self, "statistics") and hasattr(self.statistics, "min"):
                 self.min_selection = 0
+                self.hist_item.sigLevelChangeFinished.disconnect(self.histogram_scale_changed)
                 self.hist_item.setLevels(self.statistics.min, max)
+                self.hist_item.sigLevelChangeFinished.connect(self.histogram_scale_changed)
         elif side == "max":
             if hasattr(self, "statistics") and hasattr(self.statistics, "max"):
                 self.max_selection = 0
+                self.hist_item.sigLevelChangeFinished.disconnect(self.histogram_scale_changed)
                 self.hist_item.setLevels(min, self.statistics.max)
+                self.hist_item.sigLevelChangeFinished.connect(self.histogram_scale_changed)
         elif side == "both":
             if hasattr(self, "statistics") and hasattr(self.statistics, "min") and hasattr(self.statistics, "max"):
                 self.min_selection = 0
                 self.max_selection = 0
+                self.hist_item.sigLevelChangeFinished.disconnect(self.histogram_scale_changed)
                 self.hist_item.setLevels(self.statistics.min, self.statistics.max)
+                self.hist_item.sigLevelChangeFinished.connect(self.histogram_scale_changed)
         
         if self.min_selection == 0: self.min_range_set.setChecked(True)
         if self.max_selection == 0: self.max_range_set.setChecked(True)
+
+        (min, max) = self.hist_item.getLevels() # Read the new levels
+        self.min_abs_val_box.setText(f"{round(min, 3)}") # Update the absolute value boxes
+        self.max_abs_val_box.setText(f"{round(max, 3)}") # Update the absolute value boxes
+
+    def on_percentiles(self, side: str = "both"):
+        (min, max) = self.hist_item.getLevels()
+        if side == "min":
+            if hasattr(self, "statistics") and hasattr(self.statistics, "min") and hasattr(self.statistics, "range_total") and hasattr(self.statistics, "data_sorted"):
+                try:
+                    min_percentile = float(self.min_percentile_box.text())
+                    data_sorted = self.statistics.data_sorted
+                    n_data = len(data_sorted)
+                    min_value = data_sorted[int(.01 * min_percentile * n_data)]
+
+                    self.hist_item.sigLevelChangeFinished.disconnect(self.histogram_scale_changed)
+                    self.hist_item.setLevels(min_value, max)
+                    self.hist_item.sigLevelChangeFinished.connect(self.histogram_scale_changed)
+                    self.min_selection = 1
+                except Exception as e:
+                    print(f"Error: {e}")
+        elif side == "max":
+            if hasattr(self, "statistics") and hasattr(self.statistics, "max") and hasattr(self.statistics, "range_total") and hasattr(self.statistics, "data_sorted"):
+                try:
+                    max_percentile = float(self.max_percentile_box.text())
+                    data_sorted = self.statistics.data_sorted
+                    n_data = len(data_sorted)
+                    max_value = data_sorted[int(.01 * max_percentile * n_data)]
+
+                    self.hist_item.sigLevelChangeFinished.disconnect(self.histogram_scale_changed)
+                    self.hist_item.setLevels(min, max_value)
+                    self.hist_item.sigLevelChangeFinished.connect(self.histogram_scale_changed)
+                    self.max_selection = 1
+                except Exception as e:
+                    print(f"Error: {e}")
+        elif side == "both":
+            if hasattr(self, "statistics") and hasattr(self.statistics, "min") and hasattr(self.statistics, "max") and hasattr(self.statistics, "range_total") and hasattr(self.statistics, "data_sorted"):
+                try:
+                    min_percentile = float(self.min_percentile_box.text())
+                    max_percentile = float(self.max_percentile_box.text())
+                    data_sorted = self.statistics.data_sorted
+                    n_data = len(data_sorted)
+                    min_value = data_sorted[int(.01 * min_percentile * n_data)]
+                    max_value = data_sorted[int(.01 * max_percentile * n_data)]
+                    
+                    self.hist_item.sigLevelChangeFinished.disconnect(self.histogram_scale_changed)
+                    self.hist_item.setLevels(min_value, max_value)
+                    self.hist_item.sigLevelChangeFinished.connect(self.histogram_scale_changed)
+                    self.min_selection = 1
+                    self.max_selection = 1
+                except Exception as e:
+                    print(f"Error: {e}")
+        
+        if self.min_selection == 1: self.min_percentile_set.setChecked(True)
+        if self.max_selection == 1: self.max_percentile_set.setChecked(True)
+        
+        (min, max) = self.hist_item.getLevels() # Read the new levels
+        self.min_abs_val_box.setText(f"{round(min, 3)}") # Update the absolute value boxes
+        self.max_abs_val_box.setText(f"{round(max, 3)}") # Update the absolute value boxes
+        self.hist_levels = [min, max]
+
+    def on_standard_deviations(self, side: str = "both"):
+        (min, max) = self.hist_item.getLevels() # Read the old levels
+        if side == "min":
+            if hasattr(self, "statistics") and hasattr(self.statistics, "standard_deviation") and hasattr(self.statistics, "mean"):
+                try:
+                    value = float(self.min_std_dev_box.text())
+                    min_value = self.statistics.mean - value * self.statistics.standard_deviation
+                    
+                    self.hist_item.sigLevelChangeFinished.disconnect(self.histogram_scale_changed)
+                    self.hist_item.setLevels(min_value, max)
+                    self.hist_item.sigLevelChangeFinished.connect(self.histogram_scale_changed)
+                    self.min_selection = 2
+                except Exception as e:
+                    print(f"Error: {e}")
+        
+        if side == "max":
+            if hasattr(self, "statistics") and hasattr(self.statistics, "standard_deviation") and hasattr(self.statistics, "mean"):
+                try:
+                    value = float(self.max_std_dev_box.text())
+                    max_value = self.statistics.mean + value * self.statistics.standard_deviation
+                    
+                    self.hist_item.sigLevelChangeFinished.disconnect(self.histogram_scale_changed)
+                    self.hist_item.setLevels(min, max_value)
+                    self.hist_item.sigLevelChangeFinished.connect(self.histogram_scale_changed)
+                    self.max_selection = 2
+                except Exception as e:
+                    print(f"Error: {e}")
+        
+        if side == "both":
+            if hasattr(self, "statistics") and hasattr(self.statistics, "standard_deviation") and hasattr(self.statistics, "mean"):
+                try:
+                    value = float(self.min_std_dev_box.text())
+                    min_value = self.statistics.mean - value * self.statistics.standard_deviation
+                    value = float(self.max_std_dev_box.text())
+                    max_value = self.statistics.mean + value * self.statistics.standard_deviation
+                    
+                    self.hist_item.sigLevelChangeFinished.disconnect(self.histogram_scale_changed)
+                    self.hist_item.setLevels(min_value, max_value)
+                    self.hist_item.sigLevelChangeFinished.connect(self.histogram_scale_changed)
+                    self.min_selection = 2
+                    self.max_selection = 2
+                except Exception as e:
+                    print(f"Error: {e}")
+        
+        if self.min_selection == 2: self.min_std_dev_set.setChecked(True)
+        if self.max_selection == 2: self.max_std_dev_set.setChecked(True)
+        
+        (min, max) = self.hist_item.getLevels() # Read the new levels
+        self.min_abs_val_box.setText(f"{round(min, 3)}") # Update the absolute value boxes
+        self.max_abs_val_box.setText(f"{round(max, 3)}") # Update the absolute value boxes
+        self.hist_levels = [min, max]
+    
+    def on_absolute_values(self, side: str = "both"):
+        (min, max) = self.hist_item.getLevels()
+        if side == "min":
+            try:
+                min_value = float(self.min_abs_val_box.text())
+                self.hist_item.sigLevelChangeFinished.disconnect(self.histogram_scale_changed)
+                self.hist_item.setLevels(min_value, max)
+                self.hist_item.sigLevelChangeFinished.connect(self.histogram_scale_changed)
+                self.min_selection = 3
+            except Exception as e:
+                print(f"Error: {e}")
+        
+        if side == "max":
+            try:
+                max_value = float(self.max_abs_val_box.text())
+                self.hist_item.sigLevelChangeFinished.disconnect(self.histogram_scale_changed)
+                self.hist_item.setLevels(min, max_value)
+                self.hist_item.sigLevelChangeFinished.connect(self.histogram_scale_changed)
+                self.max_selection = 3
+            except Exception as e:
+                print(f"Error: {e}")
+        
+        if side == "both":
+            try:
+                min_value = float(self.min_abs_val_box.text())
+                max_value = float(self.max_abs_val_box.text())
+                self.hist_item.sigLevelChangeFinished.disconnect(self.histogram_scale_changed)
+                self.hist_item.setLevels(min_value, max_value)
+                self.hist_item.sigLevelChangeFinished.connect(self.histogram_scale_changed)
+                self.min_selection = 3
+                self.max_selection = 3
+            except Exception as e:
+                print(f"Error: {e}")
+        
+        if self.min_selection == 3: self.min_abs_val_set.setChecked(True)
+        if self.max_selection == 3: self.max_abs_val_set.setChecked(True)
+        self.hist_levels = [min, max]
 
     def histogram_scale_changed(self):
         (min, max) = self.hist_item.getLevels()
         if hasattr(self, "hist_levels"):
             [min_old, max_old] = self.hist_levels
-            if np.abs(min - min_old) < np.abs(max - max_old):
+
+            if np.abs(max - max_old) > .0000001 * (max_old - min_old): # If the top level was changed (use a tiny threshold)
                 self.max_abs_val_box.setText(f"{round(max, 3)}")
                 self.max_abs_val_set.setChecked(True)
-            else:
+                self.max_selection = 3
+
+            if np.abs(min - min_old) > .0000001 * (max_old - min_old): # If the bottom level was changed
                 self.min_abs_val_box.setText(f"{round(min, 3)}")
                 self.min_abs_val_set.setChecked(True)
-        else:
-            self.max_abs_val_box.setText(f"{round(max, 3)}")
-            self.max_abs_val_set.setChecked(True)
-            self.min_abs_val_box.setText(f"{round(min, 3)}")
-            self.min_abs_val_set.setChecked(True)
+                self.min_selection = 3
+
         self.hist_levels = [min, max]
 
+    def toggle_limits(self, side: str = "min"):
+        if side not in ["min", "max"]:
+            print("Error. No correct side chosen.")
+            return
+        
+        if side == "min":
+            self.min_selection += 1
+            if self.min_selection > 3: self.min_selection = 0
+            sel = self.min_selection
+        else:
+            self.max_selection += 1
+            if self.max_selection > 3: self.max_selection = 0
+            sel = self.max_selection
+        
+        match sel:
+            case 0: self.on_full_scale(side)
+            case 1: self.on_percentiles(side)
+            case 2: self.on_standard_deviations(side)
+            case _: self.on_absolute_values(side)
 
+    # Matrix processing functions
+    def toggle_matrix_processing(self, operation, checked):
+        if operation == "sobel":
+            self.sobel_button.setChecked(checked)
+            self.apply_sobel = checked
+        if operation == "gaussian":
+            self.gauss_button.setChecked(checked)
+            self.apply_gaussian = checked
+        if operation == "fft":
+            self.fft_button.setChecked(checked)
+            self.apply_fft = checked
+        if operation == "laplace":
+            self.laplace_button.setChecked(checked)
+            self.apply_laplace = checked
+        if operation == "normal":
+            self.normal_button.setChecked(checked)
+            self.apply_normal = checked
+
+        if not hasattr(self, "current_scan"):
+            self.current_scan = self.load_scan()
+        processed_scan = self.process_scan(self.current_scan)
+        self.display(processed_scan)
+
+    def toggle_projections(self):
+        try:
+            number_of_items = self.project_complex_box.count()
+            current_index = self.project_complex_box.currentIndex()
+            new_index = current_index + 1
+            if new_index > number_of_items - 1: new_index = 0
+            self.project_complex_box.setCurrentIndex(new_index)
+            
+            if not hasattr(self, "current_scan"): self.current_scan = self.load_scan()
+            processed_scan = self.process_scan(self.current_scan)
+            self.display(processed_scan)
+
+        except Exception as e:
+            print(f"{e}")
 
     # Save button
     def on_save(self):
