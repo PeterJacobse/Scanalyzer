@@ -1,4 +1,7 @@
 .vscode/launch.json
-Scanalyzer/config.yml
-Scanalyzer/__pycache__/__init__.cpython-312.pyc
-Scanalyzer/__pycache__/image_functions.cpython-312.pyc
+scanalyzer/config.yml
+scanalyzer/__pycache__/__init__.cpython-36.pyc
+scanalyzer/__pycache__/__init__.cpython-312.pyc
+scanalyzer/__pycache__/image_functions.cpython-312.pyc
+scanalyzer/__pycache__/functions.cpython-36.pyc
+
