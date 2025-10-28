@@ -1058,12 +1058,13 @@ class AppWindow(QMainWindow):
     # Save button
     def on_save(self):
         # Properly rescale to 0-255
+        processed_scan = self.process_scan(self.current_scan)
         if self.hist is not None:
             min_val, max_val = self.hist.getLevels()
         else:
             min_val, max_val = (self.statistics.min, self.statistics.max)
         denom = max_val - min_val if max_val != min_val else 1
-        rescaled_array = (self.processed_scan - min_val) / denom
+        rescaled_array = (processed_scan - min_val) / denom
         rescaled_array = np.clip(rescaled_array, 0, 1)  # Ensure within [0,1]
         uint8_array = (255 * rescaled_array).astype(np.uint8)
 

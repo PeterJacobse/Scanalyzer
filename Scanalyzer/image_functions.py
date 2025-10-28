@@ -87,10 +87,14 @@ def get_scan(file_path, units: dict = {"length": "m", "current": "A"}, default_c
     # scan_tensor: axis 0 = direction (0 for forward, 1 for backward); axis 1 = channel; axis 2 and 3 are x and y
 
     # Determine which rows should be cropped off in case the scan was not completed
-    masked_array = np.isnan(scan_tensor_uncropped[0, 1]) # All channels have the same number of NaN values. The backward scan has more NaN values because the scan always starts in the forward direction.
-    nan_counts = np.array([sum([int(masked_array[j, i]) for i in range(len(masked_array))]) for j in range(len(masked_array[0]))])
-    good_rows = np.where(nan_counts == 0)[0]
-    scan_tensor = np.array([[scan_tensor_uncropped[channel, 0, good_rows], scan_tensor_uncropped[channel, 1, good_rows]] for channel in range(len(channels))])
+    try:
+        masked_array = np.isnan(scan_tensor_uncropped[0, 1]) # All channels have the same number of NaN values. The backward scan has more NaN values because the scan always starts in the forward direction.
+        nan_counts = np.array([sum([int(masked_array[j, i]) for i in range(len(masked_array))]) for j in range(len(masked_array[0]))])
+        good_rows = np.where(nan_counts == 0)[0]
+        scan_tensor = np.array([[scan_tensor_uncropped[channel, 0, good_rows], scan_tensor_uncropped[channel, 1, good_rows]] for channel in range(len(channels))])
+    except Exception as e:
+        print(f"Error. Scan cropping failed: {e}")
+        scan_tensor = scan_tensor_uncropped
     
     pixels = np.asarray(np.shape(scan_tensor[0, 0])) # The number of pixels is recalculated on the basis of the scans potentially being cropped
     scan_range = np.array([scan_range_uncropped[0] * pixels[0] / pixels_uncropped[0], scan_range_uncropped[1]]) # Recalculate the size of the slow scan direction after cropping
