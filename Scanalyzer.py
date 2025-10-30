@@ -1059,18 +1059,29 @@ class AppWindow(QMainWindow):
     def on_save(self):
         # Properly rescale to 0-255
         processed_scan = self.process_scan(self.current_scan)
-        if self.hist is not None:
-            min_val, max_val = self.hist.getLevels()
-        else:
-            min_val, max_val = (self.statistics.min, self.statistics.max)
+        
+        min_val, max_val = (self.statistics.min, self.statistics.max)
+        try:
+            if self.hist is not None: min_val, max_val = self.hist.getLevels()
+        except Exception as e:
+            print(f"Error reading the histogram levels: {e}")
         denom = max_val - min_val if max_val != min_val else 1
         rescaled_array = (processed_scan - min_val) / denom
         rescaled_array = np.clip(rescaled_array, 0, 1)  # Ensure within [0,1]
         uint8_array = (255 * rescaled_array).astype(np.uint8)
+        
+        print(f"The dimensionality of the output array is {uint8_array.ndim}")
 
         try:
+            if uint8_array.ndim > 2:
+                #rgb_array = np.ascontiguousarray(uint8_array, dtype = np.uint8)
+                height, width, channels = uint8_array.shape
+                qimg = QImage(uint8_array.data, width, height, uint8_array.strides[0], QImage.Format.Format_RGB888)
+            else:
+                height, width = uint8_array.shape
+                qimg = QImage(uint8_array, width, height, width, QImage.Format.Format_Grayscale8)
+
             output_file_name = self.output_folder + "\\" + self.png_file_name
-            qimg = QImage(uint8_array, np.shape(uint8_array)[1], np.shape(uint8_array)[0], np.shape(uint8_array)[1], QImage.Format.Format_Grayscale8)
             os.makedirs(self.output_folder, exist_ok = True)
             qimg.save(output_file_name)
 
@@ -1082,8 +1093,9 @@ class AppWindow(QMainWindow):
 
             self.check_exists_box.setText("png already exists!")
             self.check_exists_box.setStyleSheet("background-color: orange")
+
         except Exception as e:
-            print(e)
+            print(f"Error saving the image file: {e}")
             pass
 
     # Exit button
