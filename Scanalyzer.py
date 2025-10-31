@@ -11,40 +11,76 @@ from pathlib import Path
 import pyqtgraph as pg
 from pyqtgraph.Qt import QtCore
 from PyQt6.QtGui import QImage, QDragEnterEvent, QDropEvent, QDragMoveEvent, QShortcut, QKeySequence
-from scanalyzer.image_functions import get_scan, apply_gaussian, apply_fft, image_gradient, compute_normal, apply_laplace, complex_image_to_colors, background_subtract, get_image_statistics, spec_times
+from scanalyzer.image_functions import get_scan, apply_gaussian, apply_fft, image_gradient, compute_normal, apply_laplace, complex_image_to_colors, background_subtract, get_image_statistics, spec_times, get_spectrum
 from datetime import datetime
 from time import sleep
 
 
 
 class SpectroscopyWindow(QMainWindow):
-    def __init__(self, processed_scan):
+    def __init__(self, processed_scan, spec_files):
         super().__init__()
         self.setWindowTitle("Spectrum viewer")
         self.setGeometry(200, 200, 900, 600)
         
-        # Add ImageView
-        self.image_view = pg.ImageView()
-
-        layout = QVBoxLayout()
-        label = QLabel("Spectrum viewer")
-        layout.addWidget(label)
-
         # Set the central widget of the QMainWindow
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
-        main_layout = QHBoxLayout(central_widget)
-        main_layout.addWidget(self.image_view, 3)
+        main_layout = QGridLayout(central_widget)
+        
+        [self.x_channel_box, self.graph_0_widget, self.graph_1_widget] = column_0_widgets = [QComboBox(), pg.PlotWidget(), pg.PlotWidget()]
+        [self.exit_button, self.y_channel_0_box, self.y_channel_1_box] = column_1_widgets = [QPushButton("Exit Spectrum viewer"), QComboBox(), QComboBox()]
 
-        exit_button = QPushButton("Exit Spectrum viewer")
-        exit_button.clicked.connect(self.close) # Connect to the window's close method
-        main_layout.addWidget(exit_button)
+        self.x_channel_box.setFixedWidth(500)
 
-        # Show the scan        
-        self.image_view.setImage(processed_scan, autoRange = True)  # Show the scan in the app
-        image_item = self.image_view.getImageItem()
+        [main_layout.addWidget(column_0_widgets[i], i, 0, alignment = Qt.AlignmentFlag.AlignCenter) for i in range(len(column_0_widgets))]
+        [main_layout.addWidget(column_1_widgets[i], i, 1, alignment = Qt.AlignmentFlag.AlignCenter) for i in range(len(column_1_widgets))]
+        self.exit_button.clicked.connect(QApplication.quit) # Connect to the window's close method
+
+        # Show the data
+        self.graph_0 = self.graph_0_widget.getPlotItem()
+        self.graph_1 = self.graph_1_widget.getPlotItem()
+        x_data = np.linspace(-2, 2, 20)
+        y_data = np.random.rand(len(x_data))
+        self.graph_0.plot(x_data, y_data, pen = "r")
+        self.graph_1.plot(x_data, y_data, pen = "b")
         #image_item.setRect(QtCore.QRectF(0, 0, self.scan_range[1], self.scan_range[0]))  # Add dimensions to the ImageView object
-        self.image_view.autoRange()
+
+        self.read_spectroscopy_files(spec_files)
+        self.x_channel_box.currentIndexChanged.connect(self.redraw_spectra)
+        self.y_channel_0_box.currentIndexChanged.connect(self.redraw_spectra)
+        self.y_channel_1_box.currentIndexChanged.connect(self.redraw_spectra)
+
+        self.red_spectrum = 0
+        self.blue_spectrum = 1
+
+
+
+    def read_spectroscopy_files(self, spec_files):
+        self.spec_objects = [get_spectrum(spec_file) for spec_file in spec_files]
+        all_channels = []
+        for spec_object in self.spec_objects:
+            all_channels.extend(list(spec_object.channels))
+        all_channels = list(set(all_channels))
+        all_channels = [str(channel) for channel in all_channels]
+        [combobox.addItems(all_channels) for combobox in [self.x_channel_box, self.y_channel_0_box, self.y_channel_1_box]]
+        self.channels = all_channels
+
+    def redraw_spectra(self):
+        # Read the QComboboxes and retrieve what channels are requested
+        [x_index, y_0_index, y_1_index] = [self.x_channel_box.currentIndex(), self.y_channel_0_box.currentIndex(), self.y_channel_1_box.currentIndex()]
+        [x_channel, y_0_channel, y_1_channel] = [self.channels[index] for index in [x_index, y_0_index, y_1_index]]
+
+        # self.graph_0 = self.graph_0_widget.getPlotItem()
+        # self.graph_1 = self.graph_1_widget.getPlotItem()
+        
+        #self.spec_objects[self]
+        x_data = np.linspace(-2, 2, 20)
+        y_data = np.random.rand(len(x_data))
+
+        [graph.clear() for graph in [self.graph_0, self.graph_1]]
+        self.graph_0.plot(x_data, y_data, pen = "r")
+        self.graph_1.plot(x_data, y_data, pen = "b")
 
 
 
@@ -55,7 +91,7 @@ class AppWindow(QMainWindow):
         self.setGeometry(100, 100, 1400, 800) # x, y, width, height
 
         # Add ImageView
-        pg.setConfigOptions(imageAxisOrder = "row-major")
+        pg.setConfigOptions(imageAxisOrder = "row-major", antialias = True)
         self.image_view = pg.ImageView(view = pg.PlotItem())
         self.hist = self.image_view.getHistogramWidget()
         self.hist_item = self.hist.item
@@ -97,6 +133,10 @@ class AppWindow(QMainWindow):
             self.sxm_file = self.scanalyzer_folder + "dummy_scan.sxm"
             self.load_folder(self.sxm_file)
             self.on_full_scale("both")
+        
+        sleep(.2)
+        self.showMinimized()
+        self.load_spectroscopy_window()
 
 
 
@@ -675,7 +715,7 @@ class AppWindow(QMainWindow):
 
         # Load the scan object using nanonispy2
         self.scan_object = get_scan(self.sxm_file, units = {"length": "nm", "current": "pA"})
-        scan_tensor = self.scan_object.scan_tensor
+        scan_tensor = self.scan_object.tensor
         self.channels = self.scan_object.channels # Load which channels have been recorded
         if self.channel not in self.channels: # If the requested channel does not exist in the scan, default the requested channel to be the first channel in the list of channels
             self.channel = self.channels[0]
@@ -801,7 +841,7 @@ class AppWindow(QMainWindow):
         if not hasattr(self, "second_window") or self.second_window is None: # Create only if not already created:
             self.current_scan = self.load_scan()
             processed_scan = self.process_scan(self.current_scan)
-            self.second_window = SpectroscopyWindow(processed_scan)
+            self.second_window = SpectroscopyWindow(processed_scan, self.spec_files)
         self.second_window.show()
 
     # Scale limit functions
