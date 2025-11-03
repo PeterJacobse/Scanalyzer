@@ -11,7 +11,8 @@ from pathlib import Path
 import pyqtgraph as pg
 from pyqtgraph.Qt import QtCore
 from PyQt6.QtGui import QImage, QDragEnterEvent, QDropEvent, QDragMoveEvent, QShortcut, QKeySequence
-from scanalyzer.image_functions import get_scan, apply_gaussian, apply_fft, image_gradient, compute_normal, apply_laplace, complex_image_to_colors, background_subtract, get_image_statistics, spec_times, get_spectrum
+from scanalyzer.image_functions import apply_gaussian, apply_fft, image_gradient, compute_normal, apply_laplace, complex_image_to_colors, background_subtract, get_image_statistics
+from scanalyzer.file_functions import read_files, get_scan, get_spectrum, get_datetime, spec_times
 from datetime import datetime
 from time import sleep
 
@@ -134,9 +135,9 @@ class AppWindow(QMainWindow):
             self.load_folder(self.sxm_file)
             self.on_full_scale("both")
         
-        sleep(.2)
-        self.showMinimized()
-        self.load_spectroscopy_window()
+        #sleep(.2)
+        #self.showMinimized()
+        #self.load_spectroscopy_window()
 
 
 
@@ -677,6 +678,11 @@ class AppWindow(QMainWindow):
     def load_folder(self, file_name):
         try:
             self.folder = os.path.dirname(file_name) # Set the folder to the directory of the file
+            
+            # Work in progress to use the datetime parsed in read_files directly
+            (self.sxm_list, self.spectrum_list) = read_files(self.folder)
+            print(self.sxm_files)
+            
             self.sxm_files = np.array([str(file) for file in Path(self.folder).glob("*.sxm")]) # Read all the sxm files
             self.max_file_index = len(self.sxm_files) - 1
             self.file_index = np.where([os.path.samefile(sxm_file, file_name) for sxm_file in self.sxm_files])[0][0]
@@ -697,13 +703,13 @@ class AppWindow(QMainWindow):
             except Exception as e:
                 print(f"Error: {e}")
 
-            if self.max_file_index > -1:
+            if self.max_file_index > 0:
                 self.current_scan = self.load_scan() # Load the image if there is a file
                 processed_scan = self.process_scan(self.current_scan)
                 self.display(processed_scan)
 
-        except:
-            print("Error loading files")
+        except Exception as e:
+            print(f"Error loading files: {e}")
             self.file_label = "Select file"
         
         self.file_select_button.setText(self.file_label)
