@@ -64,7 +64,7 @@ class SpectroscopyWindow(QMainWindow):
         [main_layout.addWidget(column_1_widgets[i], i, 1, alignment = Qt.AlignmentFlag.AlignCenter) for i in range(len(column_1_widgets))]
         [main_layout.addWidget(column_2_widgets[i], i, 2, alignment = Qt.AlignmentFlag.AlignCenter) for i in range(len(column_2_widgets))]
         main_layout.addWidget(spectrum_selector_widget, 0, 0, 3, 1)
-        self.exit_button.clicked.connect(QApplication.quit) # Connect to the window's close method
+        self.exit_button.clicked.connect(self.close) # Connect to the window's close method
 
         # Connect all the combobox and checkbox changes to spectrum redrawing
         self.x_channel_box.currentIndexChanged.connect(self.redraw_spectra)
@@ -176,10 +176,6 @@ class AppWindow(QMainWindow):
             self.sxm_file = [self.scanalyzer_folder + "dummy_scan.sxm", "dummy_scan.sxm", 0, 0]
             self.load_folder(self.sxm_file)
             self.on_full_scale("both")
-        
-        #sleep(.2)
-        self.showMinimized()
-        self.load_spectroscopy_window()
 
 
 
@@ -192,8 +188,8 @@ class AppWindow(QMainWindow):
         self.output_folder_name = "Extracted Files" # Set output folder for saving images
         self.output_folder = self.folder + "\\" + self.output_folder_name
         
-        self.sxm_files = []
-        self.spec_files = []
+        self.sxm_files = np.array([[]])
+        self.spec_files = np.array([[]])
         self.image_files = [""]
         self.file_index = 0
         self.max_file_index = -1
@@ -631,9 +627,11 @@ class AppWindow(QMainWindow):
     def on_previous_file(self):
         self.file_index -= 1
         if self.file_index < 0: self.file_index = self.max_file_index
+        if hasattr(self, "hist_item"): self.hist_item.sigLevelChangeFinished.disconnect(self.histogram_scale_changed)
         self.current_scan = self.load_scan()
         processed_scan = self.process_scan(self.current_scan)
         self.display(processed_scan)
+        if hasattr(self, "hist_item"): self.hist_item.sigLevelChangeFinished.connect(self.histogram_scale_changed)
 
     def on_file_select(self):
         file_name, _ = QFileDialog.getOpenFileName(self, "Open file", self.folder, "SXM files (*.sxm)")
@@ -642,9 +640,11 @@ class AppWindow(QMainWindow):
     def on_next_file(self):
         self.file_index += 1
         if self.file_index > self.max_file_index: self.file_index = 0
+        if hasattr(self, "hist_item"): self.hist_item.sigLevelChangeFinished.disconnect(self.histogram_scale_changed)
         self.current_scan = self.load_scan()
         processed_scan = self.process_scan(self.current_scan)
         self.display(processed_scan)
+        if hasattr(self, "hist_item"): self.hist_item.sigLevelChangeFinished.connect(self.histogram_scale_changed)
 
 
 
@@ -781,9 +781,12 @@ class AppWindow(QMainWindow):
         else:
             self.summary_text = f"Constant height scan recorded on\n{self.scan_time.strftime('%Y/%m/%d   at   %H:%M:%S')}\n\n(V = {self.bias} V)\nScan range: {self.scan_range[0]} nm by {self.scan_range[1]} nm"
         self.scan_summary_label.setText(self.summary_text)
-
-        associated_spectra_indices = np.where(self.spec_files[:, 3] == self.sxm_file[0])[0]
-        self.associated_spectra = [self.spec_files[index, 0] for index in associated_spectra_indices]
+        
+        try:
+            associated_spectra_indices = np.where(self.spec_files[:, 3] == self.sxm_file[0])[0]
+            self.associated_spectra = [self.spec_files[index, 0] for index in associated_spectra_indices]
+        except:
+            self.associated_spectra = []
         self.spectra_box.blockSignals(True)
         self.spectra_box.clear()
         self.spectra_box.addItems(self.associated_spectra)
@@ -1140,8 +1143,6 @@ class AppWindow(QMainWindow):
         rescaled_array = np.clip(rescaled_array, 0, 1)  # Ensure within [0,1]
         uint8_array = (255 * rescaled_array).astype(np.uint8)
         
-        print(f"The dimensionality of the output array is {uint8_array.ndim}")
-
         try:
             if uint8_array.ndim > 2:
                 #rgb_array = np.ascontiguousarray(uint8_array, dtype = np.uint8)
