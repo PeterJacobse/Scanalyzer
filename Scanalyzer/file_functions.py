@@ -83,12 +83,15 @@ def read_files(directory):
     all_files = os.listdir(directory)
     dat_files = [os.path.join(directory, file) for file in all_files if file.endswith(".dat")]
     sxm_files = [os.path.join(directory, file) for file in all_files if file.endswith(".sxm")]
-    
+
     # Parse the scan files
     scan_list = []
     for file in sxm_files:
-        date_time = get_datetime(file)
-        scan_list.append([os.path.basename(file), file, date_time])
+        try:
+            date_time = get_datetime(file)
+            scan_list.append([os.path.basename(file), file, date_time])
+        except:
+            pass
     scan_list = np.array(scan_list)
     no_scans = len(scan_list)
 
@@ -105,28 +108,15 @@ def read_files(directory):
     spectrum_list = np.array(spectrum_list)
     no_spectra = len(spectrum_list)
 
-    # Associate the spectra with scan files
-    """
-    if no_spectra > 0:
-        spectrum_no = 0
-        spectrum_date_time = spectrum_list[spectrum_no, 2]
+    # Associate spectra with scans
+    for spectrum_index in range(no_spectra):
+        spectrum_time = spectrum_list[spectrum_index, 2]
+        spectrum_recorded_after_scan = spectrum_time > scan_list[:, 2] # List of Trues for scans recorded before the spectrum, and Falses for scans recorded after the spectrum
+        spectrum_after_scan_indices = np.where(spectrum_recorded_after_scan)[0] # Find the Trues
+        if len(spectrum_after_scan_indices) > 0: # If not empty (i.e. spectrum recorded before the first scan)
+            associated_spectrum = spectrum_after_scan_indices[-1] # The last True is the scan associated with the spectrum
+            spectrum_list[spectrum_index, 3] = scan_list[associated_spectrum, 0]
 
-        for scan_no in range(no_scans):
-            scan_date_time = scan_list[scan_no, 2]
-            
-            # The first time a scan is found whose datetime attribute is larger than that of the spectrum, the previous scan is associated with the spectrum
-            # I.e. the spectrum is associated with the last scan recorded before the scan that was recorded after the spectrum
-            if scan_date_time > spectrum_date_time:
-                
-                while scan_date_time > spectrum_date_time:
-                    spectrum_list[spectrum_no, 4] = scan_list[scan_no - 1, 0] # Attach the associated scan file to the corresponding spectrum in the spectrum list
-                    
-                    if spectrum_no > no_spectra - 1:
-                        return (scan_list, spectrum_list) # Return if all spectra have been parsed
-                    else:
-                        spectrum_no += 1 # Loop over more spectra to see if they are associated with the same scan
-                        spectrum_date_time = spectrum_list[spectrum_no, 2] # If the spectrum is recorded after the scan, it will break out of the while loop
-    """
     return (scan_list, spectrum_list)
 
 def get_scan(file_name, units: dict = {"length": "m", "current": "A"}, default_channel_units: dict = {"X": "m", "Y": "m", "Z": "m", "Current": "A", "LI Demod 1 X": "A", "LI Demod 1 Y": "A", "LI Demod 2 X": "A", "LI Demod 2 Y": "A"}):

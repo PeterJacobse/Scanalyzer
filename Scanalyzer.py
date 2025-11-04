@@ -7,59 +7,81 @@ from PyQt6.QtWidgets import (
     QButtonGroup, QComboBox, QRadioButton, QGroupBox, QLineEdit, QFrame, QCheckBox, QMessageBox
 )
 from PyQt6.QtCore import Qt, QTimer
-from pathlib import Path
 import pyqtgraph as pg
 from pyqtgraph.Qt import QtCore
 from PyQt6.QtGui import QImage, QDragEnterEvent, QDropEvent, QDragMoveEvent, QShortcut, QKeySequence
 from scanalyzer.image_functions import apply_gaussian, apply_fft, image_gradient, compute_normal, apply_laplace, complex_image_to_colors, background_subtract, get_image_statistics
-from scanalyzer.file_functions import read_files, get_scan, get_spectrum, get_datetime, spec_times
+from scanalyzer.file_functions import read_files, get_scan, get_spectrum
 from datetime import datetime
-from time import sleep
 
 
 
 class SpectroscopyWindow(QMainWindow):
-    def __init__(self, processed_scan, spec_files):
+    def __init__(self, processed_scan, spec_files, associated_spectra):
         super().__init__()
         self.setWindowTitle("Spectrum viewer")
         self.setGeometry(200, 200, 900, 600)
+        self.spec_files = spec_files # Make the spectroscopy file list an attribute of the SpectroscopyWindow class
         
         # Set the central widget of the QMainWindow
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         main_layout = QGridLayout(central_widget)
         
-        [self.x_channel_box, self.graph_0_widget, self.graph_1_widget] = column_0_widgets = [QComboBox(), pg.PlotWidget(), pg.PlotWidget()]
-        [self.exit_button, self.y_channel_0_box, self.y_channel_1_box] = column_1_widgets = [QPushButton("Exit Spectrum viewer"), QComboBox(), QComboBox()]
 
+
+        # Spectrum selector
+        self.color_list = ["#FFFFFF", "#FFFF00", "#FF90FF", "#00FFFF", "#00FF00", "#A0A0A0", "#FF4040", "#4040FF", "#FFA500", "#9000FF"]
+        spectrum_selector_widget = QWidget()
+        spectrum_selector_layout = QGridLayout()
+        self.checkbox = [QCheckBox() for _ in range(10)]
+        self.qbox = [QComboBox() for _ in range(10)]
+        
+        [self.qbox[i].setStyleSheet("QComboBox { color: " + color + "; }") for i, color in zip(range(len(self.color_list)), self.color_list)]
+        [box.addItems(spec_files[:, 0]) for box in self.qbox]
+
+        # Initialize the comboboxes to the associated spectra
+        for combobox_no in range(min(len(associated_spectra), len(self.qbox))):
+            try:
+                associated_index = np.where(spec_files[:, 0] == associated_spectra[combobox_no])
+                self.qbox[combobox_no].setCurrentIndex(associated_index)
+            except:
+                pass
+
+        [spectrum_selector_layout.addWidget(self.checkbox[i], i, 0) for i in range(len(self.checkbox))]
+        [spectrum_selector_layout.addWidget(self.qbox[i], i, 1) for i in range(len(self.qbox))]
+        spectrum_selector_widget.setLayout(spectrum_selector_layout)
+        
+
+
+        # Main widgets
+        [self.x_channel_box, self.graph_0_widget, self.graph_1_widget] = column_1_widgets = [QComboBox(), pg.PlotWidget(), pg.PlotWidget()]
+        [self.exit_button, self.y_channel_0_box, self.y_channel_1_box] = column_2_widgets = [QPushButton("Exit Spectrum viewer"), QComboBox(), QComboBox()]
+        self.graph_0 = self.graph_0_widget.getPlotItem() # Get the plotitems corresponding to the plot widgets
+        self.graph_1 = self.graph_1_widget.getPlotItem()
         self.x_channel_box.setFixedWidth(500)
 
-        [main_layout.addWidget(column_0_widgets[i], i, 0, alignment = Qt.AlignmentFlag.AlignCenter) for i in range(len(column_0_widgets))]
         [main_layout.addWidget(column_1_widgets[i], i, 1, alignment = Qt.AlignmentFlag.AlignCenter) for i in range(len(column_1_widgets))]
+        [main_layout.addWidget(column_2_widgets[i], i, 2, alignment = Qt.AlignmentFlag.AlignCenter) for i in range(len(column_2_widgets))]
+        main_layout.addWidget(spectrum_selector_widget, 0, 0, 3, 1)
         self.exit_button.clicked.connect(QApplication.quit) # Connect to the window's close method
 
-        # Show the data
-        self.graph_0 = self.graph_0_widget.getPlotItem()
-        self.graph_1 = self.graph_1_widget.getPlotItem()
-        x_data = np.linspace(-2, 2, 20)
-        y_data = np.random.rand(len(x_data))
-        self.graph_0.plot(x_data, y_data, pen = "r")
-        self.graph_1.plot(x_data, y_data, pen = "b")
-        #image_item.setRect(QtCore.QRectF(0, 0, self.scan_range[1], self.scan_range[0]))  # Add dimensions to the ImageView object
-
-        self.read_spectroscopy_files(spec_files)
+        # Connect all the combobox and checkbox changes to spectrum redrawing
         self.x_channel_box.currentIndexChanged.connect(self.redraw_spectra)
         self.y_channel_0_box.currentIndexChanged.connect(self.redraw_spectra)
         self.y_channel_1_box.currentIndexChanged.connect(self.redraw_spectra)
+        [checkbox.clicked.connect(self.redraw_spectra) for checkbox in self.checkbox]
+        [combobox.currentIndexChanged.connect(self.redraw_spectra) for combobox in self.qbox]
 
-        self.red_spectrum = 0
-        self.blue_spectrum = 1
+        self.read_spectroscopy_files()
+        # Switch on the first spectrum, forcing an instance of redraw_spectra in doing so
+        self.checkbox[0].setChecked(True)
 
 
 
-    def read_spectroscopy_files(self, spec_files):
-        self.spec_objects = [get_spectrum(spec_file) for spec_file in spec_files]
-        all_channels = []
+    def read_spectroscopy_files(self):
+        self.spec_objects = [get_spectrum(spec_file[1]) for spec_file in self.spec_files] # Get a spectroscopy object for each spectroscopy file
+        all_channels = [] # Find all the channels recorded during all the spectroscopies and combine them into a list called all_channels
         for spec_object in self.spec_objects:
             all_channels.extend(list(spec_object.channels))
         all_channels = list(set(all_channels))
@@ -69,6 +91,7 @@ class SpectroscopyWindow(QMainWindow):
 
     def redraw_spectra(self):
         # Read the QComboboxes and retrieve what channels are requested
+        if not hasattr(self, "channels"): return # Return if the channels have not yet been read
         [x_index, y_0_index, y_1_index] = [self.x_channel_box.currentIndex(), self.y_channel_0_box.currentIndex(), self.y_channel_1_box.currentIndex()]
         [x_channel, y_0_channel, y_1_channel] = [self.channels[index] for index in [x_index, y_0_index, y_1_index]]
 
@@ -80,8 +103,27 @@ class SpectroscopyWindow(QMainWindow):
         y_data = np.random.rand(len(x_data))
 
         [graph.clear() for graph in [self.graph_0, self.graph_1]]
-        self.graph_0.plot(x_data, y_data, pen = "r")
-        self.graph_1.plot(x_data, y_data, pen = "b")
+        
+        for i in range(len(self.checkbox) - 1, -1, -1):
+            color = self.color_list[i]
+
+            if self.checkbox[i].isChecked():
+                spec_index = self.qbox[i].currentIndex()
+                spec_object = self.spec_objects[spec_index]
+                spec_signal = spec_object.signals
+                
+                try:
+                    x_data = spec_signal[x_channel]
+                    y_0_data = spec_signal[y_0_channel]
+                    self.graph_0.plot(x_data, y_0_data, pen = color)
+                except KeyError:
+                    pass
+                try:
+                    x_data = spec_signal[x_channel]
+                    y_1_data = spec_signal[y_1_channel]
+                    self.graph_1.plot(x_data, y_1_data, pen = color)
+                except KeyError:
+                    pass
 
 
 
@@ -131,13 +173,13 @@ class AppWindow(QMainWindow):
                 self.on_full_scale("both")
         except:  # Display the dummy scan
             self.folder = self.scanalyzer_folder
-            self.sxm_file = self.scanalyzer_folder + "dummy_scan.sxm"
+            self.sxm_file = [self.scanalyzer_folder + "dummy_scan.sxm", "dummy_scan.sxm", 0, 0]
             self.load_folder(self.sxm_file)
             self.on_full_scale("both")
         
         #sleep(.2)
-        #self.showMinimized()
-        #self.load_spectroscopy_window()
+        self.showMinimized()
+        self.load_spectroscopy_window()
 
 
 
@@ -152,7 +194,6 @@ class AppWindow(QMainWindow):
         
         self.sxm_files = []
         self.spec_files = []
-        self.spec_times = []
         self.image_files = [""]
         self.file_index = 0
         self.max_file_index = -1
@@ -678,23 +719,15 @@ class AppWindow(QMainWindow):
     def load_folder(self, file_name):
         try:
             self.folder = os.path.dirname(file_name) # Set the folder to the directory of the file
+            (self.sxm_files, self.spec_files) = read_files(self.folder) # Read the names and datetimes of all scans (.sxm files) and spectra (.dat files)
             
-            # Work in progress to use the datetime parsed in read_files directly
-            (self.sxm_list, self.spectrum_list) = read_files(self.folder)
-            print(self.sxm_files)
-            
-            self.sxm_files = np.array([str(file) for file in Path(self.folder).glob("*.sxm")]) # Read all the sxm files
             self.max_file_index = len(self.sxm_files) - 1
-            self.file_index = np.where([os.path.samefile(sxm_file, file_name) for sxm_file in self.sxm_files])[0][0]
-            self.output_folder = self.folder + "\\" + self.output_folder_name
+            self.file_index = np.where([os.path.samefile(sxm_file, file_name) for sxm_file in self.sxm_files[:, 1]])[0][0] # Find the number of the specific file that was selected
+            if self.file_index > self.max_file_index: self.file_index = 0 # Roll over if the selected file index is too large
+            self.output_folder = self.folder + "\\" + self.output_folder_name # Update the output folder name
+            self.sxm_file = self.sxm_files[self.file_index] # Apply the index to the list of sxm files to pick the correct sxm file
 
-            if self.file_index > self.max_file_index: self.file_index = 0
-            self.sxm_file = self.sxm_files[self.file_index]
-
-            # Read all the spectroscopy files in the same folder and create a list of spectroscopy times
-            [self.spec_files, self.spec_times] = spec_times(self.folder)
-
-            self.file_label = os.path.basename(self.sxm_file) # The file label is the file name without the directory path
+            self.file_label = self.sxm_file[0] # The file label is the file name without the directory path
             # Update folder/contents labels
             try:
                 self.folder_name_button.setText(self.folder)
@@ -716,11 +749,11 @@ class AppWindow(QMainWindow):
 
     def load_scan(self):
         self.sxm_file = self.sxm_files[self.file_index]
-        self.file_label = os.path.basename(self.sxm_file)
+        self.file_label = self.sxm_file[0]
         self.file_select_button.setText(self.file_label) # Make the select file button display the file name
 
         # Load the scan object using nanonispy2
-        self.scan_object = get_scan(self.sxm_file, units = {"length": "nm", "current": "pA"})
+        self.scan_object = get_scan(self.sxm_file[1], units = {"length": "nm", "current": "pA"})
         scan_tensor = self.scan_object.tensor
         self.channels = self.scan_object.channels # Load which channels have been recorded
         if self.channel not in self.channels: # If the requested channel does not exist in the scan, default the requested channel to be the first channel in the list of channels
@@ -749,17 +782,8 @@ class AppWindow(QMainWindow):
             self.summary_text = f"Constant height scan recorded on\n{self.scan_time.strftime('%Y/%m/%d   at   %H:%M:%S')}\n\n(V = {self.bias} V)\nScan range: {self.scan_range[0]} nm by {self.scan_range[1]} nm"
         self.scan_summary_label.setText(self.summary_text)
 
-        # Determine when the next scan was recorded, then calculate which spectra were recorded within the time interval between this scan and the next one
-        if self.file_index < self.max_file_index:
-            next_sxm_file = self.sxm_files[self.file_index + 1]
-            next_scan = get_scan(next_sxm_file)
-            next_scan_time = next_scan.date_time
-        else:
-            next_scan_time = datetime(2999, 12, 31, 23, 59, 59)        
-        spectra_in_interval = [self.scan_time < spec_time < next_scan_time for spec_time in self.spec_times]
-        self.associated_spectra_indices = np.where(spectra_in_interval)[0]
-        self.associated_spectra = np.array([self.spec_files[index] for index in self.associated_spectra_indices])
-        
+        associated_spectra_indices = np.where(self.spec_files[:, 3] == self.sxm_file[0])[0]
+        self.associated_spectra = [self.spec_files[index, 0] for index in associated_spectra_indices]
         self.spectra_box.blockSignals(True)
         self.spectra_box.clear()
         self.spectra_box.addItems(self.associated_spectra)
@@ -847,7 +871,7 @@ class AppWindow(QMainWindow):
         if not hasattr(self, "second_window") or self.second_window is None: # Create only if not already created:
             self.current_scan = self.load_scan()
             processed_scan = self.process_scan(self.current_scan)
-            self.second_window = SpectroscopyWindow(processed_scan, self.spec_files)
+            self.second_window = SpectroscopyWindow(processed_scan, self.spec_files, self.associated_spectra)
         self.second_window.show()
 
     # Scale limit functions
@@ -1148,7 +1172,7 @@ class AppWindow(QMainWindow):
     def on_exit(self):
         try: # Save the currently opened scan folder to the config yaml file so it opens automatically on startup next time
             with open(self.scanalyzer_folder + "\\config.yml", "w") as file:
-                yaml.safe_dump({"last_file": str(self.sxm_file)}, file)
+                yaml.safe_dump({"last_file": str(self.sxm_file[1])}, file)
         except Exception as e:
             print("Failed to save the scan folder to the config.yml file.")
             print(e)
