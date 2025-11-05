@@ -22,39 +22,69 @@ class SpectroscopyWindow(QMainWindow):
         self.setWindowTitle("Spectrum viewer")
         self.setGeometry(200, 200, 900, 600)
         self.spec_files = spec_files # Make the spectroscopy file list an attribute of the SpectroscopyWindow class
+        self.associated_spectra = associated_spectra
         
+        # Spectrum colors
+        self.color_list = ["#FFFFFF", "#FFFF00", "#FF90FF", "#00FFFF", "#00FF00", "#A0A0A0", "#FF4040", "#4040FF", "#FFA500", "#9000FF", "#808000", "#008080", "#800080", "#008000", "#A00000", "#0000A0"]
+        
+        self.draw_layout()
+        self.connect_buttons()
+        self.connect_keys()
+        self.read_spectroscopy_files()
+        # Switch on spectra
+        for i in range(min(len(self.associated_spectra), len(self.qbox))): self.checkbox[i].setChecked(True)
+
+    def draw_layout(self, toggle_checbox = None):
         # Set the central widget of the QMainWindow
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         main_layout = QGridLayout(central_widget)
-        
-
 
         # Spectrum selector
-        self.color_list = ["#FFFFFF", "#FFFF00", "#FF90FF", "#00FFFF", "#00FF00", "#A0A0A0", "#FF4040", "#4040FF", "#FFA500", "#9000FF"]
         spectrum_selector_widget = QWidget()
         spectrum_selector_layout = QGridLayout()
-        self.checkbox = [QCheckBox() for _ in range(10)]
+        self.checkbox = [QCheckBox(f"({i})") for i in range(10)]
+        self.leftarrows = [QToolButton() for _ in range(10)]
+        [leftarrow.setArrowType(Qt.ArrowType.LeftArrow) for leftarrow in self.leftarrows]
+        [leftarrow.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly) for leftarrow in self.leftarrows]
         self.qbox = [QComboBox() for _ in range(10)]
+        self.rightarrows = [QToolButton() for _ in range(10)]
+        [rightarrow.setArrowType(Qt.ArrowType.RightArrow) for rightarrow in self.rightarrows]
+        [rightarrow.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly) for rightarrow in self.rightarrows]
+        [arrow.setEnabled(False) for arrow in self.leftarrows]
+        [arrow.setEnabled(False) for arrow in self.rightarrows]
         
-        [self.qbox[i].setStyleSheet("QComboBox { color: " + color + "; }") for i, color in zip(range(len(self.color_list)), self.color_list)]
-        [box.addItems(spec_files[:, 0]) for box in self.qbox]
+        # Put a little star on the spectrum names that are associated with the scan
+        spec_labels = self.spec_files[:, 0]
+        for i in range(len(spec_labels)):
+            if spec_labels[i] in self.associated_spectra: spec_labels[i] = spec_labels[i] + "*"
+        [self.qbox[i].setStyleSheet("QComboBox { color: " + self.color_list[i] + "; }") for i in range(len(self.qbox))]
+        [box.addItems(self.spec_files[:, 0]) for box in self.qbox]
 
-        # Initialize the comboboxes to the associated spectra
-        for combobox_no in range(min(len(associated_spectra), len(self.qbox))):
+        # Initialize the comboboxes to the associated spectra if possible
+        for combobox_no in range(len(self.qbox)):
             try:
-                associated_index = np.where(spec_files[:, 0] == associated_spectra[combobox_no])
-                self.qbox[combobox_no].setCurrentIndex(associated_index)
+                if combobox_no < len(self.associated_spectra):
+                    associated_index = np.where(self.spec_files[:, 0] == self.associated_spectra[combobox_no])
+                    self.qbox[combobox_no].setCurrentIndex(associated_index)
+                else:
+                    if combobox_no < len(self.spec_files):
+                        self.qbox[combobox_no].setCurrentIndex(combobox_no)
+                    else:
+                        pass
             except:
                 pass
 
         [spectrum_selector_layout.addWidget(self.checkbox[i], i, 0) for i in range(len(self.checkbox))]
-        [spectrum_selector_layout.addWidget(self.qbox[i], i, 1) for i in range(len(self.qbox))]
+        [spectrum_selector_layout.addWidget(self.leftarrows[i], i, 1) for i in range(len(self.leftarrows))]
+        [spectrum_selector_layout.addWidget(self.qbox[i], i, 2) for i in range(len(self.qbox))]
+        [spectrum_selector_layout.addWidget(self.rightarrows[i], i, 3) for i in range(len(self.qbox))]
         spectrum_selector_widget.setLayout(spectrum_selector_layout)
-        
+    
 
 
         # Main widgets
+        main_layout.addWidget(spectrum_selector_widget, 1, 0, 2, 1) # Spectrum selector buttons
         [self.x_channel_box, self.graph_0_widget, self.graph_1_widget] = column_1_widgets = [QComboBox(), pg.PlotWidget(), pg.PlotWidget()]
         [self.exit_button, self.y_channel_0_box, self.y_channel_1_box] = column_2_widgets = [QPushButton("Exit Spectrum viewer"), QComboBox(), QComboBox()]
         self.graph_0 = self.graph_0_widget.getPlotItem() # Get the plotitems corresponding to the plot widgets
@@ -63,7 +93,8 @@ class SpectroscopyWindow(QMainWindow):
 
         [main_layout.addWidget(column_1_widgets[i], i, 1, alignment = Qt.AlignmentFlag.AlignCenter) for i in range(len(column_1_widgets))]
         [main_layout.addWidget(column_2_widgets[i], i, 2, alignment = Qt.AlignmentFlag.AlignCenter) for i in range(len(column_2_widgets))]
-        main_layout.addWidget(spectrum_selector_widget, 0, 0, 3, 1)
+
+    def connect_buttons(self):
         self.exit_button.clicked.connect(self.close) # Connect to the window's close method
 
         # Connect all the combobox and checkbox changes to spectrum redrawing
@@ -73,11 +104,12 @@ class SpectroscopyWindow(QMainWindow):
         [checkbox.clicked.connect(self.redraw_spectra) for checkbox in self.checkbox]
         [combobox.currentIndexChanged.connect(self.redraw_spectra) for combobox in self.qbox]
 
-        self.read_spectroscopy_files()
-        # Switch on the first spectrum, forcing an instance of redraw_spectra in doing so
-        self.checkbox[0].setChecked(True)
-
-
+    def connect_keys(self):
+        checkbox_shortcuts = [QShortcut(QKeySequence(keystroke), self) for keystroke in [Qt.Key.Key_0, Qt.Key.Key_1, Qt.Key.Key_2, Qt.Key.Key_3, Qt.Key.Key_4, Qt.Key.Key_5, Qt.Key.Key_6, Qt.Key.Key_7, Qt.Key.Key_8, Qt.Key.Key_9]]
+        [checkbox_shortcuts[i].activated.connect(lambda: self.redraw_spectra(toggle_checkbox = i)) for i in range(len(checkbox_shortcuts))]
+        
+        exit_shortcuts = [QShortcut(QKeySequence(keystroke), self) for keystroke in [Qt.Key.Key_Q, Qt.Key.Key_X, Qt.Key.Key_E, Qt.Key.Key_Escape]]
+        [exit_shortcut.activated.connect(self.close) for exit_shortcut in exit_shortcuts]
 
     def read_spectroscopy_files(self):
         self.spec_objects = [get_spectrum(spec_file[1]) for spec_file in self.spec_files] # Get a spectroscopy object for each spectroscopy file
@@ -87,9 +119,30 @@ class SpectroscopyWindow(QMainWindow):
         all_channels = list(set(all_channels))
         all_channels = [str(channel) for channel in all_channels]
         [combobox.addItems(all_channels) for combobox in [self.x_channel_box, self.y_channel_0_box, self.y_channel_1_box]]
+        # Set the channel toggle boxes to logical values
+        try:
+            if "Bias calc (V)" in all_channels:
+                channel_index = np.where(all_channels == "Bias calc (V)")[0][0]
+                self.x_channel_box.setCurrentIndex(channel_index)
+            elif "Bias (V)" in all_channels:
+                channel_index = np.where(all_channels == "Bias (V)")[0][0]
+                self.x_channel_box.setCurrentIndex(channel_index)
+            
+            if "Current (A)" in all_channels:
+                channel_index = np.where(all_channels == "Current (A)")[0][0]
+                self.y_channel_1_box.setCurrentIndex(channel_index)
+        except:
+            pass
+                
         self.channels = all_channels
 
-    def redraw_spectra(self):
+    def redraw_spectra(self, toggle_checkbox = None):
+        if type(toggle_checkbox) == int:
+            if -1 < toggle_checkbox < 10:
+                #self.checkbox[toggle_checkbox].disconnect()
+                self.checkbox[toggle_checkbox].setChecked(not self.checkbox[toggle_checkbox].isChecked())
+                # self.checkbox[toggle_checkbox].toggled.connect(self.redraw_spectra)
+
         # Read the QComboboxes and retrieve what channels are requested
         if not hasattr(self, "channels"): return # Return if the channels have not yet been read
         [x_index, y_0_index, y_1_index] = [self.x_channel_box.currentIndex(), self.y_channel_0_box.currentIndex(), self.y_channel_1_box.currentIndex()]
@@ -291,7 +344,7 @@ class AppWindow(QMainWindow):
             self.direction_button = QPushButton()
             self.direction_button.setCheckable(True)
             self.direction_button.setChecked(self.scan_direction == "backward") # checked == True -> backward, checked == False -> forward
-            self.direction_button.setText("Direction: backward" if self.direction_button.isChecked() else "Direction: forward")
+            self.direction_button.setText("direXion: backward" if self.direction_button.isChecked() else "direXion: forward")
 
             direction_hbox.addWidget(self.direction_button)
             fcd_layout.addLayout(direction_hbox)
@@ -394,7 +447,7 @@ class AppWindow(QMainWindow):
             self.min_percentile_box.setText(str(self.min_percentile))
             self.max_percentile_box.setText(str(self.max_percentile))
 
-            [self.min_std_dev_box, self.min_std_dev_set, self.set_std_dev_button, self.max_std_dev_set, self.max_std_dev_box] = std_dev_boxes = [QLineEdit(), QRadioButton(), QPushButton("by standard deViations"), QRadioButton(), QLineEdit()]
+            [self.min_std_dev_box, self.min_std_dev_set, self.set_std_dev_button, self.max_std_dev_set, self.max_std_dev_box] = std_dev_boxes = [QLineEdit(), QRadioButton(), QPushButton("by standard Deviations"), QRadioButton(), QLineEdit()]
             self.min_std_dev_box.setText(str(self.min_std_dev))
             self.max_std_dev_box.setText(str(self.max_std_dev))
 
@@ -441,7 +494,7 @@ class AppWindow(QMainWindow):
             io_box.setColumnStretch(1, 1)
 
             # Make I/O buttons
-            (self.save_button, self.exit_button, self.open_folder_button) = (QPushButton("Save image"), QPushButton("EXit Scanalyzer"), QPushButton("open ouTput folder"))
+            (self.save_button, self.exit_button, self.open_folder_button) = (QPushButton("Save image"), QPushButton("Exit Scanalyzer (E/Q/Esc)"), QPushButton("open ouTput folder"))
             self.save_button.setText("Save image as")
             self.png_file_box = QLineEdit()
             self.png_file_box.setAlignment(Qt.AlignmentFlag.AlignLeft)
@@ -566,7 +619,7 @@ class AppWindow(QMainWindow):
         next_channel_shortcut.activated.connect(self.on_next_chan)
 
         # Direction
-        direction_toggle_shortcut = QShortcut(QKeySequence(Qt.Key.Key_D), self)
+        direction_toggle_shortcut = QShortcut(QKeySequence(Qt.Key.Key_X), self)
         direction_toggle_shortcut.activated.connect(self.on_toggle_direction)
 
 
@@ -601,7 +654,7 @@ class AppWindow(QMainWindow):
         full_scale_shortcut.activated.connect(lambda: self.on_full_scale("both"))
         percentile_shortcut = QShortcut(QKeySequence(Qt.Key.Key_R), self)
         percentile_shortcut.activated.connect(lambda: self.on_percentiles("both"))
-        std_dev_shortcut = QShortcut(QKeySequence(Qt.Key.Key_V), self)
+        std_dev_shortcut = QShortcut(QKeySequence(Qt.Key.Key_D), self)
         std_dev_shortcut.activated.connect(lambda: self.on_standard_deviations("both"))
         abs_val_shortcut = QShortcut(QKeySequence(Qt.Key.Key_A), self)
         abs_val_shortcut.activated.connect(lambda: self.on_absolute_values("both"))
@@ -618,7 +671,7 @@ class AppWindow(QMainWindow):
         # I/O group
         save_file_shortcut = QShortcut(QKeySequence(Qt.Key.Key_S), self)
         save_file_shortcut.activated.connect(self.on_save)
-        exit_shortcuts = [QShortcut(QKeySequence(keystroke), self) for keystroke in [Qt.Key.Key_Q, Qt.Key.Key_X, Qt.Key.Key_E, Qt.Key.Key_Escape]]
+        exit_shortcuts = [QShortcut(QKeySequence(keystroke), self) for keystroke in [Qt.Key.Key_Q, Qt.Key.Key_E, Qt.Key.Key_Escape]]
         [exit_shortcut.activated.connect(self.on_exit) for exit_shortcut in exit_shortcuts]
         output_folder_shortcut = QShortcut(QKeySequence(Qt.Key.Key_T), self)
         output_folder_shortcut.activated.connect(lambda: os.startfile(self.output_folder))
@@ -668,7 +721,7 @@ class AppWindow(QMainWindow):
         self.scan_direction = "backward" if checked else "forward"
         # Update the button text to reflect the state
         try:
-            self.direction_button.setText("Direction: backward" if checked else "Direction: forward")
+            self.direction_button.setText("direXion: backward" if checked else "direXion: forward")
         except Exception:
             pass
         # Always reload image to reflect direction change
