@@ -256,6 +256,9 @@ class AppWindow(QMainWindow):
         self.scan_direction = "forward"
         self.background_subtraction = "none"
         self.scale_toggle_index = 0
+
+        self.min_range_selection = 0
+        self.max_range_selection = 0
         self.min_percentile = 2
         self.max_percentile = 98
         self.min_std_dev = 2
@@ -549,9 +552,8 @@ class AppWindow(QMainWindow):
         self.bg_none_radio.toggled.connect(lambda checked: self.on_bg_change("none") if checked else None)
         self.bg_plane_radio.toggled.connect(lambda checked: self.on_bg_change("plane") if checked else None)
         self.bg_inferred_radio.toggled.connect(lambda checked: self.on_bg_change("inferred") if checked else None)
-        self.bg_inferred_radio.toggled.connect(lambda checked: self.on_bg_change("linewise") if checked else None)
+        self.bg_linewise_radio.toggled.connect(lambda checked: self.on_bg_change("linewise") if checked else None)
         self.bg_inferred_radio.setEnabled(False)
-        self.bg_linewise_radio.setEnabled(False)
 
         # Matrix operations
         self.sobel_button.clicked.connect(lambda checked: self.toggle_matrix_processing("sobel", checked))
@@ -681,6 +683,8 @@ class AppWindow(QMainWindow):
         self.file_index -= 1
         if self.file_index < 0: self.file_index = self.max_file_index
         if hasattr(self, "hist_item"): self.hist_item.sigLevelChangeFinished.disconnect(self.histogram_scale_changed)
+
+        # Update
         self.current_scan = self.load_scan()
         processed_scan = self.process_scan(self.current_scan)
         self.display(processed_scan)
@@ -694,6 +698,8 @@ class AppWindow(QMainWindow):
         self.file_index += 1
         if self.file_index > self.max_file_index: self.file_index = 0
         if hasattr(self, "hist_item"): self.hist_item.sigLevelChangeFinished.disconnect(self.histogram_scale_changed)
+
+        # Update
         self.current_scan = self.load_scan()
         processed_scan = self.process_scan(self.current_scan)
         self.display(processed_scan)
@@ -737,6 +743,7 @@ class AppWindow(QMainWindow):
             elif mode == "inferred": self.bg_inferred_radio.setChecked(True)
             else: self.bg_linewise_radio.setChecked(True)
             
+            # Update
             if not hasattr(self, "current_scan"):
                 self.current_scan = self.load_scan()
             processed_scan = self.process_scan(self.current_scan)
@@ -747,6 +754,8 @@ class AppWindow(QMainWindow):
         self.channel_index -= 1
         if self.channel_index < 0: self.channel_index = self.max_channel_index
         self.channel = self.channels[self.channel_index]
+
+        # Update
         self.current_scan = self.load_scan()
         processed_scan = self.process_scan(self.current_scan)
         self.display(processed_scan)
@@ -754,6 +763,8 @@ class AppWindow(QMainWindow):
     def on_chan_change(self, index):
         self.channel_index = index
         self.channel = self.channels[index]
+
+        # Update
         self.current_scan = self.load_scan()
         processed_scan = self.process_scan(self.current_scan)
         self.display(processed_scan)
@@ -762,13 +773,15 @@ class AppWindow(QMainWindow):
         self.channel_index += 1
         if self.channel_index > self.max_channel_index: self.channel_index = 0
         self.channel = self.channels[self.channel_index]
+
+        # Update
         self.current_scan = self.load_scan()
         processed_scan = self.process_scan(self.current_scan)
         self.display(processed_scan)
 
 
 
-    # Routine for loading a new image
+    # Routines for loading a new image
     def load_folder(self, file_name):
         try:
             self.folder = os.path.dirname(file_name) # Set the folder to the directory of the file
@@ -897,7 +910,7 @@ class AppWindow(QMainWindow):
         self.statistics = get_image_statistics(processed_scan)
         rounded_min = round(self.statistics.min, 3)
         rounded_max = round(self.statistics.max, 3)
-        
+
         self.min_range_box.setText(f"{rounded_min}")
         self.max_range_box.setText(f"{rounded_max}")
 

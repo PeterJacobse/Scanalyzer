@@ -1,4 +1,3 @@
-from pathlib import Path
 import os
 import numpy as np
 import nanonispy2 as nap
@@ -8,6 +7,7 @@ from scipy.fft import fft2, fftshift
 from datetime import datetime
 from types import SimpleNamespace
 from matplotlib import colors
+from scipy.linalg import lstsq
 
 def apply_gaussian(image, sigma = 2, scan_range = None):
     if not isinstance(image, np.ndarray):
@@ -138,6 +138,29 @@ def apply_fft(image, scan_range = None):
 
     return fft_image, reciprocal_range
 
+def line_subtract(image):
+    if not isinstance(image, np.ndarray):
+        print("Error. The provided image is not a numpy array.")
+        return image
+    
+    image_subtracted = []
+    for line in image:
+        x = range(len(line))
+        # Construct the design matrix A for a linear fit (y = mx + c)
+        # The first column is x, the second is a column of ones for the intercept
+        A = np.vstack([x, np.ones(len(x))]).T
+
+        # Perform the least squares fit
+        coefficients, residuals, rank, singular_values = lstsq(A, line)
+        y_fit = coefficients[1] + coefficients[0] * x
+        line_subtracted = line - y_fit
+
+        image_subtracted.append(line_subtracted)
+
+    image_subtracted = np.array(image_subtracted, dtype = float)
+
+    return image_subtracted
+
 def complex_image_to_colors(image, saturate: bool = False):
     if not isinstance(image, np.ndarray):
         print("Error. The provided image is not a numpy array.")
@@ -170,6 +193,8 @@ def background_subtract(image, mode: str = "plane"):
 
     if mode == "plane":
         return image - plane - avg_image
+    elif mode == "linewise":
+        return line_subtract(image)
     elif mode == "average":
         return image - avg_image
     else:
@@ -402,28 +427,3 @@ def get_spectrum(file_name, units: dict = {"length": "m", "current": "A"}):
     
     except Exception as e:
         print(f"Error: {e}")
-
-def spec_times(folder):
-    dat_files = np.array([str(file) for file in Path(folder).glob("*.dat")]) # Read all the dat files
-
-    spec_files = []
-    spec_times = []
-
-    for spec_file in dat_files:
-        try:
-            spec_object = nap.read.Spec(spec_file)
-            [spec_date, spec_time] = spec_object.header.get("Start time").split()
-    
-            # Extract and convert time parameters and convert to datetime object
-            rec_date = [int(element) for element in spec_date.split(".")]
-            rec_time = [int(element) for element in spec_time.split(":")]
-            dt_object = datetime(rec_date[2], rec_date[1], rec_date[0], rec_time[0], rec_time[1], rec_time[2])
-            
-            spec_times.append(dt_object)
-            spec_files.append(spec_file)
-
-        except:
-            pass
-
-    return [np.asarray(spec_files, dtype = str), np.array(spec_times)]
-
