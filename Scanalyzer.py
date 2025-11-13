@@ -219,23 +219,21 @@ class AppWindow(QMainWindow):
 
         # Initialize the ImageView
         try: # Read the last scan file from the config yaml file
-            with open(self.scanalyzer_folder + "\\config.yml", "r") as file:
+            with open(self.config_path, "r") as file:
                 config = yaml.safe_load(file)
                 last_file = config.get("last_file")
                 self.load_folder(last_file)
                 self.on_full_scale("both")
         except:  # Display the dummy scan
             self.folder = self.scanalyzer_folder
-            self.sxm_file = [self.scanalyzer_folder + "dummy_scan.sxm", "dummy_scan.sxm", 0, 0]
-            self.load_folder(self.sxm_file)
-            self.on_full_scale("both")
 
 
 
     def parameters_init(self): # Initialize default parameters
         # I/O paths
-        self.script_path = os.path.abspath(__file__) # The full path of Scanalyzer.py
+        self.script_path = os.path.abspath(__file__) # The full path of Scanalyzer.py, including the filename itself
         self.script_folder = os.path.dirname(self.script_path) # The parent directory of Scanalyzer.py
+        self.config_path = os.path.join(self.script_folder, "config.yaml") # The path to the configuration file
         self.scanalyzer_folder = self.script_folder + "\\scanalyzer" # The directory of the Scanalyzer package
         self.folder = self.scanalyzer_folder # Set current folder to Scanalyzer folder
         self.output_folder_name = "Extracted Files" # Set output folder for saving images
@@ -1143,10 +1141,13 @@ class AppWindow(QMainWindow):
             print(f"Error saving the image file: {e}")
             pass
 
-    # Exit button
+    # Exit
+    def closeEvent(self, a0):
+        self.on_exit()
+    
     def on_exit(self):
         try: # Save the currently opened scan folder to the config yaml file so it opens automatically on startup next time
-            with open(self.scanalyzer_folder + "\\config.yml", "w") as file:
+            with open(self.config_path, "w") as file:
                 yaml.safe_dump({"last_file": str(self.sxm_file[1])}, file)
         except Exception as e:
             print("Failed to save the scan folder to the config.yml file.")
