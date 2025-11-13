@@ -565,27 +565,17 @@ class AppWindow(QMainWindow):
         self.project_complex_box.currentTextChanged.connect(lambda: self.toggle_matrix_processing("sobel", self.sobel_button.isChecked()))
 
         # Limits control group
-        self.min_range_set.clicked.connect(lambda: self.on_full_scale("min"))
-        self.full_scale_button.clicked.connect(lambda: self.on_full_scale("both"))
-        self.max_range_set.clicked.connect(lambda: self.on_full_scale("max"))
+        [checkbox.clicked.connect(lambda: self.load_process_display(new_scan = False)) for checkbox in [
+            self.min_range_set, self.max_range_set, self.min_percentile_set, self.max_percentile_set, self.min_std_dev_set, self.max_std_dev_set, self.min_abs_val_set, self.max_abs_val_set
+            ]]
+        [line_edit.editingFinished.connect(lambda: self.load_process_display(new_scan = False)) for line_edit in [
+            self.min_percentile_box, self.max_percentile_box, self.min_percentile_box, self.max_percentile_box, self.min_std_dev_box, self.max_std_dev_box, self.min_abs_val_box, self.max_abs_val_box
+            ]]
 
-        self.min_percentile_box.editingFinished.connect(lambda: self.on_percentiles("min"))
-        self.min_percentile_set.clicked.connect(lambda: self.on_percentiles("min"))
+        self.full_scale_button.clicked.connect(lambda: self.on_full_scale("both"))
         self.set_percentile_button.clicked.connect(lambda: self.on_percentiles("both"))
-        self.max_percentile_set.clicked.connect(lambda: self.on_percentiles("max"))
-        self.max_percentile_box.editingFinished.connect(lambda: self.on_percentiles("max"))
-        
-        self.min_std_dev_box.editingFinished.connect(lambda: self.on_standard_deviations("min"))
-        self.min_std_dev_set.clicked.connect(lambda: self.on_standard_deviations("min"))
         self.set_std_dev_button.clicked.connect(lambda: self.on_standard_deviations("both"))
-        self.max_std_dev_set.clicked.connect(lambda: self.on_standard_deviations("max"))
-        self.max_std_dev_box.editingFinished.connect(lambda: self.on_standard_deviations("max"))
-        
-        self.min_abs_val_box.editingFinished.connect(lambda: self.on_absolute_values("min"))
-        self.min_abs_val_set.clicked.connect(lambda: self.on_absolute_values("min"))
         self.set_abs_val_button.clicked.connect(lambda: self.on_absolute_values("both"))
-        self.max_abs_val_set.clicked.connect(lambda: self.on_absolute_values("max"))
-        self.max_abs_val_box.editingFinished.connect(lambda: self.on_absolute_values("max"))
 
 
 
@@ -682,13 +672,7 @@ class AppWindow(QMainWindow):
     def on_previous_file(self):
         self.file_index -= 1
         if self.file_index < 0: self.file_index = self.max_file_index
-        if hasattr(self, "hist_item"): self.hist_item.sigLevelChangeFinished.disconnect(self.histogram_scale_changed)
-
-        # Update
-        self.current_scan = self.load_scan()
-        processed_scan = self.process_scan(self.current_scan)
-        self.display(processed_scan)
-        if hasattr(self, "hist_item"): self.hist_item.sigLevelChangeFinished.connect(self.histogram_scale_changed)
+        self.load_process_display(new_scan = True)
 
     def on_file_select(self):
         file_name, _ = QFileDialog.getOpenFileName(self, "Open file", self.folder, "SXM files (*.sxm)")
@@ -697,13 +681,7 @@ class AppWindow(QMainWindow):
     def on_next_file(self):
         self.file_index += 1
         if self.file_index > self.max_file_index: self.file_index = 0
-        if hasattr(self, "hist_item"): self.hist_item.sigLevelChangeFinished.disconnect(self.histogram_scale_changed)
-
-        # Update
-        self.current_scan = self.load_scan()
-        processed_scan = self.process_scan(self.current_scan)
-        self.display(processed_scan)
-        if hasattr(self, "hist_item"): self.hist_item.sigLevelChangeFinished.connect(self.histogram_scale_changed)
+        self.load_process_display(new_scan = True)
 
 
 
@@ -717,7 +695,7 @@ class AppWindow(QMainWindow):
             self.scan_direction = "backward" if self.scan_direction == "forward" else "forward"
             try:
                 if hasattr(self, 'image_files') and not (len(self.image_files) == 0 or (len(self.image_files) == 1 and self.image_files[0] == "")):
-                    self.load_image()
+                    self.load_process_display(new_scan = False)
             except Exception:
                 pass
             self.direction_button.setText(self.scan_direction)
@@ -731,9 +709,7 @@ class AppWindow(QMainWindow):
         except Exception:
             pass
         # Always reload image to reflect direction change
-        self.current_scan = self.load_scan()
-        processed_scan = self.process_scan(self.current_scan)
-        self.display(processed_scan)
+        self.load_process_display(new_scan = False)
 
     def on_bg_change(self, mode: str):
         if mode in ["none", "plane", "inferred", "linewise"]:
@@ -742,46 +718,52 @@ class AppWindow(QMainWindow):
             elif mode == "plane": self.bg_plane_radio.setChecked(True)
             elif mode == "inferred": self.bg_inferred_radio.setChecked(True)
             else: self.bg_linewise_radio.setChecked(True)
-            
-            # Update
-            if not hasattr(self, "current_scan"):
-                self.current_scan = self.load_scan()
-            processed_scan = self.process_scan(self.current_scan)
-            self.display(processed_scan)
+            self.load_process_display(new_scan = False)
 
     # Channel buttons
     def on_previous_chan(self):
         self.channel_index -= 1
         if self.channel_index < 0: self.channel_index = self.max_channel_index
         self.channel = self.channels[self.channel_index]
-
-        # Update
-        self.current_scan = self.load_scan()
-        processed_scan = self.process_scan(self.current_scan)
-        self.display(processed_scan)
+        self.load_process_display(new_scan = True)
 
     def on_chan_change(self, index):
         self.channel_index = index
         self.channel = self.channels[index]
-
-        # Update
-        self.current_scan = self.load_scan()
-        processed_scan = self.process_scan(self.current_scan)
-        self.display(processed_scan)
+        self.load_process_display(new_scan = True)
 
     def on_next_chan(self):
         self.channel_index += 1
         if self.channel_index > self.max_channel_index: self.channel_index = 0
         self.channel = self.channels[self.channel_index]
-
-        # Update
-        self.current_scan = self.load_scan()
-        processed_scan = self.process_scan(self.current_scan)
-        self.display(processed_scan)
+        self.load_process_display(new_scan = True)
 
 
 
     # Routines for loading a new image
+    def update_filename(self):
+        # Apply labels to the file name reflecting the operations performed on it
+        [sobel_label, fft_label, laplace_label, normal_label] = ["" for _ in range(4)]
+        if self.apply_sobel: sobel_label = "_sobel"
+        if self.apply_fft: fft_label = "_FFT"
+        if self.apply_laplace: laplace_label = "_laplace"
+        if self.apply_normal: normal_label = "_normal"
+        direction_label = "_fwd"
+        if self.scan_direction == "backward": direction_label = "_bwd"
+        projection_label = "_" + self.project_complex_box.currentText()
+        if projection_label == "_re": projection_label = ""
+
+        # Update displayed png filename (show basename)
+        self.png_file_name = f"{self.channel}_{self.file_index + 1:03d}{direction_label}{fft_label}{sobel_label}{laplace_label}{normal_label}{projection_label}.png"
+        self.png_file_box.setText(os.path.basename(self.png_file_name))
+        self.output_folder_box.setText(self.output_folder_name)
+        if os.path.exists(self.output_folder + "\\" + self.png_file_name):
+            self.check_exists_box.setText("png already exists!")
+            self.check_exists_box.setStyleSheet("background-color: orange")
+        else:
+            self.check_exists_box.setText("ok to save")
+            self.check_exists_box.setStyleSheet("background-color: green")
+
     def load_folder(self, file_name):
         try:
             self.folder = os.path.dirname(file_name) # Set the folder to the directory of the file
@@ -803,9 +785,10 @@ class AppWindow(QMainWindow):
                 print(f"Error: {e}")
 
             if self.max_file_index > 0:
-                self.current_scan = self.load_scan() # Load the image if there is a file
-                processed_scan = self.process_scan(self.current_scan)
-                self.display(processed_scan)
+                #self.current_scan = self.load_scan() # Load the image if there is a file
+                #processed_scan = self.process_scan(self.current_scan)
+                #self.display(processed_scan)
+                self.load_process_display(new_scan = True)
 
         except Exception as e:
             print(f"Error loading files: {e}")
@@ -863,22 +846,8 @@ class AppWindow(QMainWindow):
         if self.scan_direction == "backward": selected_scan = scan_tensor[self.channel_index, 1]
         else: selected_scan = scan_tensor[self.channel_index, 0]
 
-        # Update displayed png filename (show basename)
-        if self.scan_direction == "backward":
-            self.png_file_name = f"Img{self.file_index + 1:03d}_{self.channel}_bwd.png"
-        else:
-            self.png_file_name = f"Img{self.file_index + 1:03d}_{self.channel}_fwd.png"
-        self.png_file_box.setText(os.path.basename(self.png_file_name))
-        self.output_folder_box.setText(self.output_folder_name)
-        if os.path.exists(self.output_folder + "\\" + self.png_file_name):
-            self.check_exists_box.setText("png already exists!")
-            self.check_exists_box.setStyleSheet("background-color: orange")
-        else:
-            self.check_exists_box.setText("ok to save")
-            self.check_exists_box.setStyleSheet("background-color: green")
-
         return selected_scan
-    
+
     def process_scan(self, scan):
         # Determine background subtraction mode from radio buttons and apply it
         mode = self.background_subtraction
@@ -895,6 +864,7 @@ class AppWindow(QMainWindow):
             processed_scan, reciprocal_range = apply_fft(processed_scan, self.scan_range)
             # self.scan_range = reciprocal_range
         
+        # Perform the correct projection
         match self.project_complex_box.currentText():
             case "re": processed_scan = np.real(processed_scan)
             case "im": processed_scan = np.imag(processed_scan)
@@ -921,17 +891,94 @@ class AppWindow(QMainWindow):
         else:
             self.statistics_info.setText(f"\nValue range: {round(self.statistics.range_total, 3)}; Mean ± std dev: {round(self.statistics.mean, 3)} ± {round(self.statistics.standard_deviation, 3)}")
         
+        # Update the filename for the scan
+        self.update_filename()
+        
         return processed_scan
+
+    def update_limits(self):
+        self.hist_levels = list(self.hist_item.getLevels())
+        [min, max] = self.hist_levels
+
+        # Update the min according to which limit method is selected
+        if self.min_percentile_set.isChecked(): # Percentiles
+            if hasattr(self, "statistics") and hasattr(self.statistics, "min") and hasattr(self.statistics, "range_total") and hasattr(self.statistics, "data_sorted"):
+                try:
+                    min_percentile = float(self.min_percentile_box.text())
+                    data_sorted = self.statistics.data_sorted
+                    n_data = len(data_sorted)
+
+                    min = data_sorted[int(.01 * min_percentile * n_data)]
+                except Exception as e:
+                    print(f"Error: {e}")
+        elif self.min_abs_val_set.isChecked(): # Absoulte values
+            try:
+                min = float(self.min_abs_val_box.text())
+            except Exception as e:
+                print(f"Error: {e}")
+        elif self.min_std_dev_set.isChecked(): # Standard deviation
+            if hasattr(self, "statistics") and hasattr(self.statistics, "standard_deviation") and hasattr(self.statistics, "mean"):
+                try:
+                    value = float(self.min_std_dev_box.text())
+                    min = self.statistics.mean - value * self.statistics.standard_deviation
+                except Exception as e:
+                    print(f"Error: {e}")
+        else:
+            pass
+
+        # Update the max according to which limit method is selected
+        if self.max_percentile_set.isChecked(): # Percentiles
+            if hasattr(self, "statistics") and hasattr(self.statistics, "min") and hasattr(self.statistics, "range_total") and hasattr(self.statistics, "data_sorted"):
+                try:
+                    max_percentile = float(self.max_percentile_box.text())
+                    data_sorted = self.statistics.data_sorted
+                    n_data = len(data_sorted)
+
+                    max = data_sorted[int(.01 * max_percentile * n_data)]
+                except Exception as e:
+                    print(f"Error: {e}")
+        elif self.max_abs_val_set.isChecked(): # Absoulte values
+            try:
+                max = float(self.max_abs_val_box.text())
+            except Exception as e:
+                print(f"Error: {e}")
+        elif self.max_std_dev_set.isChecked(): # Standard deviation
+            if hasattr(self, "statistics") and hasattr(self.statistics, "standard_deviation") and hasattr(self.statistics, "mean"):
+                try:
+                    value = float(self.max_std_dev_box.text())
+                    max = self.statistics.mean + value * self.statistics.standard_deviation
+                except Exception as e:
+                    print(f"Error: {e}")
+        else:
+            pass
+
+        # Set the histogram levels and reconnect the histogram widget to dynamic updating
+        self.hist_item.setLevels(min, max)
+        self.min_abs_val_box.setText(f"{round(min, 3)}") # Update the absolute value boxes
+        self.max_abs_val_box.setText(f"{round(max, 3)}")
+        self.hist_item.sigLevelChangeFinished.connect(self.histogram_scale_changed)
 
     def display(self, scan):
         # Show the scan
+        if hasattr(self, "hist_item"): # Histogram is known: disconnect when changing the image
+            self.hist_item.sigLevelChangeFinished.disconnect()
+        else: # Histogram is unknown: create and connect later in update_limits
+            self.hist = self.image_view.getHistogramWidget()
+            self.hist_item = self.hist.item
+
         self.image_view.setImage(scan, autoRange = True)  # Show the scan in the app
         image_item = self.image_view.getImageItem()
         image_item.setRect(QtCore.QRectF(0, 0, self.scan_range[1], self.scan_range[0]))  # Add dimensions to the ImageView object
         self.image_view.autoRange()
 
-        # Get the new histogram levels
-        self.hist_levels = list(self.hist_item.getLevels())
+        # Reset the limits and histogram
+        self.update_limits()
+
+    def load_process_display(self, new_scan: bool = False):
+        if new_scan or not hasattr(self, "current_scan"):
+            self.current_scan = self.load_scan()
+        processed_scan = self.process_scan(self.current_scan)
+        self.display(processed_scan)
 
 
 
@@ -945,179 +992,40 @@ class AppWindow(QMainWindow):
 
     # Scale limit functions
     def on_full_scale(self, side: str = "both"):
-        (min, max) = self.hist_item.getLevels() # Read the old levels
-        if side == "min":
-            if hasattr(self, "statistics") and hasattr(self.statistics, "min"):
-                self.min_selection = 0
-                self.hist_item.sigLevelChangeFinished.disconnect(self.histogram_scale_changed)
-                self.hist_item.setLevels(self.statistics.min, max)
-                self.hist_item.sigLevelChangeFinished.connect(self.histogram_scale_changed)
-        elif side == "max":
-            if hasattr(self, "statistics") and hasattr(self.statistics, "max"):
-                self.max_selection = 0
-                self.hist_item.sigLevelChangeFinished.disconnect(self.histogram_scale_changed)
-                self.hist_item.setLevels(min, self.statistics.max)
-                self.hist_item.sigLevelChangeFinished.connect(self.histogram_scale_changed)
-        elif side == "both":
-            if hasattr(self, "statistics") and hasattr(self.statistics, "min") and hasattr(self.statistics, "max"):
-                self.min_selection = 0
-                self.max_selection = 0
-                self.hist_item.sigLevelChangeFinished.disconnect(self.histogram_scale_changed)
-                self.hist_item.setLevels(self.statistics.min, self.statistics.max)
-                self.hist_item.sigLevelChangeFinished.connect(self.histogram_scale_changed)
-        
-        if self.min_selection == 0: self.min_range_set.setChecked(True)
-        if self.max_selection == 0: self.max_range_set.setChecked(True)
-
-        (min, max) = self.hist_item.getLevels() # Read the new levels
-        self.min_abs_val_box.setText(f"{round(min, 3)}") # Update the absolute value boxes
-        self.max_abs_val_box.setText(f"{round(max, 3)}") # Update the absolute value boxes
+        if side == "min" or side == "both":
+            self.min_range_set.setChecked(True)
+            self.min_selection = 0
+        if side == "max" or side == "both":
+            self.max_range_set.setChecked(True)
+            self.max_selection = 0
+        self.load_process_display(new_scan = False)
 
     def on_percentiles(self, side: str = "both"):
-        (min, max) = self.hist_item.getLevels()
-        if side == "min":
-            if hasattr(self, "statistics") and hasattr(self.statistics, "min") and hasattr(self.statistics, "range_total") and hasattr(self.statistics, "data_sorted"):
-                try:
-                    min_percentile = float(self.min_percentile_box.text())
-                    data_sorted = self.statistics.data_sorted
-                    n_data = len(data_sorted)
-                    min_value = data_sorted[int(.01 * min_percentile * n_data)]
-
-                    self.hist_item.sigLevelChangeFinished.disconnect(self.histogram_scale_changed)
-                    self.hist_item.setLevels(min_value, max)
-                    self.hist_item.sigLevelChangeFinished.connect(self.histogram_scale_changed)
-                    self.min_selection = 1
-                except Exception as e:
-                    print(f"Error: {e}")
-        elif side == "max":
-            if hasattr(self, "statistics") and hasattr(self.statistics, "max") and hasattr(self.statistics, "range_total") and hasattr(self.statistics, "data_sorted"):
-                try:
-                    max_percentile = float(self.max_percentile_box.text())
-                    data_sorted = self.statistics.data_sorted
-                    n_data = len(data_sorted)
-                    max_value = data_sorted[int(.01 * max_percentile * n_data)]
-
-                    self.hist_item.sigLevelChangeFinished.disconnect(self.histogram_scale_changed)
-                    self.hist_item.setLevels(min, max_value)
-                    self.hist_item.sigLevelChangeFinished.connect(self.histogram_scale_changed)
-                    self.max_selection = 1
-                except Exception as e:
-                    print(f"Error: {e}")
-        elif side == "both":
-            if hasattr(self, "statistics") and hasattr(self.statistics, "min") and hasattr(self.statistics, "max") and hasattr(self.statistics, "range_total") and hasattr(self.statistics, "data_sorted"):
-                try:
-                    min_percentile = float(self.min_percentile_box.text())
-                    max_percentile = float(self.max_percentile_box.text())
-                    data_sorted = self.statistics.data_sorted
-                    n_data = len(data_sorted)
-                    min_value = data_sorted[int(.01 * min_percentile * n_data)]
-                    max_value = data_sorted[int(.01 * max_percentile * n_data)]
-                    
-                    self.hist_item.sigLevelChangeFinished.disconnect(self.histogram_scale_changed)
-                    self.hist_item.setLevels(min_value, max_value)
-                    self.hist_item.sigLevelChangeFinished.connect(self.histogram_scale_changed)
-                    self.min_selection = 1
-                    self.max_selection = 1
-                except Exception as e:
-                    print(f"Error: {e}")
-        
-        if self.min_selection == 1: self.min_percentile_set.setChecked(True)
-        if self.max_selection == 1: self.max_percentile_set.setChecked(True)
-        
-        (min, max) = self.hist_item.getLevels() # Read the new levels
-        self.min_abs_val_box.setText(f"{round(min, 3)}") # Update the absolute value boxes
-        self.max_abs_val_box.setText(f"{round(max, 3)}") # Update the absolute value boxes
-        self.hist_levels = [min, max]
+        if side == "min" or side == "both":
+            self.min_percentile_set.setChecked(True)
+            self.min_selection = 1
+        if side == "max" or side == "both":
+            self.max_percentile_set.setChecked(True)
+            self.max_selection = 1
+        self.load_process_display(new_scan = False)
 
     def on_standard_deviations(self, side: str = "both"):
-        (min, max) = self.hist_item.getLevels() # Read the old levels
-        if side == "min":
-            if hasattr(self, "statistics") and hasattr(self.statistics, "standard_deviation") and hasattr(self.statistics, "mean"):
-                try:
-                    value = float(self.min_std_dev_box.text())
-                    min_value = self.statistics.mean - value * self.statistics.standard_deviation
-                    
-                    self.hist_item.sigLevelChangeFinished.disconnect(self.histogram_scale_changed)
-                    self.hist_item.setLevels(min_value, max)
-                    self.hist_item.sigLevelChangeFinished.connect(self.histogram_scale_changed)
-                    self.min_selection = 2
-                except Exception as e:
-                    print(f"Error: {e}")
-        
-        if side == "max":
-            if hasattr(self, "statistics") and hasattr(self.statistics, "standard_deviation") and hasattr(self.statistics, "mean"):
-                try:
-                    value = float(self.max_std_dev_box.text())
-                    max_value = self.statistics.mean + value * self.statistics.standard_deviation
-                    
-                    self.hist_item.sigLevelChangeFinished.disconnect(self.histogram_scale_changed)
-                    self.hist_item.setLevels(min, max_value)
-                    self.hist_item.sigLevelChangeFinished.connect(self.histogram_scale_changed)
-                    self.max_selection = 2
-                except Exception as e:
-                    print(f"Error: {e}")
-        
-        if side == "both":
-            if hasattr(self, "statistics") and hasattr(self.statistics, "standard_deviation") and hasattr(self.statistics, "mean"):
-                try:
-                    value = float(self.min_std_dev_box.text())
-                    min_value = self.statistics.mean - value * self.statistics.standard_deviation
-                    value = float(self.max_std_dev_box.text())
-                    max_value = self.statistics.mean + value * self.statistics.standard_deviation
-                    
-                    self.hist_item.sigLevelChangeFinished.disconnect(self.histogram_scale_changed)
-                    self.hist_item.setLevels(min_value, max_value)
-                    self.hist_item.sigLevelChangeFinished.connect(self.histogram_scale_changed)
-                    self.min_selection = 2
-                    self.max_selection = 2
-                except Exception as e:
-                    print(f"Error: {e}")
-        
-        if self.min_selection == 2: self.min_std_dev_set.setChecked(True)
-        if self.max_selection == 2: self.max_std_dev_set.setChecked(True)
-        
-        (min, max) = self.hist_item.getLevels() # Read the new levels
-        self.min_abs_val_box.setText(f"{round(min, 3)}") # Update the absolute value boxes
-        self.max_abs_val_box.setText(f"{round(max, 3)}") # Update the absolute value boxes
-        self.hist_levels = [min, max]
+        if side == "min" or side == "both":
+            self.min_std_dev_set.setChecked(True)
+            self.min_selection = 2
+        if side == "max" or side == "both":
+            self.max_std_dev_set.setChecked(True)
+            self.max_selection = 2
+        self.load_process_display(new_scan = False)
     
     def on_absolute_values(self, side: str = "both"):
-        (min, max) = self.hist_item.getLevels()
-        if side == "min":
-            try:
-                min_value = float(self.min_abs_val_box.text())
-                self.hist_item.sigLevelChangeFinished.disconnect(self.histogram_scale_changed)
-                self.hist_item.setLevels(min_value, max)
-                self.hist_item.sigLevelChangeFinished.connect(self.histogram_scale_changed)
-                self.min_selection = 3
-            except Exception as e:
-                print(f"Error: {e}")
-        
-        if side == "max":
-            try:
-                max_value = float(self.max_abs_val_box.text())
-                self.hist_item.sigLevelChangeFinished.disconnect(self.histogram_scale_changed)
-                self.hist_item.setLevels(min, max_value)
-                self.hist_item.sigLevelChangeFinished.connect(self.histogram_scale_changed)
-                self.max_selection = 3
-            except Exception as e:
-                print(f"Error: {e}")
-        
-        if side == "both":
-            try:
-                min_value = float(self.min_abs_val_box.text())
-                max_value = float(self.max_abs_val_box.text())
-                self.hist_item.sigLevelChangeFinished.disconnect(self.histogram_scale_changed)
-                self.hist_item.setLevels(min_value, max_value)
-                self.hist_item.sigLevelChangeFinished.connect(self.histogram_scale_changed)
-                self.min_selection = 3
-                self.max_selection = 3
-            except Exception as e:
-                print(f"Error: {e}")
-        
-        if self.min_selection == 3: self.min_abs_val_set.setChecked(True)
-        if self.max_selection == 3: self.max_abs_val_set.setChecked(True)
-        self.hist_levels = [min, max]
+        if side == "min" or side == "both":
+            self.min_abs_val_set.setChecked(True)
+            self.min_selection = 3
+        if side == "max" or side == "both":
+            self.max_abs_val_set.setChecked(True)
+            self.max_selection = 3
+        self.load_process_display(new_scan = False)
 
     def histogram_scale_changed(self):
         (min, max) = self.hist_item.getLevels()
