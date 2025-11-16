@@ -219,25 +219,44 @@ class AppWindow(QMainWindow):
 
         # Initialize the ImageView
         try: # Read the last scan file from the config yaml file
-            with open(self.config_path, "r") as file:
+            with open(self.paths["config_path"], "r") as file:
                 config = yaml.safe_load(file)
                 last_file = config.get("last_file")
                 self.load_folder(last_file)
                 self.on_full_scale("both")
         except:  # Display the dummy scan
-            self.folder = self.scanalyzer_folder
+            pass
 
 
 
     def parameters_init(self): # Initialize default parameters
         # I/O paths
-        self.script_path = os.path.abspath(__file__) # The full path of Scanalyzer.py, including the filename itself
-        self.script_folder = os.path.dirname(self.script_path) # The parent directory of Scanalyzer.py
-        self.config_path = os.path.join(self.script_folder, "config.yaml") # The path to the configuration file
-        self.scanalyzer_folder = self.script_folder + "\\scanalyzer" # The directory of the Scanalyzer package
-        self.folder = self.scanalyzer_folder # Set current folder to Scanalyzer folder
+
+        # Note to self: use the dict in the future to avoid cluttering self with too many attributes
+        script_path = os.path.abspath(__file__) # The full path of Scanalyzer.py, including the filename itself
+        script_folder = os.path.dirname(script_path) # The parent directory of Scanalyzer.py
+        scanalyzer_folder = os.path.join(script_folder, "scanalyzer") # The directory of the Scanalyzer package
+        config_path = os.path.join(scanalyzer_folder, "config.yml") # The path to the configuration file
+        data_folder = scanalyzer_folder # Set current folder to Scanalyzer folder
+
+        self.script_path = script_path
+        self.script_folder = script_folder
+        self.scanalyzer_folder = scanalyzer_folder
+        self.config_path = config_path
+        self.folder = data_folder
         self.output_folder_name = "Extracted Files" # Set output folder for saving images
         self.output_folder = self.folder + "\\" + self.output_folder_name
+
+        self.paths = {
+            "script_path": script_path,
+            "script_folder": script_folder,
+            "scanalyzer_folder": scanalyzer_folder,
+            "config_path": config_path,
+            "folder": self.scanalyzer_folder,
+            "data_folder": self.scanalyzer_folder, # Implement a name change for clarity
+            "output_folder_name": "Extracted Files",
+            "output_folder": os.path.join(data_folder, self.output_folder_name)
+        }
         
         self.sxm_files = np.array([[]])
         self.spec_files = np.array([[]])
@@ -263,6 +282,15 @@ class AppWindow(QMainWindow):
         self.max_std_dev = 2
         self.min_selection = 0
         self.max_selection = 0
+
+        self.processing_flags = {
+            "background": "none",
+            "sobel": False,
+            "gaussian": False,
+            "laplace": False,
+            "fft": False,
+            "normal": False
+        }
 
         self.apply_sobel = False
         self.apply_gaussian = False
@@ -315,7 +343,7 @@ class AppWindow(QMainWindow):
             fcd_layout.addWidget(in_folder_label)
             
             # Row 4: folder name
-            self.folder_name_button = QPushButton(self.folder)
+            self.folder_name_button = QPushButton(self.paths["data_folder"])
             fcd_layout.addWidget(self.folder_name_button)
 
             # Row 5: "which contains n sxm files" 
@@ -541,7 +569,7 @@ class AppWindow(QMainWindow):
         self.next_chan_button.clicked.connect(self.on_next_chan)
 
         # Direction
-        self.direction_button.toggled.connect(self.on_direction_toggled)
+        self.direction_button.toggled.connect(self.on_toggle_direction)
 
 
 
@@ -578,7 +606,7 @@ class AppWindow(QMainWindow):
 
 
         # Associated spectra group
-        self.open_spectrum_button.clicked.connect(self.load_spectroscopy_window)
+        self.open_spectrum_button.clicked.connect(self.open_spectrum_viewer)
 
 
 
@@ -587,7 +615,7 @@ class AppWindow(QMainWindow):
         self.check_exists_box.clicked.connect(self.on_save)
         self.exit_button.clicked.connect(self.on_exit)
         self.open_folder_button.clicked.connect(lambda: os.startfile(self.output_folder))
-    
+
     def connect_keys(self):
         # File_chan_dir group
         # File toggling
@@ -600,7 +628,7 @@ class AppWindow(QMainWindow):
 
         # Open folder in file explorer
         open_folder_shortcut = QShortcut(QKeySequence(Qt.Key.Key_1), self)
-        open_folder_shortcut.activated.connect(lambda: os.startfile(self.folder))
+        open_folder_shortcut.activated.connect(self.open_data_folder)
         
         # Channel toggling
         previous_channel_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Down), self)
@@ -656,7 +684,7 @@ class AppWindow(QMainWindow):
 
         # Associated spectra group
         open_spectrum_shortcut = QShortcut(QKeySequence(Qt.Key.Key_O), self)
-        open_spectrum_shortcut.activated.connect(self.load_spectroscopy_window)
+        open_spectrum_shortcut.activated.connect(self.open_spectrum_viewer)
 
         # I/O group
         save_file_shortcut = QShortcut(QKeySequence(Qt.Key.Key_S), self)
@@ -664,7 +692,7 @@ class AppWindow(QMainWindow):
         exit_shortcuts = [QShortcut(QKeySequence(keystroke), self) for keystroke in [Qt.Key.Key_Q, Qt.Key.Key_E, Qt.Key.Key_Escape]]
         [exit_shortcut.activated.connect(self.on_exit) for exit_shortcut in exit_shortcuts]
         output_folder_shortcut = QShortcut(QKeySequence(Qt.Key.Key_T), self)
-        output_folder_shortcut.activated.connect(lambda: os.startfile(self.output_folder))
+        output_folder_shortcut.activated.connect(self.open_output_folder)
 
     # Button functions
     def on_previous_file(self):
@@ -684,30 +712,20 @@ class AppWindow(QMainWindow):
 
 
     def on_toggle_direction(self):
-        # Toggle the button's checked state; the toggled handler will update internal state and UI
-        try:
-            current = self.direction_button.isChecked()
-            self.direction_button.setChecked(not current)
-        except Exception:
-            # fallback: directly toggle scan_direction and update
-            self.scan_direction = "backward" if self.scan_direction == "forward" else "forward"
-            try:
-                if hasattr(self, 'image_files') and not (len(self.image_files) == 0 or (len(self.image_files) == 1 and self.image_files[0] == "")):
-                    self.load_process_display(new_scan = False)
-            except Exception:
-                pass
-            self.direction_button.setText(self.scan_direction)
+        if hasattr(self, "scan_direction") and self.scan_direction == "forward": self.scan_direction = "backward"
+        else: self.scan_direction = "forward"
 
-    def on_direction_toggled(self, checked: bool):
-        # Update scan_direction based on the checked state and refresh UI
-        self.scan_direction = "backward" if checked else "forward"
-        # Update the button text to reflect the state
+        self.direction_button.disconnect()
+        self.direction_button.setChecked(self.scan_direction == "backward")
+        self.direction_button.setText(f"direXion: {self.scan_direction}")
+        self.direction_button.clicked.connect(self.on_toggle_direction)
+
         try:
-            self.direction_button.setText("direXion: backward" if checked else "direXion: forward")
-        except Exception:
+            if hasattr(self, 'image_files') and len(self.image_files) > 0:
+                self.load_process_display(new_scan = True)
+        except Exception as e:
+            print("Error toggling the scan direction")
             pass
-        # Always reload image to reflect direction change
-        self.load_process_display(new_scan = False)
 
     def on_bg_change(self, mode: str):
         if mode in ["none", "plane", "inferred", "linewise"]:
@@ -765,11 +783,13 @@ class AppWindow(QMainWindow):
     def load_folder(self, file_name):
         try:
             self.folder = os.path.dirname(file_name) # Set the folder to the directory of the file
-            (self.sxm_files, self.spec_files) = read_files(self.folder) # Read the names and datetimes of all scans (.sxm files) and spectra (.dat files)
+            self.paths["data_folder"] = os.path.dirname(file_name) # Set the folder to the directory of the file
+            (self.sxm_files, self.spec_files) = read_files(self.paths["data_folder"]) # Read the names and datetimes of all scans (.sxm files) and spectra (.dat files)
             
             self.max_file_index = len(self.sxm_files) - 1
             self.file_index = np.where([os.path.samefile(sxm_file, file_name) for sxm_file in self.sxm_files[:, 1]])[0][0] # Find the number of the specific file that was selected
             if self.file_index > self.max_file_index: self.file_index = 0 # Roll over if the selected file index is too large
+            self.paths["output_folder"] = os.path.join(self.paths["data_folder"], self.paths["output_folder_name"])
             self.output_folder = self.folder + "\\" + self.output_folder_name # Update the output folder name
             self.sxm_file = self.sxm_files[self.file_index] # Apply the index to the list of sxm files to pick the correct sxm file
 
@@ -841,7 +861,7 @@ class AppWindow(QMainWindow):
 
         # Channel / scan direction selection
         # Pick the correct frame out of the scan tensor based on channel and scan direction
-        if self.scan_direction == "backward": selected_scan = scan_tensor[self.channel_index, 1]
+        if hasattr(self, "scan_direction") and self.scan_direction == "backward": selected_scan = scan_tensor[self.channel_index, 1]
         else: selected_scan = scan_tensor[self.channel_index, 0]
 
         return selected_scan
@@ -981,12 +1001,15 @@ class AppWindow(QMainWindow):
 
 
     # Spectroscopy
-    def load_spectroscopy_window(self):
-        if not hasattr(self, "second_window") or self.second_window is None: # Create only if not already created:
-            self.current_scan = self.load_scan()
-            processed_scan = self.process_scan(self.current_scan)
-            self.second_window = SpectroscopyWindow(processed_scan, self.spec_files, self.associated_spectra)
-        self.second_window.show()
+    def open_spectrum_viewer(self):
+        if len(self.spec_files) > 0:
+            if not hasattr(self, "second_window") or self.second_window is None: # Create only if not already created:
+                self.current_scan = self.load_scan()
+                processed_scan = self.process_scan(self.current_scan)
+                self.second_window = SpectroscopyWindow(processed_scan, self.spec_files, self.associated_spectra)
+            self.second_window.show()
+        else:
+            print("Error. No spectroscopy files found in the data folder.")
 
     # Scale limit functions
     def on_full_scale(self, side: str = "both"):
@@ -1114,7 +1137,7 @@ class AppWindow(QMainWindow):
         rescaled_array = (processed_scan - min_val) / denom
         rescaled_array = np.clip(rescaled_array, 0, 1)  # Ensure within [0,1]
         uint8_array = (255 * rescaled_array).astype(np.uint8)
-        
+
         try:
             if uint8_array.ndim > 2:
                 #rgb_array = np.ascontiguousarray(uint8_array, dtype = np.uint8)
@@ -1124,8 +1147,9 @@ class AppWindow(QMainWindow):
                 height, width = uint8_array.shape
                 qimg = QImage(uint8_array, width, height, width, QImage.Format.Format_Grayscale8)
 
-            output_file_name = self.output_folder + "\\" + self.png_file_name
-            os.makedirs(self.output_folder, exist_ok = True)
+            output_file_name = os.path.join(self.paths["output_folder"], self.png_file_name)
+            #output_file_name = self.output_folder + "\\" + self.png_file_name
+            os.makedirs(self.paths["output_folder"], exist_ok = True)
             qimg.save(output_file_name)
 
             msg_box = QMessageBox(self)
@@ -1140,6 +1164,14 @@ class AppWindow(QMainWindow):
         except Exception as e:
             print(f"Error saving the image file: {e}")
             pass
+
+    def open_data_folder(self):
+        if hasattr(self, "paths") and "data_folder" in list(self.paths.keys()):
+            os.startfile(self.paths["data_folder"])
+
+    def open_output_folder(self):
+        if hasattr(self, "paths") and "output_folder" in list(self.paths.keys()):
+            os.startfile(self.paths["output_folder"])
 
     # Exit
     def closeEvent(self, a0):
