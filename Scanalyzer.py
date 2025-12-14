@@ -6,6 +6,7 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QLabel, QPushButton, QToolButton, QVBoxLayout, QHBoxLayout, QGridLayout, QWidget, QFileDialog,
     QButtonGroup, QComboBox, QRadioButton, QGroupBox, QLineEdit, QFrame, QCheckBox, QMessageBox
 )
+from PyQt6 import QtGui
 from PyQt6.QtCore import Qt, QTimer
 import pyqtgraph as pg
 from pyqtgraph.Qt import QtCore
@@ -13,6 +14,7 @@ from PyQt6.QtGui import QImage, QDragEnterEvent, QDropEvent, QDragMoveEvent, QSh
 from scanalyzer.image_functions import apply_gaussian, apply_fft, image_gradient, compute_normal, apply_laplace, complex_image_to_colors, background_subtract, get_image_statistics
 from scanalyzer.file_functions import read_files, get_scan, get_spectrum
 from datetime import datetime
+from lib.gui_functions import GUIFunctions
 
 
 
@@ -224,7 +226,7 @@ class AppWindow(QMainWindow):
                 last_file = config.get("last_file")
                 self.load_folder(last_file)
                 self.on_full_scale("both")
-        except:  # Display the dummy scan
+        except:
             pass
 
 
@@ -236,6 +238,8 @@ class AppWindow(QMainWindow):
         script_path = os.path.abspath(__file__) # The full path of Scanalyzer.py, including the filename itself
         script_folder = os.path.dirname(script_path) # The parent directory of Scanalyzer.py
         scanalyzer_folder = os.path.join(script_folder, "scanalyzer") # The directory of the Scanalyzer package
+        lib_folder = os.path.join(script_folder, "lib") # The directory of the Scanalyzer package
+        icon_folder = os.path.join(script_folder, "icons") # The directory of the Scanalyzer package
         config_path = os.path.join(scanalyzer_folder, "config.yml") # The path to the configuration file
         data_folder = scanalyzer_folder # Set current folder to Scanalyzer folder
 
@@ -251,12 +255,25 @@ class AppWindow(QMainWindow):
             "script_path": script_path,
             "script_folder": script_folder,
             "scanalyzer_folder": scanalyzer_folder,
+            "lib_folder": lib_folder,
+            "icon_folder": icon_folder,
             "config_path": config_path,
-            "folder": self.scanalyzer_folder,
-            "data_folder": self.scanalyzer_folder, # Implement a name change for clarity
+            "folder": scanalyzer_folder,
+            "data_folder": scanalyzer_folder, # Implement a name change for clarity
             "output_folder_name": "Extracted Files",
             "output_folder": os.path.join(data_folder, self.output_folder_name)
         }
+
+        icon_files = os.listdir(self.paths["icon_folder"])
+        self.icons = {}
+        self.icon_paths = {}
+        for icon_file in icon_files:
+            icon_name = os.path.splitext(os.path.basename(icon_file))[0]
+            try:
+                self.icon_paths.update({icon_name: os.path.join(self.paths["icon_folder"], icon_file)})
+                self.icons.update({icon_name: QtGui.QIcon(os.path.join(self.paths["icon_folder"], icon_file))})
+            except:
+                pass
         
         self.sxm_files = np.array([[]])
         self.spec_files = np.array([[]])
@@ -298,7 +315,32 @@ class AppWindow(QMainWindow):
         self.apply_fft = False
         self.apply_normal = False
 
+        self.gui_functions = GUIFunctions()
+
     def draw_buttons(self):
+        
+        make_button = self.gui_functions.make_button
+        make_label = self.gui_functions.make_label
+
+        self.buttons = {
+            "previous_file": make_button("Previous file", self.on_previous_file, "Previous file (<-)", self.icons.get("previous")),
+            "select_file": make_button("Load folder", self.on_select_file, "Load scan and corresponding folder (L)", self.icons.get("load_folder")),
+            "next_file": make_button("Next file", self.on_next_file, "Next file (->)", self.icons.get("previous")),
+
+            "folder_name": make_button("Open folder", self.open_data_folder, "Open the data folder (1)", self.icons.get("folder_search")),
+            "direction": make_button("Scan direction", self.on_toggle_direction, "Change the scan direction (X)", self.icons.get("double_arrow"), rotate_degrees = 180),
+            "full_data_range": make_button("Full data range", self.on_full_scale, "Set the image value range to the full data range (U)", self.icons.get("100")),
+
+            "spectrum_viewer": make_button("", self.open_spectrum_viewer, "Open Spectrum Viewer (O)", self.icons.get("graph")),
+
+            "save": make_button("", self.on_save, "Save as png file (S)", self.icons.get("floppy")),
+            "exit": make_button("", self.on_exit, "Exit scanalyzer (Esc/X/E)", self.icons.get("escape"))
+        }
+        self.labels = {
+            "load_file": make_label("Load file:"),
+            "in_folder": make_label("in folder:"),
+            "number_of_files": make_label("which contains 1 sxm file")
+        }
 
         def draw_summary_group(): # Scan summary group
             scan_summary_group = QGroupBox("Scan summary")
@@ -323,28 +365,27 @@ class AppWindow(QMainWindow):
             fcd_layout.setSpacing(1)
 
             # Row 1: "Load file"
-            file_selected_label = QLabel("Load file:")
-            file_selected_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            fcd_layout.addWidget(file_selected_label)
+            fcd_layout.addWidget(self.labels["load_file"])
 
             # Row 2: file navigation
             file_nav_hbox = QHBoxLayout()
-            [self.previous_file_button, self.file_select_button, self.next_file_button] = file_toggle_buttons = [QToolButton(), QPushButton(self.file_label), QToolButton()]
-            self.previous_file_button.setArrowType(Qt.ArrowType.LeftArrow)
-            self.previous_file_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
-            self.next_file_button.setArrowType(Qt.ArrowType.RightArrow)
-            self.next_file_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+            file_toggle_buttons = [self.buttons["previous_file"], self.buttons["select_file"], self.buttons["next_file"]]
+            #self.previous_file_button.setArrowType(Qt.ArrowType.LeftArrow)
+            #self.previous_file_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+            #self.next_file_button.setArrowType(Qt.ArrowType.RightArrow)
+            #self.next_file_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
             for button in file_toggle_buttons: file_nav_hbox.addWidget(button)        
             fcd_layout.addLayout(file_nav_hbox)
 
             # Row 3: "in folder"
-            in_folder_label = QLabel("in folder (click or \"1\" opens in explorer)")
+            in_folder_label = QLabel("in folder")
             in_folder_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             fcd_layout.addWidget(in_folder_label)
             
             # Row 4: folder name
-            self.folder_name_button = QPushButton(self.paths["data_folder"])
-            fcd_layout.addWidget(self.folder_name_button)
+
+           
+            fcd_layout.addWidget(self.buttons["folder_name"])
 
             # Row 5: "which contains n sxm files" 
             if self.max_file_index == 0: self.contains_n_files_label = QLabel(f"which contains 1 sxm file")
@@ -375,11 +416,11 @@ class AppWindow(QMainWindow):
             self.direction_button.setChecked(self.scan_direction == "backward") # checked == True -> backward, checked == False -> forward
             self.direction_button.setText("direXion: backward" if self.direction_button.isChecked() else "direXion: forward")
 
-            direction_hbox.addWidget(self.direction_button)
+            direction_hbox.addWidget(self.buttons["direction"])
             fcd_layout.addLayout(direction_hbox)
             file_chan_dir_group.setLayout(fcd_layout)
 
-            self.fcd_buttons = file_toggle_buttons + [self.folder_name_button] + channel_toggle_buttons + [self.direction_button]
+            self.fcd_buttons = file_toggle_buttons + [self.buttons["folder_name"]] + channel_toggle_buttons + [self.direction_button]
 
             return file_chan_dir_group
 
@@ -508,8 +549,8 @@ class AppWindow(QMainWindow):
             self.spectra_box = QComboBox()
             spectra_vbox.addWidget(self.spectra_box)
 
-            self.open_spectrum_button = QPushButton("Open spectrum viewer")
-            spectra_vbox.addWidget(self.open_spectrum_button)
+            #self.open_spectrum_button = QPushButton("Open spectrum viewer")
+            spectra_vbox.addWidget(self.buttons["spectrum_viewer"])
 
             spectra_group.setLayout(spectra_vbox)
 
@@ -525,6 +566,7 @@ class AppWindow(QMainWindow):
             # Make I/O buttons
             (self.save_button, self.exit_button, self.open_folder_button) = (QPushButton("Save image"), QPushButton("Exit Scanalyzer (E/Q/Esc)"), QPushButton("open ouTput folder"))
             self.save_button.setText("Save image as")
+
             self.png_file_box = QLineEdit()
             self.png_file_box.setAlignment(Qt.AlignmentFlag.AlignLeft)
             in_output_folder_label = QLabel("in output folder")
@@ -532,13 +574,13 @@ class AppWindow(QMainWindow):
             self.output_folder_box = QPushButton()
             self.check_exists_box = QPushButton()
 
-            io_box.addWidget(self.save_button, 0, 0)
+            io_box.addWidget(self.buttons["save"], 0, 0)
             io_box.addWidget(self.png_file_box, 0, 1)
             io_box.addWidget(in_output_folder_label, 1, 0)
             io_box.addWidget(self.output_folder_box, 1, 1)
             io_box.addWidget(self.check_exists_box, 2, 0)
             io_box.addWidget(self.open_folder_button, 2, 1)
-            io_box.addWidget(self.exit_button, 3, 1)
+            io_box.addWidget(self.buttons["exit"], 3, 1)
 
             io_group.setLayout(io_box)
 
@@ -556,12 +598,12 @@ class AppWindow(QMainWindow):
     def connect_buttons(self):
         # File_chan_dir group
         # File toggling
-        self.previous_file_button.clicked.connect(self.on_previous_file)
-        self.file_select_button.clicked.connect(self.on_file_select)
-        self.next_file_button.clicked.connect(self.on_next_file)
+        #self.previous_file_button.clicked.connect(self.on_previous_file)
+        #self.file_select_button.clicked.connect(self.on_file_select)
+        #self.next_file_button.clicked.connect(self.on_next_file)
 
         # Open folder in file explorer
-        self.folder_name_button.clicked.connect(lambda: os.startfile(self.folder))
+        #self.folder_name_button.clicked.connect(lambda: os.startfile(self.folder))
         
         # Channel toggling
         self.previous_chan_button.clicked.connect(self.on_previous_chan)
@@ -606,7 +648,7 @@ class AppWindow(QMainWindow):
 
 
         # Associated spectra group
-        self.open_spectrum_button.clicked.connect(self.open_spectrum_viewer)
+        #self.open_spectrum_button.clicked.connect(self.open_spectrum_viewer)
 
 
 
@@ -622,7 +664,7 @@ class AppWindow(QMainWindow):
         previous_file_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Left), self)
         previous_file_shortcut.activated.connect(self.on_previous_file)
         select_file_shortcut = QShortcut(QKeySequence(Qt.Key.Key_L), self)
-        select_file_shortcut.activated.connect(self.on_file_select)
+        #select_file_shortcut.activated.connect(self.on_file_select)
         next_file_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Right), self)
         next_file_shortcut.activated.connect(self.on_next_file)
 
@@ -700,7 +742,7 @@ class AppWindow(QMainWindow):
         if self.file_index < 0: self.file_index = self.max_file_index
         self.load_process_display(new_scan = True)
 
-    def on_file_select(self):
+    def on_select_file(self):
         file_name, _ = QFileDialog.getOpenFileName(self, "Open file", self.folder, "SXM files (*.sxm)")
         if file_name: self.load_folder(file_name)
 
@@ -796,7 +838,7 @@ class AppWindow(QMainWindow):
             self.file_label = self.sxm_file[0] # The file label is the file name without the directory path
             # Update folder/contents labels
             try:
-                self.folder_name_button.setText(self.folder)
+                self.buttons["folder_name"].setText(self.paths["data_folder"])
                 if self.max_file_index == 0: self.contains_n_files_label.setText(f"which contains 1 sxm file")
                 else: self.contains_n_files_label.setText(f"which contains {self.max_file_index + 1} sxm files")
             except Exception as e:
@@ -811,13 +853,12 @@ class AppWindow(QMainWindow):
         except Exception as e:
             print(f"Error loading files: {e}")
             self.file_label = "Select file"
-        
-        self.file_select_button.setText(self.file_label)
+            self.buttons["select_file"].setText(self.file_label)
 
     def load_scan(self):
         self.sxm_file = self.sxm_files[self.file_index]
         self.file_label = self.sxm_file[0]
-        self.file_select_button.setText(self.file_label) # Make the select file button display the file name
+        self.buttons["select_file"].setText(self.file_label) # Make the select file button display the file name
 
         # Load the scan object using nanonispy2
         self.scan_object = get_scan(self.sxm_file[1], units = {"length": "nm", "current": "pA"})
