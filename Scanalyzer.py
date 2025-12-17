@@ -4,7 +4,7 @@ import yaml
 import numpy as np
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QLabel, QPushButton, QToolButton, QVBoxLayout, QHBoxLayout, QGridLayout, QWidget, QFileDialog,
-    QButtonGroup, QComboBox, QRadioButton, QGroupBox, QLineEdit, QFrame, QCheckBox, QMessageBox
+    QButtonGroup, QComboBox, QRadioButton, QGroupBox, QLineEdit, QCheckBox, QMessageBox
 )
 from PyQt6 import QtGui
 from PyQt6.QtCore import Qt, QTimer
@@ -18,7 +18,7 @@ from lib.gui_functions import GUIFunctions
 
 
 
-class SpectroscopyWindow(QMainWindow):
+class SpectrumViewer(QMainWindow):
     def __init__(self, processed_scan, spec_files, associated_spectra):
         super().__init__()
         self.setWindowTitle("Spectrum viewer")
@@ -321,15 +321,27 @@ class AppWindow(QMainWindow):
         
         make_button = self.gui_functions.make_button
         make_label = self.gui_functions.make_label
+        make_radio_button = self.gui_functions.make_radio_button
+        make_checkbox = self.gui_functions.make_checkbox
+        make_line_edit = self.gui_functions.make_line_edit
+        make_layout = self.gui_functions.make_layout
+        make_groupbox = self.gui_functions.make_groupbox
 
         self.buttons = {
-            "previous_file": make_button("Previous file", self.on_previous_file, "Previous file (<-)", self.icons.get("previous")),
-            "select_file": make_button("Load folder", self.on_select_file, "Load scan and corresponding folder (L)", self.icons.get("load_folder")),
-            "next_file": make_button("Next file", self.on_next_file, "Next file (->)", self.icons.get("previous")),
+            "previous_file": make_button("", self.on_previous_file, "Previous file (←)", self.icons.get("previous")),
+            "select_file": make_button("", self.on_select_file, "Load scan and corresponding folder (L)", self.icons.get("load_folder")),
+            "next_file": make_button("", self.on_next_file, "Next file (→)", self.icons.get("previous"), rotate_degrees = 180),
+
+            "previous_channel": make_button("", self.on_previous_chan, "Previous channel (↑)", self.icons.get("previous")),
+            "next_channel": make_button("", self.on_next_chan, "Next channel (↓)", self.icons.get("previous")),
+            "direction": make_button("", self.on_toggle_direction, "Change scan direction (X)", self.icons.get("double_arrow")),
 
             "folder_name": make_button("Open folder", self.open_data_folder, "Open the data folder (1)", self.icons.get("folder_search")),
-            "direction": make_button("Scan direction", self.on_toggle_direction, "Change the scan direction (X)", self.icons.get("double_arrow"), rotate_degrees = 180),
-            "full_data_range": make_button("Full data range", self.on_full_scale, "Set the image value range to the full data range (U)", self.icons.get("100")),
+
+            "full_data_range": make_button("", self.on_full_scale, "Set the image value range to the full data range (U)", self.icons.get("100")),
+            "percentiles": make_button("", self.on_percentiles, "Set the image value range by percentiles (R)", self.icons.get("percent")),
+            "standard_deviation": make_button("", self.on_standard_deviations, "Set the image value range by standrad deviations (D)", self.icons.get("deviation")),
+            "absolute_values": make_button("", self.on_absolute_values, "Set the image value range by absolute values", self.icons.get("numbers")),
 
             "spectrum_viewer": make_button("", self.open_spectrum_viewer, "Open Spectrum Viewer (O)", self.icons.get("graph")),
 
@@ -337,183 +349,138 @@ class AppWindow(QMainWindow):
             "exit": make_button("", self.on_exit, "Exit scanalyzer (Esc/X/E)", self.icons.get("escape"))
         }
         self.labels = {
+            "scan_summary": make_label("Scanalyzer by Peter H. Jacobse"),
+            "statistics": make_label("Statistics"),
             "load_file": make_label("Load file:"),
             "in_folder": make_label("in folder:"),
-            "number_of_files": make_label("which contains 1 sxm file")
+            "number_of_files": make_label("which contains 1 sxm file"),
+            "channel_selected": make_label("Channel selected:"),
+
+            "background_subtraction": make_label("Background subtraction"),
+            "width": make_label("Width (nm):"),
+            "show": make_label("Show", "Select a projection or toggle with (H)"),
+            "limits": make_label("Set limits", "Toggle the min and max limits with (-) and (=), respectively"),
+            "matrix_operations": make_label("Matrix operations")
         }
+        self.radio_buttons = {
+            "bg_none": make_radio_button("", lambda checked: self.on_bg_change("none") if checked else None, "None (0)", self.icons.get("rhombus")),
+            "bg_plane": make_radio_button("", lambda checked: self.on_bg_change("plane") if checked else None, "Plane (P)", self.icons.get("rhombus")),
+            "bg_linewise": make_radio_button("", lambda checked: self.on_bg_change("linewise") if checked else None, "Linewise (W)", self.icons.get("rhombus")),
+            "bg_inferred": make_radio_button("", lambda checked: self.on_bg_change("none") if checked else None, "None (0)", self.icons.get("rhombus"))
+        }
+        self.checkboxes = {
+            "sobel": make_checkbox("Sobel", lambda checked: self.toggle_matrix_processing("sobel", checked), "Compute the complex gradient d/dx + i d/dy; (B)", self.icons.get("d")),
+            "laplace": make_checkbox("Laplace", lambda checked: self.toggle_matrix_processing("laplace", checked), "Compute the Laplacian (d/dx)^2 + (d/dy)^2; (C)", self.icons.get("border")),
+            "fft": make_checkbox("Fft", lambda checked: self.toggle_matrix_processing("fft", checked), "Compute the 2D Fourier transform; (F)", self.icons.get("fx")),
+            "normal": make_checkbox("Normal", lambda checked: self.toggle_matrix_processing("normal", checked), "Compute the z component of the surface normal", self.icons.get("arrow_up_from_surface")),
+            "gauss": make_checkbox("Gauss", lambda checked: self.toggle_matrix_processing("gauss", checked), "Apply a Gaussian blur (G)", self.icons.get("rhombus")),
+        }
+        self.line_edits = {
+            "min_full": make_line_edit("", "minimum value of scan data range"),
+            "max_full": make_line_edit("", "maximum value of scan data range"),
+            "min_percentiles": make_line_edit("2", "minimum percentile of data range"),
+            "max_percentiles": make_line_edit("98", "maximum percentile of data range"),
+            "min_deviations": make_line_edit("2", "minimum = mean - n * standard deviation"),
+            "max_deviations": make_line_edit("2", "maximum = mean + n * standard deviation"),
+            "min_absolute": make_line_edit("0", "set minimum to an absolute value"),
+            "max_absolute": make_line_edit("1", "set maximum to an absolute value"),
+
+            "gaussian_width": make_line_edit("", "Width in nm for Gaussian blur application"),
+            "file_name": make_line_edit("", "Base name of the file when saved to png or hdf5")
+        }
+        self.layouts = {
+            "scan_summary": make_layout("v"),
+            "file_channel_direction": make_layout("v"),
+            "file_navigation": make_layout("h"),
+            "channel_navigation": make_layout("h"),
+            "image_processing": make_layout("v"),
+            "background_buttons": make_layout("h"),
+            "matrix_processing": make_layout("g"),
+            "spectra": make_layout("h")
+        }
+        self.groupboxes = {
+            "scan_summary": make_groupbox("Scan summary", "Information about the currently selected scan"),
+            "file_chan_dir": make_groupbox("File / Channel / Direction", "Select and toggle through scan files and channels"),
+            "associated_spectra": make_groupbox("Associated spectra", "Spectra recorded after the acquisition of the selected scan")
+        }
+        self.gaussian_width_box = QLineEdit()
 
         def draw_summary_group(): # Scan summary group
-            scan_summary_group = QGroupBox("Scan summary")
-            scan_summary_layout = QVBoxLayout()
-            scan_summary_layout.setSpacing(1)
-            
-            self.scan_summary_label = QLabel("Scanalyzer by Peter H. Jacobse") # Only for initialization
-            self.scan_summary_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            scan_summary_layout.addWidget(self.scan_summary_label)
-
-            self.statistics_info = QLabel("Statistics")
-            self.statistics_info.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            scan_summary_layout.addWidget(self.statistics_info)
-
-            scan_summary_group.setLayout(scan_summary_layout)
-        
-            return scan_summary_group
+            [self.layouts["scan_summary"].addWidget(widget) for widget in [self.labels["scan_summary"], self.labels["statistics"]]]
+            self.groupboxes["scan_summary"].setLayout(self.layouts["scan_summary"])
+            return self.groupboxes["scan_summary"]
         
         def draw_file_chan_dir_group(): # File/Channel/Direction group
-            file_chan_dir_group = QGroupBox("File / Channel / Direction")
-            fcd_layout = QVBoxLayout()
-            fcd_layout.setSpacing(1)
+            self.layouts["file_channel_direction"].addWidget(self.labels["load_file"])
 
-            # Row 1: "Load file"
-            fcd_layout.addWidget(self.labels["load_file"])
+            [self.layouts["file_navigation"].addWidget(button, 5 * (index % 2) + 1) for index, button in enumerate([self.buttons["previous_file"], self.buttons["select_file"], self.buttons["next_file"]])]
+            self.layouts["file_channel_direction"].addLayout(self.layouts["file_navigation"])
 
-            # Row 2: file navigation
-            file_nav_hbox = QHBoxLayout()
-            file_toggle_buttons = [self.buttons["previous_file"], self.buttons["select_file"], self.buttons["next_file"]]
-            #self.previous_file_button.setArrowType(Qt.ArrowType.LeftArrow)
-            #self.previous_file_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
-            #self.next_file_button.setArrowType(Qt.ArrowType.RightArrow)
-            #self.next_file_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
-            for button in file_toggle_buttons: file_nav_hbox.addWidget(button)        
-            fcd_layout.addLayout(file_nav_hbox)
+            if self.max_file_index == 0: self.labels["number_of_files"].setText("which contains 1 sxm file")
+            else: self.labels["number_of_files"].setText(f"which contains {self.max_file_index + 1} sxm files")
+            [self.layouts["file_channel_direction"].addWidget(widget) for widget in [self.labels["in_folder"], self.buttons["folder_name"], self.labels["number_of_files"], self.labels["channel_selected"]]]
 
-            # Row 3: "in folder"
-            in_folder_label = QLabel("in folder")
-            in_folder_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            fcd_layout.addWidget(in_folder_label)
-            
-            # Row 4: folder name
-
-           
-            fcd_layout.addWidget(self.buttons["folder_name"])
-
-            # Row 5: "which contains n sxm files" 
-            if self.max_file_index == 0: self.contains_n_files_label = QLabel(f"which contains 1 sxm file")
-            else: self.contains_n_files_label = QLabel(f"which contains {self.max_file_index + 1} sxm files")
-            self.contains_n_files_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            fcd_layout.addWidget(self.contains_n_files_label)
-
-            # Row 6: "Channel selected"
-            channel_selected_box = QLabel("Channel selected:")
-            channel_selected_box.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            fcd_layout.addWidget(channel_selected_box)
-
-            # Row 7: channel navigation
-            channel_hbox = QHBoxLayout()
-            [self.previous_chan_button, self.channel_box, self.next_chan_button] = channel_toggle_buttons = [QToolButton(), QComboBox(), QToolButton()]
-            self.previous_chan_button.setArrowType(Qt.ArrowType.DownArrow)
-            self.previous_chan_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+            self.channel_box = QComboBox()
             self.channel_box.addItems(["Channels"])
-            self.next_chan_button.setArrowType(Qt.ArrowType.UpArrow)
-            self.next_chan_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
-            for button in channel_toggle_buttons: channel_hbox.addWidget(button)
-            fcd_layout.addLayout(channel_hbox)
+            self.buttons["direction"].setCheckable(True)
+            self.layouts["channel_navigation"].addWidget(self.buttons["previous_channel"], 1)
+            self.layouts["channel_navigation"].addWidget(self.channel_box, 4)
+            self.layouts["channel_navigation"].addWidget(self.buttons["next_channel"], 1)
+            self.layouts["channel_navigation"].addWidget(self.buttons["direction"], 1)
 
-            # Direction button
-            direction_hbox = QHBoxLayout()
-            self.direction_button = QPushButton()
-            self.direction_button.setCheckable(True)
-            self.direction_button.setChecked(self.scan_direction == "backward") # checked == True -> backward, checked == False -> forward
-            self.direction_button.setText("direXion: backward" if self.direction_button.isChecked() else "direXion: forward")
+            self.layouts["file_channel_direction"].addLayout(self.layouts["channel_navigation"])
 
-            direction_hbox.addWidget(self.buttons["direction"])
-            fcd_layout.addLayout(direction_hbox)
-            file_chan_dir_group.setLayout(fcd_layout)
+            self.groupboxes["file_chan_dir"].setLayout(self.layouts["file_channel_direction"])
+            return self.groupboxes["file_chan_dir"]
 
-            self.fcd_buttons = file_toggle_buttons + [self.buttons["folder_name"]] + channel_toggle_buttons + [self.direction_button]
-
-            return file_chan_dir_group
-
-        def draw_image_processing_group(): # Image processing group            
+        def draw_image_processing_group(): # Image processing group
             im_proc_group = QGroupBox("Image processing")
-            im_proc_layout = QVBoxLayout()
-            im_proc_layout.setSpacing(1)
-            
-            back_sub_label = QLabel("Background subtraction")
-            back_sub_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            im_proc_layout.addWidget(back_sub_label)
+
+            self.layouts["image_processing"].addWidget(self.labels["background_subtraction"])
             
             # Background subtraction group
-            bg_layout = QGridLayout()
-            [self.bg_none_radio, self.bg_plane_radio, self.bg_inferred_radio, self.bg_linewise_radio] = background_buttons = [QRadioButton("none (0)"), QRadioButton("Plane"), QRadioButton("Inferred"), QRadioButton("lineWise")]
-            # Group them for exclusive selection
             self.bg_button_group = QButtonGroup(self)
+            background_buttons = [self.radio_buttons["bg_none"], self.radio_buttons["bg_plane"], self.radio_buttons["bg_linewise"], self.radio_buttons["bg_inferred"]]
             [self.bg_button_group.addButton(button) for button in background_buttons]
-            
-            # Set default according to self.background_subtraction
-            if self.background_subtraction == "plane":
-                self.bg_plane_radio.setChecked(True)
-            elif self.background_subtraction == "inferred":
-                self.bg_inferred_radio.setChecked(True)
-            elif self.background_subtraction == "linewise":
-                self.bg_linewise_radio.setChecked(True)
-            else:
-                self.bg_none_radio.setChecked(True)
-            
-            # Add radio buttons to the layout
-            bg_layout.addWidget(self.bg_none_radio, 0, 0)
-            bg_layout.addWidget(self.bg_plane_radio, 0, 1)
-            bg_layout.addWidget(self.bg_inferred_radio, 1, 0)
-            bg_layout.addWidget(self.bg_linewise_radio, 1, 1)
-            im_proc_layout.addLayout(bg_layout)
-
-            # Create the horizontal line separator
-            line = QFrame()
-            line.setFrameShape(QFrame.Shape.HLine)  # Set the shape to a horizontal line
-            line.setLineWidth(1) # Optional: Set the line width
-            im_proc_layout.addWidget(line) # Add the line to the QVBoxLayout
-
-
+            [self.layouts["background_buttons"].addWidget(button) for button in background_buttons]
+            self.layouts["image_processing"].addLayout(self.layouts["background_buttons"])
+            self.layouts["image_processing"].addWidget(self.gui_functions.line_widget("h", 1))
 
             # Matrix operations
-            back_sub_label = QLabel("Matrix operations")
-            back_sub_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            im_proc_layout.addWidget(back_sub_label)
-
-            matrix_layout = QGridLayout()
-            matrix_layout.setSpacing(1)
+            self.layouts["image_processing"].addWidget(self.labels["matrix_operations"])
+            matrix_layout = self.layouts["matrix_processing"]
+            
             [self.sobel_button, self.normal_button, self.laplace_button, self.gauss_button, self.fft_button, self.project_complex_box] = matrix_buttons = [QCheckBox("soBel (d/dx + i d/dy)"), QCheckBox("Normal_z"), QCheckBox("laplaCe (∇2)"), QCheckBox("Gaussian"), QCheckBox("Fft"), QComboBox()]
             #self.derivative_button_group = QButtonGroup(self)
             #[self.derivative_button_group.addButton(button) for button in [self.sobel_button, self.normal_button, self.laplace_button]]
             self.project_complex_box.addItems(["re", "im", "abs", "arg (b/w)", "arg (hue)", "complex", "abs^2", "log(abs)"])
 
-            gaussian_width_label = QLabel("width (nm):")
-            gaussian_width_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.gaussian_width_box = QLineEdit("1")
-            show_label = QLabel("sHow:")
-            show_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-            matrix_layout.addWidget(self.sobel_button, 0, 0)
-            matrix_layout.addWidget(self.normal_button, 0, 1)
-            matrix_layout.addWidget(self.laplace_button, 0, 2)
-            matrix_layout.addWidget(self.gauss_button, 1, 0)
-            matrix_layout.addWidget(gaussian_width_label, 1, 1)
-            matrix_layout.addWidget(self.gaussian_width_box, 1, 2)
-            matrix_layout.addWidget(self.fft_button, 2, 0)
-            matrix_layout.addWidget(show_label, 2, 1)
+            matrix_layout.addWidget(self.checkboxes["sobel"], 0, 0)
+            matrix_layout.addWidget(self.checkboxes["normal"], 0, 1)
+            matrix_layout.addWidget(self.checkboxes["laplace"], 0, 2)
+            matrix_layout.addWidget(self.checkboxes["gauss"], 1, 0)
+            matrix_layout.addWidget(self.labels["width"], 1, 1)
+            matrix_layout.addWidget(self.labels["width"], 1, 2)
+            matrix_layout.addWidget(self.checkboxes["fft"], 2, 0)
+            matrix_layout.addWidget(self.labels["show"], 2, 1)
             matrix_layout.addWidget(self.project_complex_box, 2, 2)
 
-            im_proc_layout.addLayout(matrix_layout)
-
-            # Add another line
-            line = QFrame()
-            line.setFrameShape(QFrame.Shape.HLine)
-            line.setLineWidth(1)
-            im_proc_layout.addWidget(line)
-
-
+            self.layouts["image_processing"].addLayout(matrix_layout)
+            self.layouts["image_processing"].addWidget(self.gui_functions.line_widget("h", 1))
 
             # Histogram control group: put the statistics/info label here
             limits_label = QLabel("Set limits (toggle using the - and = buttons)")
             limits_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            im_proc_layout.addWidget(limits_label)
+            self.layouts["image_processing"].addWidget(limits_label)
 
             limits_layout = QGridLayout()
             limits_layout.setSpacing(1)            
             [self.min_range_box, self.min_range_set, self.full_scale_button, self.max_range_set, self.max_range_box] = range_boxes = [QLineEdit(), QRadioButton(), QPushButton("by fUll data range"), QRadioButton(), QLineEdit()]
+            range_boxes[2] = self.buttons["full_data_range"]
             [box.setEnabled(False) for box in [self.min_range_box, self.max_range_box]]
 
             [self.min_percentile_box, self.min_percentile_set, self.set_percentile_button, self.max_percentile_set, self.max_percentile_box] = percentile_boxes = [QLineEdit(), QRadioButton(), QPushButton("by peRcentiles"), QRadioButton(), QLineEdit()]
+            percentile_boxes[2] = self.buttons["percentiles"]
             self.min_percentile_box.setText(str(self.min_percentile))
             self.max_percentile_box.setText(str(self.max_percentile))
 
@@ -536,25 +503,18 @@ class AppWindow(QMainWindow):
             self.max_button_group = QButtonGroup(self)
             [self.max_button_group.addButton(button) for button in [self.max_range_set, self.max_percentile_set, self.max_std_dev_set, self.max_abs_val_set]]
             
-            im_proc_layout.addLayout(limits_layout)
-            im_proc_group.setLayout(im_proc_layout)
+            self.layouts["image_processing"].addLayout(limits_layout)
+            im_proc_group.setLayout(self.layouts["image_processing"])
 
             return im_proc_group
         
         def draw_associated_spectra_group(): # Associated spectra dropdown menu
-            spectra_group = QGroupBox("Associated spectra")
-            spectra_vbox = QVBoxLayout()
-            spectra_vbox.setSpacing(1)
-
             self.spectra_box = QComboBox()
-            spectra_vbox.addWidget(self.spectra_box)
+            self.layouts["spectra"].addWidget(self.spectra_box, 4)
+            self.layouts["spectra"].addWidget(self.buttons["spectrum_viewer"], 1)
 
-            #self.open_spectrum_button = QPushButton("Open spectrum viewer")
-            spectra_vbox.addWidget(self.buttons["spectrum_viewer"])
-
-            spectra_group.setLayout(spectra_vbox)
-
-            return spectra_group
+            self.groupboxes["associated_spectra"].setLayout(self.layouts["spectra"])
+            return self.groupboxes["associated_spectra"]
 
         def draw_io_group(): # I/O group
             io_group = QGroupBox("I/O")
@@ -596,33 +556,6 @@ class AppWindow(QMainWindow):
         return button_layout
 
     def connect_buttons(self):
-        # File_chan_dir group
-        # File toggling
-        #self.previous_file_button.clicked.connect(self.on_previous_file)
-        #self.file_select_button.clicked.connect(self.on_file_select)
-        #self.next_file_button.clicked.connect(self.on_next_file)
-
-        # Open folder in file explorer
-        #self.folder_name_button.clicked.connect(lambda: os.startfile(self.folder))
-        
-        # Channel toggling
-        self.previous_chan_button.clicked.connect(self.on_previous_chan)
-        self.channel_box.currentIndexChanged.connect(self.on_chan_change)
-        self.next_chan_button.clicked.connect(self.on_next_chan)
-
-        # Direction
-        self.direction_button.toggled.connect(self.on_toggle_direction)
-
-
-
-        # Image processing group
-        # Background subtraction toggle buttons
-        self.bg_none_radio.toggled.connect(lambda checked: self.on_bg_change("none") if checked else None)
-        self.bg_plane_radio.toggled.connect(lambda checked: self.on_bg_change("plane") if checked else None)
-        self.bg_inferred_radio.toggled.connect(lambda checked: self.on_bg_change("inferred") if checked else None)
-        self.bg_linewise_radio.toggled.connect(lambda checked: self.on_bg_change("linewise") if checked else None)
-        self.bg_inferred_radio.setEnabled(False)
-
         # Matrix operations
         self.sobel_button.clicked.connect(lambda checked: self.toggle_matrix_processing("sobel", checked))
         self.normal_button.clicked.connect(lambda checked: self.toggle_matrix_processing("normal", checked))
@@ -644,13 +577,6 @@ class AppWindow(QMainWindow):
         self.set_percentile_button.clicked.connect(lambda: self.on_percentiles("both"))
         self.set_std_dev_button.clicked.connect(lambda: self.on_standard_deviations("both"))
         self.set_abs_val_button.clicked.connect(lambda: self.on_absolute_values("both"))
-
-
-
-        # Associated spectra group
-        #self.open_spectrum_button.clicked.connect(self.open_spectrum_viewer)
-
-
 
         # I/O group
         self.save_button.clicked.connect(self.on_save)
@@ -839,15 +765,12 @@ class AppWindow(QMainWindow):
             # Update folder/contents labels
             try:
                 self.buttons["folder_name"].setText(self.paths["data_folder"])
-                if self.max_file_index == 0: self.contains_n_files_label.setText(f"which contains 1 sxm file")
-                else: self.contains_n_files_label.setText(f"which contains {self.max_file_index + 1} sxm files")
+                if self.max_file_index == 0: self.labels["number_of_files"].setText("which contains 1 sxm file")
+                else: self.labels["number_of_files"].setText(f"which contains {self.max_file_index + 1} sxm files")
             except Exception as e:
                 print(f"Error: {e}")
 
             if self.max_file_index > 0:
-                #self.current_scan = self.load_scan() # Load the image if there is a file
-                #processed_scan = self.process_scan(self.current_scan)
-                #self.display(processed_scan)
                 self.load_process_display(new_scan = True)
 
         except Exception as e:
@@ -888,7 +811,7 @@ class AppWindow(QMainWindow):
             self.summary_text = f"STM topographic scan recorded on\n{self.scan_time.strftime('%Y/%m/%d   at   %H:%M:%S')}\n\n(V = {self.bias} V; I_fb = {self.setpoint} pA)\nScan range: {self.scan_range[0]} nm by {self.scan_range[1]} nm"
         else:
             self.summary_text = f"Constant height scan recorded on\n{self.scan_time.strftime('%Y/%m/%d   at   %H:%M:%S')}\n\n(V = {self.bias} V)\nScan range: {self.scan_range[0]} nm by {self.scan_range[1]} nm"
-        self.scan_summary_label.setText(self.summary_text)
+        self.labels["scan_summary"].setText(self.summary_text)
         
         try:
             associated_spectra_indices = np.where(self.spec_files[:, 3] == self.sxm_file[0])[0]
@@ -944,11 +867,11 @@ class AppWindow(QMainWindow):
         self.max_range_box.setText(f"{rounded_max}")
 
         if self.channel == "X" or self.channel == "Y" or self.channel == "Z":
-            self.statistics_info.setText(f"\nValue range: {round(self.statistics.range_total, 3)} nm; Mean ± std dev: {round(self.statistics.mean, 3)} ± {round(self.statistics.standard_deviation, 3)} nm")
+            self.labels["statistics"].setText(f"\nValue range: {round(self.statistics.range_total, 3)} nm; Mean ± std dev: {round(self.statistics.mean, 3)} ± {round(self.statistics.standard_deviation, 3)} nm")
         elif self.channel == "Current":
-            self.statistics_info.setText(f"\nValue range: {round(self.statistics.range_total, 3)} pA; Mean ± std dev: {round(self.statistics.mean, 3)} ± {round(self.statistics.standard_deviation, 3)} pA")
+            self.labels["statistics"].setText(f"\nValue range: {round(self.statistics.range_total, 3)} pA; Mean ± std dev: {round(self.statistics.mean, 3)} ± {round(self.statistics.standard_deviation, 3)} pA")
         else:
-            self.statistics_info.setText(f"\nValue range: {round(self.statistics.range_total, 3)}; Mean ± std dev: {round(self.statistics.mean, 3)} ± {round(self.statistics.standard_deviation, 3)}")
+            self.labels["statistics"].setText(f"\nValue range: {round(self.statistics.range_total, 3)}; Mean ± std dev: {round(self.statistics.mean, 3)} ± {round(self.statistics.standard_deviation, 3)}")
         
         # Update the filename for the scan
         self.update_filename()
@@ -1047,7 +970,7 @@ class AppWindow(QMainWindow):
             if not hasattr(self, "second_window") or self.second_window is None: # Create only if not already created:
                 self.current_scan = self.load_scan()
                 processed_scan = self.process_scan(self.current_scan)
-                self.second_window = SpectroscopyWindow(processed_scan, self.spec_files, self.associated_spectra)
+                self.second_window = SpectrumViewer(processed_scan, self.spec_files, self.associated_spectra)
             self.second_window.show()
         else:
             print("Error. No spectroscopy files found in the data folder.")
