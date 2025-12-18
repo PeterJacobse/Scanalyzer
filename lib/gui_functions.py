@@ -3,7 +3,7 @@ import sys
 import yaml
 import numpy as np
 from PyQt6 import QtGui, QtWidgets
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QSize
 from datetime import datetime
 from typing import Callable, Dict, List, Tuple
 
@@ -68,16 +68,11 @@ class GUIFunctions:
             except: pass
         return button
     
-    def make_checkbox(self, name: str, func: Callable, description: str = "", icon = None, key_shortcut = None, rotate_degrees: float = 0) -> QtWidgets.QCheckBox:
+    def make_checkbox(self, name: str, description: str = "", icon = None, rotate_degrees: float = 0) -> QtWidgets.QCheckBox:
         box = QtWidgets.QCheckBox(name)
         box.setObjectName(name)
-        box.clicked.connect(lambda checked, f = func: f() if checked else None)
         box.setToolTip(description)
         
-        if isinstance(key_shortcut, Qt.Key):
-            shortcut = QtGui.QShortcut(QtGui.QKeySequence(key_shortcut), self)
-            shortcut.activated.connect(lambda checked, f = func: f())
-
         if isinstance(icon, QtGui.QIcon):
             if type(rotate_degrees) == float or type(rotate_degrees) == int and rotate_degrees != 0:
                 try: icon = self.rotate_icon(icon, rotate_degrees)
@@ -86,11 +81,14 @@ class GUIFunctions:
             except: pass
         return box
     
-    def make_combobox(self, name: str, func: Callable, description: str = "") -> QtWidgets.QComboBox:
+    def make_combobox(self, name: str = "", description: str = "", func = None, items: list = []) -> QtWidgets.QComboBox:
         box = QtWidgets.QComboBox()
         box.setObjectName(name)
-        box.currentIndexChanged.connect(lambda checked, f = func: f() if checked else None)
         box.setToolTip(description)
+
+        if len(items) > 0: box.addItems(items)
+
+        if callable(func): box.currentIndexChanged.connect(lambda checked, f = func: f())
         return box
     
     def make_line_edit(self, name: str, description: str = "", icon = None, key_shortcut = None, rotate_degrees: float = 0) -> QtWidgets.QLineEdit:
@@ -128,14 +126,15 @@ class GUIFunctions:
         line.setLineWidth(thickness)
         return line
 
-    def rotate_icon(icon, angle) -> QtGui.QIcon:
+    def rotate_icon(self, icon, angle) -> QtGui.QIcon:
         try:
-            pixmap = icon.pixmap()
+            pixmap = icon.pixmap(QSize(92, 92))
             transform = QtGui.QTransform()
             transform.rotate(angle)
 
             rotated_pixmap = pixmap.transformed(transform)
 
             return QtGui.QIcon(rotated_pixmap)
-        except:
+        except Exception as e:
+            print(f"Error: {e}")
             return False

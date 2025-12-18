@@ -3,7 +3,7 @@ import sys
 import yaml
 import numpy as np
 from PyQt6.QtWidgets import (
-    QApplication, QMainWindow, QLabel, QPushButton, QToolButton, QHBoxLayout, QGridLayout, QWidget, QFileDialog,
+    QApplication, QMainWindow, QLabel, QPushButton, QToolButton, QHBoxLayout, QVBoxLayout, QGridLayout, QWidget, QFileDialog,
     QButtonGroup, QComboBox, QRadioButton, QLineEdit, QCheckBox, QMessageBox
 )
 from PyQt6 import QtGui
@@ -317,25 +317,25 @@ class AppWindow(QMainWindow):
             "max_selection": 0
         }
 
+        self.gui_functions = GUIFunctions()
+
     def make_gui_items(self):
-        
-        gui_functions = GUIFunctions()
-        make_button = gui_functions.make_button
-        make_label = gui_functions.make_label
-        make_radio_button = gui_functions.make_radio_button
-        make_checkbox = gui_functions.make_checkbox
-        make_combobox = gui_functions.make_combobox
-        make_line_edit = gui_functions.make_line_edit
-        make_layout = gui_functions.make_layout
-        make_groupbox = gui_functions.make_groupbox
+        make_button = self.gui_functions.make_button
+        make_label = self.gui_functions.make_label
+        make_radio_button = self.gui_functions.make_radio_button
+        make_checkbox = self.gui_functions.make_checkbox
+        make_combobox = self.gui_functions.make_combobox
+        make_line_edit = self.gui_functions.make_line_edit
+        make_layout = self.gui_functions.make_layout
+        make_groupbox = self.gui_functions.make_groupbox
 
         self.buttons = {
-            "previous_file": make_button("", self.on_previous_file, "Previous file (←)", self.icons.get("previous")),
-            "select_file": make_button("", self.on_select_file, "Load scan and corresponding folder (L)", self.icons.get("load_folder")),
-            "next_file": make_button("", self.on_next_file, "Next file (→)", self.icons.get("previous"), rotate_degrees = 180),
+            "previous_file": make_button("", self.on_previous_file, "Previous file (←)", self.icons.get("thick_arrow"), rotate_degrees = 180, key_shortcut = Qt.Key.Key_Left),
+            "select_file": make_button("", self.on_select_file, "Load scan and corresponding folder (L)", self.icons.get("load_folder"), key_shortcut = Qt.Key.Key_L),
+            "next_file": make_button("", self.on_next_file, "Next file (→)", self.icons.get("thick_arrow"), key_shortcut = Qt.Key.Key_Right),
 
-            "previous_channel": make_button("", self.on_previous_chan, "Previous channel (↑)", self.icons.get("previous")),
-            "next_channel": make_button("", self.on_next_chan, "Next channel (↓)", self.icons.get("previous")),
+            "previous_channel": make_button("", self.on_previous_chan, "Previous channel (↑)", self.icons.get("thick_arrow"), rotate_degrees = 90),
+            "next_channel": make_button("", self.on_next_chan, "Next channel (↓)", self.icons.get("thick_arrow"), rotate_degrees = 270),
             "direction": make_button("", self.on_toggle_direction, "Change scan direction (X)", self.icons.get("double_arrow")),
 
             "folder_name": make_button("Open folder", self.open_data_folder, "Open the data folder (1)", self.icons.get("folder_search")),
@@ -348,7 +348,7 @@ class AppWindow(QMainWindow):
             "spectrum_viewer": make_button("", self.open_spectrum_viewer, "Open Spectrum Viewer (O)", self.icons.get("graph")),
 
             "save_png": make_button("", self.on_save_png, "Save as png file (S)", self.icons.get("floppy")),
-            "save_hdf5": make_button("", self.on_save_png, "Save as hdf5 file (5)", self.icons.get("floppy")),
+            "save_hdf5": make_button("", self.on_save_png, "Save as hdf5 file (5)", self.icons.get("h5")),
             "output_folder": make_button("Output folder", self.open_output_folder, "Open output folder"),
             "exit": make_button("", self.on_exit, "Exit scanalyzer (Esc/X/E)", self.icons.get("escape"))
         }
@@ -375,11 +375,11 @@ class AppWindow(QMainWindow):
             "bg_inferred": make_radio_button("", lambda checked: self.on_bg_change("none") if checked else None, "None (0)", self.icons.get("zero"))
         }
         self.checkboxes = {
-            "sobel": make_checkbox("Sobel", lambda checked: self.toggle_matrix_processing("sobel", checked), "Compute the complex gradient d/dx + i d/dy; (B)", self.icons.get("d")),
-            "laplace": make_checkbox("Laplace", lambda checked: self.toggle_matrix_processing("laplace", checked), "Compute the Laplacian (d/dx)^2 + (d/dy)^2; (C)", self.icons.get("border")),
-            "fft": make_checkbox("Fft", lambda checked: self.toggle_matrix_processing("fft", checked), "Compute the 2D Fourier transform; (F)", self.icons.get("fx")),
-            "normal": make_checkbox("Normal", lambda checked: self.toggle_matrix_processing("normal", checked), "Compute the z component of the surface normal", self.icons.get("arrow_up_from_surface")),
-            "gauss": make_checkbox("Gauss", lambda checked: self.toggle_matrix_processing("gauss", checked), "Apply a Gaussian blur (G)", self.icons.get("rhombus")),
+            "sobel": make_checkbox("Sobel", "Compute the complex gradient d/dx + i d/dy; (B)", self.icons.get("d")),
+            "laplace": make_checkbox("Laplace", """lambda checked: self.toggle_matrix_processing("laplace", checked),""" "Compute the Laplacian (d/dx)^2 + (d/dy)^2; (C)", self.icons.get("border")),
+            "fft": make_checkbox("Fft", """lambda checked: self.toggle_matrix_processing("fft", checked),""" "Compute the 2D Fourier transform; (F)", self.icons.get("fx")),
+            "normal": make_checkbox("Normal", """lambda checked: self.toggle_matrix_processing("normal", checked),""" "Compute the z component of the surface normal", self.icons.get("arrow_up_from_surface")),
+            "gauss": make_checkbox("Gauss", """lambda checked: self.toggle_matrix_processing("gauss", checked),""" "Apply a Gaussian blur (G)", self.icons.get("rhombus")),
         }
         self.line_edits = {
             "min_full": make_line_edit("", "minimum value of scan data range"),
@@ -395,8 +395,8 @@ class AppWindow(QMainWindow):
             "file_name": make_line_edit("", "Base name of the file when saved to png or hdf5")
         }
         self.comboboxes = {
-            "channels": make_combobox("Channels", "Available scan channels"),
-            "projection": make_combobox("Projection", "Select a projection or toggle with (H)"),
+            "channels": make_combobox("Channels", "Available scan channels", self.load_process_display),
+            "projection": make_combobox("Projection", "Select a projection or toggle with (H)", self.load_process_display, items = ["re", "im", "abs", "arg (b/w)", "arg (hue)", "complex", "abs^2", "log(abs)"]),
             "spectra": make_combobox("spectra", "Spectra associated with the current scan")
         }
 
@@ -429,9 +429,7 @@ class AppWindow(QMainWindow):
             "i/o": True
         }
     
-    def draw_toolbar(self):
-
-        self.gui_functions = GUIFunctions()
+    def draw_toolbar(self) -> QVBoxLayout:
 
         def draw_summary_group(): # Scan summary group
             [self.layouts["scan_summary"].addWidget(widget) for widget in [self.labels["scan_summary"], self.labels["statistics"]]]
@@ -471,14 +469,13 @@ class AppWindow(QMainWindow):
             background_buttons = [self.radio_buttons["bg_none"], self.radio_buttons["bg_plane"], self.radio_buttons["bg_linewise"], self.radio_buttons["bg_inferred"]]
             [self.bg_button_group.addButton(button) for button in background_buttons] # Add buttons to the QButtonGroup for exclusive selection
             [self.layouts["background_buttons"].addWidget(button) for button in background_buttons]
+            self.radio_buttons["bg_none"].setChecked(True)
             self.layouts["image_processing"].addLayout(self.layouts["background_buttons"])
             self.layouts["image_processing"].addWidget(self.gui_functions.line_widget("h", 1))
 
             # Matrix operations
             self.layouts["image_processing"].addWidget(self.labels["matrix_operations"])
             matrix_layout = self.layouts["matrix_processing"]
-            
-            self.comboboxes["projection"].addItems(["re", "im", "abs", "arg (b/w)", "arg (hue)", "complex", "abs^2", "log(abs)"])
 
             matrix_layout.addWidget(self.checkboxes["sobel"], 0, 0)
             matrix_layout.addWidget(self.checkboxes["normal"], 0, 1)
@@ -582,6 +579,8 @@ class AppWindow(QMainWindow):
         #self.laplace_button.clicked.connect(lambda checked: self.toggle_matrix_processing("laplace", checked))
         #self.fft_button.clicked.connect(lambda checked: self.toggle_matrix_processing("fft", checked))
         #self.project_complex_box.currentTextChanged.connect(lambda: self.toggle_matrix_processing("sobel", self.sobel_button.isChecked()))
+        self.checkboxes["sobel"].clicked.connect(lambda checked: self.toggle_matrix_processing("sobel", checked))
+        #self.comboboxes["projection"].currentIndexChanged.connect(self.load_process_display)
 
         # Limits control group
         [checkbox.clicked.connect(lambda: self.load_process_display(new_scan = False)) for checkbox in [
@@ -591,18 +590,12 @@ class AppWindow(QMainWindow):
             self.min_percentile_box, self.max_percentile_box, self.min_percentile_box, self.max_percentile_box, self.min_std_dev_box, self.max_std_dev_box, self.min_abs_val_box, self.max_abs_val_box
             ]]
 
-        # I/O group
-        #self.save_button.clicked.connect(self.on_save)
-        #self.check_exists_box.clicked.connect(self.on_save)
-        #self.exit_button.clicked.connect(self.on_exit)
-        #self.open_folder_button.clicked.connect(lambda: os.startfile(self.output_folder))
-
     def connect_keys(self):
         # File_chan_dir group
         # File toggling
-        previous_file_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Left), self)
-        previous_file_shortcut.activated.connect(self.on_previous_file)
-        select_file_shortcut = QShortcut(QKeySequence(Qt.Key.Key_L), self)
+        #previous_file_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Left), self)
+        #previous_file_shortcut.activated.connect(self.on_previous_file)
+        #select_file_shortcut = QShortcut(QKeySequence(Qt.Key.Key_L), self)
         #select_file_shortcut.activated.connect(self.on_file_select)
         next_file_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Right), self)
         next_file_shortcut.activated.connect(self.on_next_file)
@@ -699,13 +692,17 @@ class AppWindow(QMainWindow):
 
 
     def on_toggle_direction(self):
-        if self.processing_flags["direction"] == "forward": self.processing_flags["direction"] = "backward"
-        else: self.processing_flags["direction"] = "forward"
+        new_icon = self.icons["double_arrow"]
+        if self.processing_flags["direction"] == "forward":
+            self.processing_flags["direction"] = "backward"
+            new_icon = self.gui_functions.rotate_icon(new_icon, angle = 180)
+        else:
+            self.processing_flags["direction"] = "forward"
 
-        self.buttons["direction"].disconnect()
+        self.buttons["direction"].blockSignals(True)
         self.buttons["direction"].setChecked(self.processing_flags["direction"] == "backward")
-        self.buttons["direction"].setText(f"direXion: {self.processing_flags["direction"]}")
-        self.buttons["direction"].clicked.connect(self.on_toggle_direction)
+        self.buttons["direction"].setIcon(new_icon)
+        self.buttons["direction"].blockSignals(False)
 
         try:
             if hasattr(self, 'image_files') and len(self.image_files) > 0:
@@ -745,7 +742,7 @@ class AppWindow(QMainWindow):
 
 
     # Routines for loading a new image
-    def update_filename(self):
+    def update_filename(self) -> None:
         # Apply labels to the file name reflecting the operations performed on it
         [sobel_label, fft_label, laplace_label, normal_label] = ["" for _ in range(4)]
         if self.processing_flags["sobel"]: sobel_label = "_sobel"
@@ -762,14 +759,9 @@ class AppWindow(QMainWindow):
         self.line_edits["file_name"].setText(os.path.basename(self.paths["output_file_basename"]))
         self.buttons["output_folder"].setText(self.paths["output_folder_name"])
 
-        #if os.path.exists(self.output_folder + "\\" + self.png_file_name):
-        #    self.check_exists_box.setText("png already exists!")
-        #    self.check_exists_box.setStyleSheet("background-color: orange")
-        #else:
-        #    self.check_exists_box.setText("ok to save")
-        #    self.check_exists_box.setStyleSheet("background-color: green")
+        return
 
-    def load_folder(self, file_name):
+    def load_folder(self, file_name: str = "") -> None:
         try:
             self.folder = os.path.dirname(file_name) # Set the folder to the directory of the file
             self.paths["data_folder"] = os.path.dirname(file_name) # Set the folder to the directory of the file
@@ -796,8 +788,10 @@ class AppWindow(QMainWindow):
         except Exception as e:
             print(f"Error loading files: {e}")
             self.buttons["select_file"].setText("Select file")
+        
+        return
 
-    def load_scan(self):
+    def load_scan(self) -> np.ndarray:
         self.sxm_file = self.sxm_files[self.file_index]
         self.file_label = self.sxm_file[0]
         self.buttons["select_file"].setText(self.file_label) # Make the select file button display the file name
@@ -850,8 +844,7 @@ class AppWindow(QMainWindow):
         return selected_scan
 
     def process_scan(self, scan: np.ndarray) -> np.ndarray:
-        # Determine background subtraction mode from radio buttons and apply it
-        print("I made it here now")
+        # Background subtraction
         mode = self.processing_flags["background_subtraction"]
         processed_scan = background_subtract(scan, mode = mode)
 
@@ -878,12 +871,6 @@ class AppWindow(QMainWindow):
 
         # Calculate the image statistics and display them
         self.statistics = get_image_statistics(processed_scan)
-        rounded_min = round(self.statistics.min, 3)
-        rounded_max = round(self.statistics.max, 3)
-
-        #self.min_range_box.setText(f"{rounded_min}")
-        #self.max_range_box.setText(f"{rounded_max}")
-
         if self.channel == "X" or self.channel == "Y" or self.channel == "Z":
             self.labels["statistics"].setText(f"\nValue range: {round(self.statistics.range_total, 3)} nm; Mean ± std dev: {round(self.statistics.mean, 3)} ± {round(self.statistics.standard_deviation, 3)} nm")
         elif self.channel == "Current":
@@ -896,7 +883,7 @@ class AppWindow(QMainWindow):
         
         return processed_scan
 
-    def update_limits(self):
+    def update_limits(self) -> None:
         self.hist_levels = list(self.hist_item.getLevels())
         [min, max] = self.hist_levels
 
@@ -958,7 +945,7 @@ class AppWindow(QMainWindow):
         self.max_abs_val_box.setText(f"{round(max, 3)}")
         self.hist_item.sigLevelChangeFinished.connect(self.histogram_scale_changed)
 
-    def display(self, scan):
+    def display(self, scan: np.ndarray) -> None:
         # Show the scan
         if hasattr(self, "hist_item"): # Histogram is known: disconnect when changing the image
             self.hist_item.sigLevelChangeFinished.disconnect()
@@ -1086,19 +1073,19 @@ class AppWindow(QMainWindow):
     # Matrix processing functions
     def toggle_matrix_processing(self, operation: str = "none", checked: bool = True) -> None:
         if operation == "sobel":
-            self.radio_buttons["sobel"].setChecked(checked)
+            self.checkboxes["sobel"].setChecked(checked)
             self.processing_flags["sobel"] = checked
         if operation == "gaussian":
-            self.radio_buttons["gauss"].setChecked(checked)
+            self.checkboxes["gauss"].setChecked(checked)
             self.processing_flags["gauss"] = checked
         if operation == "fft":
-            self.radio_buttons["fft"].setChecked(checked)
+            self.checkboxes["fft"].setChecked(checked)
             self.processing_flags["fft"] = checked
         if operation == "laplace":
-            self.radio_buttons["laplace"].setChecked(checked)
+            self.checkboxes["laplace"].setChecked(checked)
             self.processing_flags["laplace"] = checked
         if operation == "normal":
-            self.radio_buttons["normal"].setChecked(checked)
+            self.checkboxes["normal"].setChecked(checked)
             self.processing_flags["normal"] = checked
 
         if not hasattr(self, "current_scan"):
