@@ -273,12 +273,10 @@ class AppWindow(QMainWindow):
 
         icon_files = os.listdir(self.paths["icon_folder"])
         self.icons = {}
-        self.icon_paths = {}
         for icon_file in icon_files:
-            icon_name = os.path.splitext(os.path.basename(icon_file))[0]
+            [icon_name, extension] = os.path.splitext(os.path.basename(icon_file))
             try:
-                self.icon_paths.update({icon_name: os.path.join(self.paths["icon_folder"], icon_file)})
-                self.icons.update({icon_name: QtGui.QIcon(os.path.join(self.paths["icon_folder"], icon_file))})
+                if extension == ".png": self.icons.update({icon_name: QtGui.QIcon(os.path.join(self.paths["icon_folder"], icon_file))})
             except:
                 pass
         
@@ -330,9 +328,9 @@ class AppWindow(QMainWindow):
         make_groupbox = self.gui_functions.make_groupbox
 
         self.buttons = {
-            "previous_file": make_button("", self.on_previous_file, "Previous file (←)", self.icons.get("thick_arrow"), rotate_degrees = 180, key_shortcut = Qt.Key.Key_Left),
-            "select_file": make_button("", self.on_select_file, "Load scan and corresponding folder (L)", self.icons.get("load_folder"), key_shortcut = Qt.Key.Key_L),
-            "next_file": make_button("", self.on_next_file, "Next file (→)", self.icons.get("thick_arrow"), key_shortcut = Qt.Key.Key_Right),
+            "previous_file": make_button("", self.on_previous_file, "Previous file (←)", self.icons.get("thick_arrow"), rotate_degrees = 180),#, key_shortcut = Qt.Key.Key_Left),
+            "select_file": make_button("", self.on_select_file, "Load scan and corresponding folder (L)", self.icons.get("load_folder")),#, key_shortcut = Qt.Key.Key_L),
+            "next_file": make_button("", self.on_next_file, "Next file (→)", self.icons.get("thick_arrow")),#, key_shortcut = Qt.Key.Key_Right),
 
             "previous_channel": make_button("", self.on_previous_chan, "Previous channel (↑)", self.icons.get("thick_arrow"), rotate_degrees = 90),
             "next_channel": make_button("", self.on_next_chan, "Next channel (↓)", self.icons.get("thick_arrow"), rotate_degrees = 270),
@@ -372,7 +370,16 @@ class AppWindow(QMainWindow):
             "bg_none": make_radio_button("", lambda checked: self.on_bg_change("none") if checked else None, "None (0)", self.icons.get("zero")),
             "bg_plane": make_radio_button("", lambda checked: self.on_bg_change("plane") if checked else None, "Plane (P)", self.icons.get("rhombus")),
             "bg_linewise": make_radio_button("", lambda checked: self.on_bg_change("linewise") if checked else None, "Linewise (W)", self.icons.get("lines")),
-            "bg_inferred": make_radio_button("", lambda checked: self.on_bg_change("none") if checked else None, "None (0)", self.icons.get("zero"))
+            "bg_inferred": make_radio_button("", lambda checked: self.on_bg_change("none") if checked else None, "None (0)", self.icons.get("zero")),
+
+            "min_full": make_radio_button("", "set to minimum value of scan data range; (-) to toggle"),
+            "max_full": make_radio_button("", "set to maximum value of scan data range; (=) to toggle"),
+            "min_percentiles": make_radio_button("", "set to minimum percentile of data range; (-) to toggle"),
+            "max_percentiles": make_radio_button("", "set to maximum percentile of data range; (=) to toggle"),
+            "min_deviations": make_radio_button("", "set to minimum = mean - n * standard deviation; (-) to toggle"),
+            "max_deviations": make_radio_button("", "set to maximum = mean + n * standard deviation; (=) to toggle"),
+            "min_absolute": make_radio_button("", "set minimum to an absolute value; (-) to toggle"),
+            "max_absolute": make_radio_button("", "set maximum to an absolute value; (=) to toggle"),
         }
         self.checkboxes = {
             "sobel": make_checkbox("Sobel", "Compute the complex gradient d/dx + i d/dy; (B)", self.icons.get("d")),
@@ -388,8 +395,8 @@ class AppWindow(QMainWindow):
             "max_percentiles": make_line_edit("98", "maximum percentile of data range"),
             "min_deviations": make_line_edit("2", "minimum = mean - n * standard deviation"),
             "max_deviations": make_line_edit("2", "maximum = mean + n * standard deviation"),
-            "min_absolute": make_line_edit("0", "set minimum to an absolute value"),
-            "max_absolute": make_line_edit("1", "set maximum to an absolute value"),
+            "min_absolute": make_line_edit("0", "minimum absolute value"),
+            "max_absolute": make_line_edit("1", "maximum absolute value"),
 
             "gaussian_width": make_line_edit("", "Width in nm for Gaussian blur application"),
             "file_name": make_line_edit("", "Base name of the file when saved to png or hdf5")
@@ -455,7 +462,6 @@ class AppWindow(QMainWindow):
             self.layouts["channel_navigation"].addWidget(self.comboboxes["channels"], 4)
             self.layouts["channel_navigation"].addWidget(self.buttons["next_channel"], 1)
             self.layouts["channel_navigation"].addWidget(self.buttons["direction"], 1)
-
             self.layouts["file_channel_direction"].addLayout(self.layouts["channel_navigation"])
 
             self.groupboxes["file_chan_dir"].setLayout(self.layouts["file_channel_direction"])
@@ -466,7 +472,7 @@ class AppWindow(QMainWindow):
             
             # Background subtraction group
             self.bg_button_group = QButtonGroup(self)
-            background_buttons = [self.radio_buttons["bg_none"], self.radio_buttons["bg_plane"], self.radio_buttons["bg_linewise"], self.radio_buttons["bg_inferred"]]
+            background_buttons = [self.radio_buttons[button_name] for button_name in ["bg_none", "bg_plane", "bg_linewise", "bg_inferred"]]
             [self.bg_button_group.addButton(button) for button in background_buttons] # Add buttons to the QButtonGroup for exclusive selection
             [self.layouts["background_buttons"].addWidget(button) for button in background_buttons]
             self.radio_buttons["bg_none"].setChecked(True)
@@ -476,64 +482,37 @@ class AppWindow(QMainWindow):
             # Matrix operations
             self.layouts["image_processing"].addWidget(self.labels["matrix_operations"])
             matrix_layout = self.layouts["matrix_processing"]
-
-            matrix_layout.addWidget(self.checkboxes["sobel"], 0, 0)
-            matrix_layout.addWidget(self.checkboxes["normal"], 0, 1)
-            matrix_layout.addWidget(self.checkboxes["laplace"], 0, 2)
+            [matrix_layout.addWidget(self.checkboxes[checkbox_name], 0, index) for index, checkbox_name in enumerate(["sobel", "normal", "laplace"])]
             matrix_layout.addWidget(self.checkboxes["gauss"], 1, 0)
             matrix_layout.addWidget(self.labels["width"], 1, 1)
             matrix_layout.addWidget(self.line_edits["gaussian_width"], 1, 2)
             matrix_layout.addWidget(self.checkboxes["fft"], 2, 0)
             matrix_layout.addWidget(self.labels["show"], 2, 1)
             matrix_layout.addWidget(self.comboboxes["projection"], 2, 2)
-
             self.layouts["image_processing"].addLayout(matrix_layout)
             self.layouts["image_processing"].addWidget(self.gui_functions.line_widget("h", 1))
 
-            # Histogram control group: put the statistics/info label here
+            # Limits control group
             self.layouts["image_processing"].addWidget(self.labels["limits"])
-
-            limits_layout = self.layouts["limits"] 
-            [self.min_range_box, self.min_range_set, self.full_scale_button, self.max_range_set, self.max_range_box] = range_boxes = [QLineEdit(), QRadioButton(), QPushButton("by fUll data range"), QRadioButton(), QLineEdit()]
-            range_boxes[2] = self.buttons["full_data_range"]
-            [box.setEnabled(False) for box in [self.min_range_box, self.max_range_box]]
-
-            [self.min_percentile_box, self.min_percentile_set, self.set_percentile_button, self.max_percentile_set, self.max_percentile_box] = percentile_boxes = [QLineEdit(), QRadioButton(), QPushButton("by peRcentiles"), QRadioButton(), QLineEdit()]
-            percentile_boxes[2] = self.buttons["percentiles"]
-            self.min_percentile_box.setText(str(self.limit_boxes["min_percentile"]))
-            self.max_percentile_box.setText(str(self.limit_boxes["max_percentile"]))
-
-            [self.min_std_dev_box, self.min_std_dev_set, self.set_std_dev_button, self.max_std_dev_set, self.max_std_dev_box] = std_dev_boxes = [QLineEdit(), QRadioButton(), QPushButton("by standard Deviations"), QRadioButton(), QLineEdit()]
-            std_dev_boxes[2] = self.buttons["standard_deviation"]
-            #self.min_std_dev_box.setText(str(self.min_std_dev))
-            #self.max_std_dev_box.setText(str(self.max_std_dev))
-
-            [self.min_abs_val_box, self.min_abs_val_set, self.set_abs_val_button, self.max_abs_val_set, self.max_abs_val_box] = abs_val_boxes = [QLineEdit(), QRadioButton(), QPushButton("by Absolute values"), QRadioButton(), QLineEdit()]
-            abs_val_boxes[2] = self.buttons["absolute_values"]
-            #self.min_abs_val_box.setText("0")
-            #self.max_abs_val_box.setText("1")
-
-            [limits_layout.addWidget(range_boxes[index], 0, index) for index in range(len(range_boxes))]
-            [limits_layout.addWidget(percentile_boxes[index], 1, index) for index in range(len(percentile_boxes))]
-            [limits_layout.addWidget(std_dev_boxes[index], 2, index) for index in range(len(std_dev_boxes))]
-            [limits_layout.addWidget(abs_val_boxes[index], 3, index) for index in range(len(abs_val_boxes))]
-            #min_line_edits = [self.line_edits["min_full"], self.line_edits["min_percentiles"], self.line_edits["min_deviations"], self.line_edits["min_absolute"]]
-            #min_radio_buttons = [self.radio_buttons["min_full"], self.radio_buttons["min_percentiles"], self.radio_buttons["min_deviations"], self.radio_buttons["min_absolute"]]
-            #limit_buttons = [self.buttons[""]]
-            #max_radio_buttons = [self.radio_buttons["max_full"], self.radio_buttons["max_percentiles"], self.radio_buttons["max_deviations"], self.radio_buttons["max_absolute"]]
-            #max_line_edits = [self.line_edits["max_full"], self.line_edits["max_percentiles"], self.line_edits["max_deviations"], self.line_edits["max_absolute"]]
-
-            #[limits_layout.addWidget(line_edit, index, 0) for index, line_edit in enumerate min_line_edits]
-            #[limits_layout.addWidget(line_edit, index, 2) for index, line_edit in enumerate max_line_edits]
-
-            # Min and max buttons are exclusive
-            
-            self.min_button_group = QButtonGroup(self)
-            [self.min_button_group.addButton(button) for button in [self.min_range_set, self.min_percentile_set, self.min_std_dev_set, self.min_abs_val_set]]
-            self.max_button_group = QButtonGroup(self)
-            [self.max_button_group.addButton(button) for button in [self.max_range_set, self.max_percentile_set, self.max_std_dev_set, self.max_abs_val_set]]
-            
+            limits_layout = self.layouts["limits"]
+            min_line_edits = [self.line_edits[line_edit_name] for line_edit_name in ["min_full", "min_percentiles", "min_deviations", "min_absolute"]]
+            min_radio_buttons = [self.radio_buttons[button_name] for button_name in ["min_full", "min_percentiles", "min_deviations", "min_absolute"]]
+            scale_buttons = [self.buttons[button_name] for button_name in ["full_data_range", "percentiles", "standard_deviation", "absolute_values"]]            
+            max_radio_buttons = [self.radio_buttons[button_name] for button_name in ["max_full", "max_percentiles", "max_deviations", "max_absolute"]]
+            max_line_edits = [self.line_edits[line_edit_name] for line_edit_name in ["max_full", "max_percentiles", "max_deviations", "max_absolute"]]
+            [self.line_edits[line_edit_name].setEnabled(False) for line_edit_name in ["min_full", "max_full"]]
+            [self.min_button_group, self.max_button_group] = [QButtonGroup(self), QButtonGroup(self)]
+            #[self.min_button_group.addButton(button) for button in min_radio_buttons] # Min and max buttons are exclusive
+            #[self.max_button_group.addButton(button) for button in max_radio_buttons]
+            [limits_layout.addWidget(line_edit, index, 0) for index, line_edit in enumerate(min_line_edits)]
+            [limits_layout.addWidget(line_edit, index, 1) for index, line_edit in enumerate(min_radio_buttons)]
+            [limits_layout.addWidget(line_edit, index, 2) for index, line_edit in enumerate(scale_buttons)]
+            [limits_layout.addWidget(line_edit, index, 3) for index, line_edit in enumerate(max_radio_buttons)]
+            [limits_layout.addWidget(line_edit, index, 4) for index, line_edit in enumerate(max_line_edits)]
             self.layouts["image_processing"].addLayout(limits_layout)
+            print(min_radio_buttons)
+            #[button.clicked.connect(lambda: self.load_process_display(new_scan = False)) for button in min_radio_buttons]
+            #[button.clicked.connect(lambda: self.load_process_display(new_scan = False)) for button in max_radio_buttons]
 
             self.groupboxes["image_processing"].setLayout(self.layouts["image_processing"])
             return self.groupboxes["image_processing"]
@@ -549,9 +528,6 @@ class AppWindow(QMainWindow):
             io_layout = self.layouts["i/o"]
             io_layout.setColumnStretch(0, 1)
             io_layout.setColumnStretch(1, 1)
-
-            in_output_folder_label = QLabel("in output folder")
-            in_output_folder_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
             io_layout.addWidget(self.line_edits["file_name"], 0, 0)
             io_layout.addWidget(self.buttons["save_png"], 0, 1)
@@ -583,12 +559,6 @@ class AppWindow(QMainWindow):
         #self.comboboxes["projection"].currentIndexChanged.connect(self.load_process_display)
 
         # Limits control group
-        [checkbox.clicked.connect(lambda: self.load_process_display(new_scan = False)) for checkbox in [
-            self.min_range_set, self.max_range_set, self.min_percentile_set, self.max_percentile_set, self.min_std_dev_set, self.max_std_dev_set, self.min_abs_val_set, self.max_abs_val_set
-            ]]
-        [line_edit.editingFinished.connect(lambda: self.load_process_display(new_scan = False)) for line_edit in [
-            self.min_percentile_box, self.max_percentile_box, self.min_percentile_box, self.max_percentile_box, self.min_std_dev_box, self.max_std_dev_box, self.min_abs_val_box, self.max_abs_val_box
-            ]]
 
     def connect_keys(self):
         # File_chan_dir group
