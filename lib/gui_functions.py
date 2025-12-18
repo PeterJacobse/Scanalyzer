@@ -16,6 +16,7 @@ class GUIFunctions:
     def make_groupbox(self, name: str, description: str = "") -> QtWidgets.QGroupBox:
         box = QtWidgets.QGroupBox(name)
         box.setToolTip(description)
+        box.setCheckable(True)
         return box
 
     def make_button(self, name: str, func: Callable, description: str = "", icon = None, key_shortcut = None, rotate_degrees: float = 0) -> QtWidgets.QPushButton:
@@ -83,6 +84,13 @@ class GUIFunctions:
                 except: pass
             try: box.setIcon(icon)
             except: pass
+        return box
+    
+    def make_combobox(self, name: str, func: Callable, description: str = "") -> QtWidgets.QComboBox:
+        box = QtWidgets.QComboBox()
+        box.setObjectName(name)
+        box.currentIndexChanged.connect(lambda checked, f = func: f() if checked else None)
+        box.setToolTip(description)
         return box
     
     def make_line_edit(self, name: str, description: str = "", icon = None, key_shortcut = None, rotate_degrees: float = 0) -> QtWidgets.QLineEdit:
