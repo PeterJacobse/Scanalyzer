@@ -2,10 +2,6 @@ import os
 import sys
 import yaml
 import numpy as np
-from PyQt6.QtWidgets import (
-    QApplication, QMainWindow, QPushButton, QToolButton, QHBoxLayout, QVBoxLayout, QGridLayout, QWidget, QFileDialog,
-    QButtonGroup, QComboBox, QCheckBox, QMessageBox
-)
 from PyQt6 import QtCore, QtGui, QtWidgets
 import pyqtgraph as pg
 from pyqtgraph.Qt import QtCore
@@ -16,7 +12,7 @@ from lib.gui_functions import GUIFunctions
 
 
 
-class SpectrumViewer(QMainWindow):
+class SpectrumViewer(QtWidgets.QMainWindow):
     def __init__(self, processed_scan, spec_files, associated_spectra):
         super().__init__()
         self.setWindowTitle("Spectrum viewer")
@@ -50,21 +46,21 @@ class SpectrumViewer(QMainWindow):
             "exit": make_button("Exit", self.close, "Exit Spectrum Viewer")
         }
 
-    def draw_layout(self, toggle_checbox = None):
+    def draw_layout(self):
         # Set the central widget of the QMainWindow
-        central_widget = QWidget()
+        central_widget = QtWidgets.QWidget()
         self.setCentralWidget(central_widget)
-        main_layout = QGridLayout(central_widget)
+        main_layout = QtWidgets.QGridLayout(central_widget)
 
         # Spectrum selector
-        spectrum_selector_widget = QWidget()
-        spectrum_selector_layout = QGridLayout()
-        self.checkbox = [QCheckBox(f"({i})") for i in range(10)]
-        self.leftarrows = [QToolButton() for _ in range(10)]
+        spectrum_selector_widget = QtWidgets.QWidget()
+        spectrum_selector_layout = QtWidgets.QGridLayout()
+        self.checkbox = [QtWidgets.QCheckBox(f"({i})") for i in range(10)]
+        self.leftarrows = [QtWidgets.QToolButton() for _ in range(10)]
         [leftarrow.setArrowType(QtCore.Qt.ArrowType.LeftArrow) for leftarrow in self.leftarrows]
         [leftarrow.setToolButtonStyle(QtCore.Qt.ToolButtonStyle.ToolButtonIconOnly) for leftarrow in self.leftarrows]
-        self.qbox = [QComboBox() for _ in range(10)]
-        self.rightarrows = [QToolButton() for _ in range(10)]
+        self.qbox = [QtWidgets.QComboBox() for _ in range(10)]
+        self.rightarrows = [QtWidgets.QToolButton() for _ in range(10)]
         [rightarrow.setArrowType(QtCore.Qt.ArrowType.RightArrow) for rightarrow in self.rightarrows]
         [rightarrow.setToolButtonStyle(QtCore.Qt.ToolButtonStyle.ToolButtonIconOnly) for rightarrow in self.rightarrows]
         [arrow.setEnabled(False) for arrow in self.leftarrows]
@@ -101,8 +97,8 @@ class SpectrumViewer(QMainWindow):
 
         # Main widgets
         main_layout.addWidget(spectrum_selector_widget, 1, 0, 2, 1) # Spectrum selector buttons
-        [self.x_channel_box, self.graph_0_widget, self.graph_1_widget] = column_1_widgets = [QComboBox(), pg.PlotWidget(), pg.PlotWidget()]
-        [self.exit_button, self.y_channel_0_box, self.y_channel_1_box] = column_2_widgets = [QPushButton("Exit Spectrum viewer"), QComboBox(), QComboBox()]
+        [self.x_channel_box, self.graph_0_widget, self.graph_1_widget] = column_1_widgets = [QtWidgets.QComboBox(), pg.PlotWidget(), pg.PlotWidget()]
+        [self.exit_button, self.y_channel_0_box, self.y_channel_1_box] = column_2_widgets = [QtWidgets.QPushButton("Exit Spectrum viewer"), QtWidgets.QComboBox(), QtWidgets.QComboBox()]
         column_2_widgets[0] = self.buttons["exit"]
         self.graph_0 = self.graph_0_widget.getPlotItem() # Get the plotitems corresponding to the plot widgets
         self.graph_1 = self.graph_1_widget.getPlotItem()
@@ -198,7 +194,7 @@ class SpectrumViewer(QMainWindow):
 
 
 
-class AppWindow(QMainWindow):
+class AppWindow(QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Scanalyzer by Peter H. Jacobse") # Make the app window
@@ -217,9 +213,9 @@ class AppWindow(QMainWindow):
         self.connect_keys()
 
         # Set the central widget of the QMainWindow, then draw a toolbar next to it
-        central_widget = QWidget()
+        central_widget = QtWidgets.QWidget()
         self.setCentralWidget(central_widget)        
-        main_layout = QHBoxLayout(central_widget)
+        main_layout = QtWidgets.QHBoxLayout(central_widget)
         main_layout.addWidget(self.image_view, 3)
         main_layout.addLayout(self.draw_toolbar(), 1)
         
@@ -242,7 +238,7 @@ class AppWindow(QMainWindow):
 
 
 
-    def parameters_init(self): # Initialize default parameters
+    def parameters_init(self) -> None:
         # I/O paths
         script_path = os.path.abspath(__file__) # The full path of Scanalyzer.py, including the filename itself
         script_folder = os.path.dirname(script_path) # The parent directory of Scanalyzer.py
@@ -301,7 +297,7 @@ class AppWindow(QMainWindow):
 
         self.gui_functions = GUIFunctions()
 
-    def make_gui_items(self):
+    def make_gui_items(self) -> None:
         make_button = lambda *args, **kwargs: self.gui_functions.make_button(*args, parent = self, **kwargs)
         make_label = self.gui_functions.make_label
         make_radio_button = self.gui_functions.make_radio_button
@@ -313,18 +309,18 @@ class AppWindow(QMainWindow):
         QKey = QtCore.Qt.Key
 
         self.buttons = {
-            "previous_file": make_button("", self.on_previous_file, "Previous file (←)", self.icons.get("thick_arrow"), rotate_degrees = 180, key_shortcut = QKey.Key_Left),
+            "previous_file": make_button("", self.on_previous_file, "Previous file (←)", self.icons.get("single_arrow"), rotate_degrees = 180, key_shortcut = QKey.Key_Left),
             "select_file": make_button("", self.on_select_file, "Load scan and corresponding folder (L)", self.icons.get("load_folder"), key_shortcut = QKey.Key_L),
-            "next_file": make_button("", self.on_next_file, "Next file (→)", self.icons.get("thick_arrow"), key_shortcut = QKey.Key_Right),
+            "next_file": make_button("", self.on_next_file, "Next file (→)", self.icons.get("single_arrow"), key_shortcut = QKey.Key_Right),
 
-            "previous_channel": make_button("", self.on_previous_chan, "Previous channel (↑)", self.icons.get("thick_arrow"), rotate_degrees = 270, key_shortcut = QKey.Key_Up),
-            "next_channel": make_button("", self.on_next_chan, "Next channel (↓)", self.icons.get("thick_arrow"), rotate_degrees = 90, key_shortcut = QKey.Key_Down),
-            "direction": make_button("", self.on_toggle_direction, "Change scan direction (X)", self.icons.get("double_arrow"), key_shortcut = QKey.Key_X),
+            "previous_channel": make_button("", self.on_previous_chan, "Previous channel (↑)", self.icons.get("single_arrow"), rotate_degrees = 270, key_shortcut = QKey.Key_Up),
+            "next_channel": make_button("", self.on_next_chan, "Next channel (↓)", self.icons.get("single_arrow"), rotate_degrees = 90, key_shortcut = QKey.Key_Down),
+            "direction": make_button("", self.on_toggle_direction, "Change scan direction (X)", self.icons.get("triple_arrow"), key_shortcut = QKey.Key_X),
 
             "folder_name": make_button("Open folder", self.open_data_folder, "Open the data folder (1)", self.icons.get("folder_search"), key_shortcut = QKey.Key_1),
 
             "full_data_range": make_button("", self.on_full_scale, "Set the image value range to the full data range (U)", self.icons.get("100"), key_shortcut = QKey.Key_U),
-            "percentiles": make_button("", self.on_percentiles, "Set the image value range by percentiles (R)", self.icons.get("percent"), key_shortcut = QKey.Key_R),
+            "percentiles": make_button("", self.on_percentiles, "Set the image value range by percentiles (R)", self.icons.get("percentiles"), key_shortcut = QKey.Key_R),
             "standard_deviation": make_button("", self.on_standard_deviations, "Set the image value range by standard deviations (D)", self.icons.get("deviation"), key_shortcut = QKey.Key_D),
             "absolute_values": make_button("", self.on_absolute_values, "Set the image value range by absolute values (A)", self.icons.get("numbers"), key_shortcut = QKey.Key_A),
 
@@ -370,11 +366,11 @@ class AppWindow(QMainWindow):
         }
         self.radio_buttons["bg_none"].setChecked(True)
         self.checkboxes = {
-            "sobel": make_checkbox("Sobel", "Compute the complex gradient d/dx + i d/dy; (B)", self.icons.get("d")),
-            "laplace": make_checkbox("Laplace", "Compute the Laplacian (d/dx)^2 + (d/dy)^2; (C)", self.icons.get("border")),
+            "sobel": make_checkbox("Sobel", "Compute the complex gradient d/dx + i d/dy; (B)", self.icons.get("derivative")),
+            "laplace": make_checkbox("Laplace", "Compute the Laplacian (d/dx)^2 + (d/dy)^2; (C)", self.icons.get("laplacian")),
             "fft": make_checkbox("Fft", "Compute the 2D Fourier transform; (F)", self.icons.get("fx")),
             "normal": make_checkbox("Normal", "Compute the z component of the surface normal", self.icons.get("arrow_up_from_surface")),
-            "gauss": make_checkbox("Gauss", "Apply a Gaussian blur (G)", self.icons.get("rhombus")),
+            "gauss": make_checkbox("Gauss", "Apply a Gaussian blur (G)", self.icons.get("gaussian")),
         }
         self.line_edits = {
             "min_full": make_line_edit("", "minimum value of scan data range"),
@@ -423,10 +419,12 @@ class AppWindow(QMainWindow):
             "associated_spectra": True,
             "i/o": True
         }
-    
-    def draw_toolbar(self) -> QVBoxLayout:
 
-        def draw_summary_group(): # Scan summary group
+        return
+    
+    def draw_toolbar(self) -> QtWidgets.QVBoxLayout:
+
+        def draw_summary_group() -> QtWidgets.QGroupBox: # Scan summary group
             [self.layouts["scan_summary"].addWidget(widget) for widget in [self.labels["scan_summary"], self.labels["statistics"]]]
             if self.expanded_groups["scan_summary"]:
                 self.groupboxes["scan_summary"].setLayout(self.layouts["scan_summary"])
@@ -434,7 +432,7 @@ class AppWindow(QMainWindow):
                 self.groupboxes["scan_summary"].setLayout(self.layouts["empty"])
             return self.groupboxes["scan_summary"]
         
-        def draw_file_chan_dir_group(): # File/Channel/Direction group
+        def draw_file_chan_dir_group() -> QtWidgets.QGroupBox: # File/Channel/Direction group
             self.layouts["file_channel_direction"].addWidget(self.labels["load_file"])
 
             [self.layouts["file_navigation"].addWidget(button, 5 * (index % 2) + 1) for index, button in enumerate([self.buttons["previous_file"], self.buttons["select_file"], self.buttons["next_file"]])]
@@ -455,11 +453,11 @@ class AppWindow(QMainWindow):
             self.groupboxes["file_chan_dir"].setLayout(self.layouts["file_channel_direction"])
             return self.groupboxes["file_chan_dir"]
 
-        def draw_image_processing_group(): # Image processing group
+        def draw_image_processing_group() -> QtWidgets.QGroupBox: # Image processing group
             self.layouts["image_processing"].addWidget(self.labels["background_subtraction"])
             
             # Background subtraction group
-            self.bg_button_group = QButtonGroup(self)
+            self.bg_button_group = QtWidgets.QButtonGroup(self)
             background_buttons = [self.radio_buttons[button_name] for button_name in ["bg_none", "bg_plane", "bg_linewise", "bg_inferred"]]
             [self.bg_button_group.addButton(button) for button in background_buttons] # Add buttons to the QButtonGroup for exclusive selection
             [self.layouts["background_buttons"].addWidget(button) for button in background_buttons]
@@ -489,7 +487,7 @@ class AppWindow(QMainWindow):
             max_radio_buttons = [self.radio_buttons[button_name] for button_name in ["max_full", "max_percentiles", "max_deviations", "max_absolute"]]
             max_line_edits = [self.line_edits[line_edit_name] for line_edit_name in ["max_full", "max_percentiles", "max_deviations", "max_absolute"]]
             [self.line_edits[line_edit_name].setEnabled(False) for line_edit_name in ["min_full", "max_full"]]
-            [self.min_button_group, self.max_button_group] = [QButtonGroup(self), QButtonGroup(self)]
+            [self.min_button_group, self.max_button_group] = [QtWidgets.QButtonGroup(self), QtWidgets.QButtonGroup(self)]
             [self.min_button_group.addButton(button) for button in min_radio_buttons] # Min and max buttons are exclusive
             [self.max_button_group.addButton(button) for button in max_radio_buttons]
             [limits_layout.addWidget(line_edit, index, 0) for index, line_edit in enumerate(min_line_edits)]
@@ -502,14 +500,14 @@ class AppWindow(QMainWindow):
             self.groupboxes["image_processing"].setLayout(self.layouts["image_processing"])
             return self.groupboxes["image_processing"]
         
-        def draw_associated_spectra_group(): # Associated spectra dropdown menu
+        def draw_associated_spectra_group() -> QtWidgets.QGroupBox: # Associated spectra dropdown menu
             self.layouts["spectra"].addWidget(self.comboboxes["spectra"], 4)
             self.layouts["spectra"].addWidget(self.buttons["spectrum_viewer"], 1)
 
             self.groupboxes["associated_spectra"].setLayout(self.layouts["spectra"])
             return self.groupboxes["associated_spectra"]
 
-        def draw_io_group(): # I/O group
+        def draw_io_group() -> QtWidgets.QGroupBox: # I/O group
             io_layout = self.layouts["i/o"]
             #io_layout.setColumnStretch(0, 1)
             #io_layout.setColumnStretch(1, 1)
@@ -531,7 +529,7 @@ class AppWindow(QMainWindow):
 
         return self.layouts["toolbar"]
 
-    def connect_keys(self):
+    def connect_keys(self) -> None:
         QKey = QtCore.Qt.Key
 
         self.radio_buttons["bg_none"].clicked.connect(lambda: self.on_bg_change("none"))
@@ -555,7 +553,9 @@ class AppWindow(QMainWindow):
         toggle_max_shortcut = QShortcut(QKeySequence(QKey.Key_Equal), self)
         toggle_max_shortcut.activated.connect(lambda: self.toggle_limits("max"))
 
-    def collapse_expand(self):
+        return
+
+    def collapse_expand(self) -> None:
         self.expanded_groups["scan_summary"] = self.groupboxes["scan_summary"].isChecked()
         self.draw_toolbar()
 
@@ -563,41 +563,53 @@ class AppWindow(QMainWindow):
 
     # Button functions
     # File selection
-    def on_previous_file(self):
+    def on_previous_file(self) -> None:
         self.file_index -= 1
         if self.file_index < 0: self.file_index = self.max_file_index
         self.load_process_display(new_scan = True)
 
-    def on_select_file(self):
-        file_name, _ = QFileDialog.getOpenFileName(self, "Open file", self.paths["data_folder"], "SXM files (*.sxm);;Dat files (*.dat);;HDF5 files (*.hdf5)")
+        return
+
+    def on_select_file(self) -> None:
+        file_name, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Open file", self.paths["data_folder"], "SXM files (*.sxm);;Dat files (*.dat);;HDF5 files (*.hdf5)")
         if file_name: self.load_folder(file_name)
 
-    def on_next_file(self):
+        return
+
+    def on_next_file(self) -> None:
         self.file_index += 1
         if self.file_index > self.max_file_index: self.file_index = 0
         self.load_process_display(new_scan = True)
 
+        return
+
     # Channel selection
-    def on_previous_chan(self):
+    def on_previous_chan(self) -> None:
         self.channel_index -= 1
         if self.channel_index < 0: self.channel_index = self.max_channel_index
         self.channel = self.channels[self.channel_index]
         self.load_process_display(new_scan = True)
 
-    def on_chan_change(self, index):
+        return
+
+    def on_chan_change(self, index: int = 0) -> None:
         self.channel_index = index
         self.channel = self.channels[index]
         self.load_process_display(new_scan = True)
 
-    def on_next_chan(self):
+        return
+
+    def on_next_chan(self) -> None:
         self.channel_index += 1
         if self.channel_index > self.max_channel_index: self.channel_index = 0
         self.channel = self.channels[self.channel_index]
         self.load_process_display(new_scan = True)
 
+        return
+
     # Direction toggling
-    def on_toggle_direction(self):
-        new_icon = self.icons["double_arrow"]
+    def on_toggle_direction(self) -> None:
+        new_icon = self.icons["triple_arrow"]
         if self.processing_flags["direction"] == "forward":
             self.processing_flags["direction"] = "backward"
             new_icon = self.gui_functions.rotate_icon(new_icon, angle = 180)
@@ -616,8 +628,10 @@ class AppWindow(QMainWindow):
             print("Error toggling the scan direction")
             pass
 
+        return
+
     # Background changing
-    def on_bg_change(self, mode: str):
+    def on_bg_change(self, mode: str = "none") -> None:
         if mode in ["none", "plane", "inferred", "linewise"]:
             self.processing_flags["background_subtraction"] = mode
             if mode == "none": self.radio_buttons["bg_none"].setChecked(True)
@@ -625,6 +639,7 @@ class AppWindow(QMainWindow):
             elif mode == "inferred": self.radio_buttons["bg_inferred"].setChecked(True)
             else: self.radio_buttons["bg_linewise"].setChecked(True)
             self.load_process_display(new_scan = False)
+        
         return
 
     # Routines for loading a new image
@@ -1029,7 +1044,7 @@ class AppWindow(QMainWindow):
             os.makedirs(self.paths["output_folder"], exist_ok = True)
             qimg.save(output_file_name)
 
-            msg_box = QMessageBox(self)
+            msg_box = QtWidgets.QMessageBox(self)
             msg_box.setWindowTitle("Success")
             msg_box.setText("png file saved")
             QtCore.QTimer.singleShot(1000, msg_box.close)
@@ -1058,6 +1073,22 @@ class AppWindow(QMainWindow):
         
         return
 
+    # Drag and drop
+    def dragEnterEvent(self, event):
+        # 2. Accept the drag if it contains URLs (files)
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+        else:
+            super().dragEnterEvent(event)
+
+    def dropEvent(self, event):
+        # 3. Process the dropped files
+        for url in event.mimeData().urls():
+            file_name = url.toLocalFile()
+        event.acceptProposedAction()
+        if file_name:
+            self.load_folder(file_name)
+
     # Exit
     def closeEvent(self, a0) -> None:
         self.on_exit
@@ -1070,12 +1101,12 @@ class AppWindow(QMainWindow):
             print("Failed to save the scan folder to the config.yml file.")
             print(e)
         print("Thank you for using Scanalyzer!")
-        QApplication.instance().quit()
+        QtWidgets.QApplication.instance().quit()
 
 
 
 if __name__ == "__main__":
-    app = QApplication(sys.argv)
+    app = QtWidgets.QApplication(sys.argv)
     window = AppWindow()
     window.show()
     sys.exit(app.exec())

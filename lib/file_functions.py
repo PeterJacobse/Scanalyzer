@@ -4,6 +4,8 @@ import numpy as np
 import nanonispy2 as nap
 from datetime import datetime
 
+
+
 def get_datetime(file_name):
     if not os.path.exists(file_name):
         print(f"Error: File \"{file_name}\" does not exist.")
@@ -79,6 +81,32 @@ def get_datetime(file_name):
             
             return False
 
+
+
+def get_grid(scan_object) -> object:
+    grid = {
+        "x": 0,
+        "y": 1,
+        "center": [0, 1],
+        "width": 3,
+        "height": 4,
+        "size": [5, 6],
+        "angle": 7,
+        "pixels": [8, 9],
+        "aspect_ratio": 10 / 11,
+        "pixel_width": 12 / 13,
+        "pixel_height": 14 / 15,
+        "pixel_ratio": 16 / 17,
+        "num_channels": 0,
+        "channel_indices": 0
+    }
+
+    setattr(scan_object, "grid", grid)
+
+    return scan_object
+
+
+
 def read_files(directory):
     all_files = os.listdir(directory)
     dat_files = [os.path.join(directory, file) for file in all_files if file.endswith(".dat")]
@@ -93,7 +121,6 @@ def read_files(directory):
         except:
             pass
     scan_list = np.array(scan_list)
-    no_scans = len(scan_list)
 
     # Parse the spectroscopy files
     spectrum_list = []
@@ -118,6 +145,8 @@ def read_files(directory):
             spectrum_list[spectrum_index, 3] = scan_list[associated_spectrum, 0]
 
     return (scan_list, spectrum_list)
+
+
 
 def get_scan(file_name, units: dict = {"length": "m", "current": "A"}, default_channel_units: dict = {"X": "m", "Y": "m", "Z": "m", "Current": "A", "LI Demod 1 X": "A", "LI Demod 1 Y": "A", "LI Demod 2 X": "A", "LI Demod 2 Y": "A"}):
     if not os.path.exists(file_name):
@@ -232,6 +261,8 @@ def get_scan(file_name, units: dict = {"length": "m", "current": "A"}, default_c
         
         return False
 
+
+
 def get_spectrum(file_name, units: dict = {"length": "m", "current": "A"}):
     if not os.path.exists(file_name):
         print(f"Error: File \"{file_name}\" does not exist.")
@@ -309,29 +340,3 @@ def get_spectrum(file_name, units: dict = {"length": "m", "current": "A"}):
         # print(f"Error: {e}")
         
         return False
-
-# Will be deprecated with the use of parsing of datetime in read_files:
-
-def spec_times(folder):
-    dat_files = np.array([str(file) for file in Path(folder).glob("*.dat")]) # Read all the dat files
-
-    spec_files = []
-    spec_times = []
-
-    for spec_file in dat_files:
-        try:
-            spec_object = nap.read.Spec(spec_file)
-            [spec_date, spec_time] = spec_object.header.get("Start time").split()
-    
-            # Extract and convert time parameters and convert to datetime object
-            rec_date = [int(number) for number in spec_date.split(".")]
-            rec_time = [int(number) for number in spec_time.split(":")]
-            dt_object = datetime(rec_date[2], rec_date[1], rec_date[0], rec_time[0], rec_time[1], rec_time[2])
-            
-            spec_times.append(dt_object)
-            spec_files.append(spec_file)
-
-        except:
-            pass
-
-    return [np.asarray(spec_files, dtype = str), np.array(spec_times)]
