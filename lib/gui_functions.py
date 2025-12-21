@@ -4,6 +4,7 @@ import yaml
 import numpy as np
 from PyQt6 import QtGui, QtWidgets
 from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtGui import QShortcut, QKeySequence
 from datetime import datetime
 from typing import Callable, Dict, List, Tuple
 
@@ -19,15 +20,18 @@ class GUIFunctions:
         box.setCheckable(True)
         return box
 
-    def make_button(self, name: str, func: Callable, description: str = "", icon = None, key_shortcut = None, rotate_degrees: float = 0) -> QtWidgets.QPushButton:
+    def make_button(self, name: str, func: Callable, description: str = "", icon = None, rotate_degrees: float = 0, key_shortcut = None, parent = None) -> QtWidgets.QPushButton:
         button = QtWidgets.QPushButton(name)
         button.setObjectName(name)
         button.clicked.connect(lambda checked, f = func: f())
         button.setToolTip(description)
-        
+
         if isinstance(key_shortcut, Qt.Key):
-            shortcut = QtGui.QShortcut(QtGui.QKeySequence(key_shortcut), self)
-            shortcut.activated.connect(lambda checked, f = func: f())
+            if parent is not None:
+                shortcut = QShortcut(QKeySequence(key_shortcut), parent)
+                shortcut.activated.connect(func)
+            else:
+                button.setShortcut(key_shortcut)
 
         if isinstance(icon, QtGui.QIcon):
             if type(rotate_degrees) == float or type(rotate_degrees) == int and rotate_degrees != 0:
@@ -42,6 +46,7 @@ class GUIFunctions:
         label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         label.setObjectName(name)
         label.setToolTip(description)
+
         if isinstance(icon_path, str):
             try:
                 icon = QtGui.QIcon(icon_path)
@@ -50,15 +55,10 @@ class GUIFunctions:
                 pass
         return label
     
-    def make_radio_button(self, name: str, func: Callable, description: str = "", icon = None, key_shortcut = None, rotate_degrees: float = 0) -> QtWidgets.QRadioButton:
+    def make_radio_button(self, name: str, description: str = "", icon = None, rotate_degrees: float = 0) -> QtWidgets.QRadioButton:
         button = QtWidgets.QRadioButton(name)
         button.setObjectName(name)
-        button.toggled.connect(lambda checked, f = func: f() if checked else None)
         button.setToolTip(description)
-        
-        if isinstance(key_shortcut, Qt.Key):
-            shortcut = QtGui.QShortcut(QtGui.QKeySequence(key_shortcut), self)
-            shortcut.activated.connect(lambda checked, f = func: f())
 
         if isinstance(icon, QtGui.QIcon):
             if type(rotate_degrees) == float or type(rotate_degrees) == int and rotate_degrees != 0:
@@ -88,13 +88,14 @@ class GUIFunctions:
 
         if len(items) > 0: box.addItems(items)
 
-        if callable(func): box.currentIndexChanged.connect(lambda checked, f = func: f())
+        if callable(func): box.currentIndexChanged.connect(lambda index, f = func: f(index))
         return box
     
     def make_line_edit(self, name: str, description: str = "", icon = None, key_shortcut = None, rotate_degrees: float = 0) -> QtWidgets.QLineEdit:
         button = QtWidgets.QLineEdit()
         button.setObjectName(name)
         button.setToolTip(description)
+        button.setText(name)
 
         if isinstance(icon, QtGui.QIcon):
             if type(rotate_degrees) == float or type(rotate_degrees) == int and rotate_degrees != 0:
