@@ -9,6 +9,8 @@ from types import SimpleNamespace
 from matplotlib import colors
 from scipy.linalg import lstsq
 
+
+
 def apply_gaussian(image, sigma = 2, scan_range = None):
     if not isinstance(image, np.ndarray):
         print("Error. The provided image is not a numpy array.")
@@ -238,8 +240,6 @@ def get_image_statistics(image, pixels_per_bin: int = 200):
     setattr(image_statistics, "histogram", histogram)
     
     return image_statistics
-
-# To be deprecated:
 
 # get_scan is a wrapper for nanonispy's read.Scan() class, that converts data in a more readily processible form
 def get_scan(file_name, units: dict = {"length": "m", "current": "A"}, default_channel_units: dict = {"X": "m", "Y": "m", "Z": "m", "Current": "A", "LI Demod 1 X": "A", "LI Demod 1 Y": "A", "LI Demod 2 X": "A", "LI Demod 2 Y": "A"}):

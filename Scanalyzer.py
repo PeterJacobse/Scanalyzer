@@ -22,7 +22,7 @@ class SpectrumViewer(QtWidgets.QMainWindow):
         self.paths = paths
 
         # Spectrum colors
-        self.color_list = ["#FFFFFF", "#FFFF00", "#FF90FF", "#00FFFF", "#00FF00", "#A0A0A0", "#FF4040", "#4040FF", "#FFA500", "#9000FF", "#808000", "#008080", "#800080", "#008000", "#A00000", "#0000A0"]
+        self.color_list = ["#FFFFFF", "#FFFF00", "#FF90FF", "#00FFFF", "#00FF00", "#A0A0A0", "#FF4040", "#5050FF", "#FFA500", "#9050FF", "#808000", "#008080", "#900090", "#009000", "#B00000", "#0000C0"]
         
         self.parameters_init()
         self.make_gui_items()
@@ -67,10 +67,14 @@ class SpectrumViewer(QtWidgets.QMainWindow):
             "main": make_layout("g"),
             "selector": make_layout("g")
         }
+        self.checkboxes = {}
+        [self.checkboxes.update({f"{number}": make_checkbox(f"{number}", f"toggle visibility of plot {number}")}) for number in range(16)]
         self.plot_number_comboboxes = {}
-        [self.plot_number_comboboxes.update({f"channel_{number}": make_combobox(f"graph_{number}", f"data for plot {number}")}) for number in range(10)]
+        [self.plot_number_comboboxes.update({f"{number}": make_combobox(f"{number}", f"data for plot {number}")}) for number in range(16)]
         self.leftarrows = {}
-        [self.leftarrows.update({f"channel_{number}": make_button("", self.redraw_spectra, f"toggle data for plot number {number}", self.icons.get("single_arrow"), rotate_degrees = 180)}) for number in range(10)]
+        [self.leftarrows.update({f"{number}": make_button("", self.redraw_spectra, f"decrease plot number {number}", self.icons.get("single_arrow"), rotate_degrees = 180)}) for number in range(16)]
+        self.rightarrows = {}
+        [self.rightarrows.update({f"{number}": make_button("", self.redraw_spectra, f"increase plot number {number}", self.icons.get("single_arrow"))}) for number in range(16)]
 
     def draw_layout(self):
         # Set the central widget of the QMainWindow
@@ -87,18 +91,18 @@ class SpectrumViewer(QtWidgets.QMainWindow):
         [leftarrow.setArrowType(QtCore.Qt.ArrowType.LeftArrow) for leftarrow in self.leftarrows]
         [leftarrow.setToolButtonStyle(QtCore.Qt.ToolButtonStyle.ToolButtonIconOnly) for leftarrow in self.leftarrows]
         """
-        self.rightarrows = [QtWidgets.QToolButton() for _ in range(10)]
-        [rightarrow.setArrowType(QtCore.Qt.ArrowType.RightArrow) for rightarrow in self.rightarrows]
-        [rightarrow.setToolButtonStyle(QtCore.Qt.ToolButtonStyle.ToolButtonIconOnly) for rightarrow in self.rightarrows]
+        #self.rightarrows = [QtWidgets.QToolButton() for _ in range(10)]
+        #[rightarrow.setArrowType(QtCore.Qt.ArrowType.RightArrow) for rightarrow in self.rightarrows]
+        #[rightarrow.setToolButtonStyle(QtCore.Qt.ToolButtonStyle.ToolButtonIconOnly) for rightarrow in self.rightarrows]
         #[arrow.setEnabled(False) for arrow in self.leftarrows]
-        [arrow.setEnabled(False) for arrow in self.rightarrows]
+        #[arrow.setEnabled(False) for arrow in self.rightarrows]
         
         # Put a little star on the spectrum names that are associated with the scan
         spec_labels = self.spec_files[:, 0]
         for i in range(len(spec_labels)):
             if spec_labels[i] in self.associated_spectra: spec_labels[i] = spec_labels[i] + "*"
         """[self.qbox[i].setStyleSheet("QComboBox { color: " + self.color_list[i] + "; }") for i in range(len(self.qbox))]"""
-        [self.plot_number_comboboxes[f"channel_{number}"].addItems(self.spec_files[:, 0]) for number in range(len(self.plot_number_comboboxes))]
+        [self.plot_number_comboboxes[f"{number}"].addItems(self.spec_files[:, 0]) for number in range(len(self.plot_number_comboboxes))]
 
         """
         # Initialize the comboboxes to the associated spectra if possible
@@ -115,21 +119,23 @@ class SpectrumViewer(QtWidgets.QMainWindow):
                 pass
         """
 
-        [spectrum_selector_layout.addWidget(self.checkbox[i], i, 0) for i in range(len(self.checkbox))]
-        [spectrum_selector_layout.addWidget(self.leftarrows[f"channel_{i}"], i, 1) for i in range(len(self.leftarrows))]
-        [spectrum_selector_layout.addWidget(self.plot_number_comboboxes[f"channel_{i}"], i, 2) for i in range(len(self.plot_number_comboboxes))]
-        [spectrum_selector_layout.addWidget(self.rightarrows[i], i, 3) for i in range(len(self.channel_selection_comboboxes))]
+        [spectrum_selector_layout.addWidget(self.checkboxes[f"{i}"], i, 0) for i in range(len(self.checkboxes))]
+        [spectrum_selector_layout.addWidget(self.leftarrows[f"{i}"], i, 1) for i in range(len(self.leftarrows))]
+        [spectrum_selector_layout.addWidget(self.plot_number_comboboxes[f"{i}"], i, 2) for i in range(len(self.plot_number_comboboxes))]
+        [spectrum_selector_layout.addWidget(self.rightarrows[f"{i}"], i, 3) for i in range(len(self.rightarrows))]
         spectrum_selector_widget.setLayout(spectrum_selector_layout)
     
 
 
         # Main widgets
         self.layouts["main"].addWidget(spectrum_selector_widget, 1, 0, 2, 1) # Spectrum selector buttons
-        [self.x_channel_box, self.graph_0_widget, self.graph_1_widget] = column_1_widgets = [QtWidgets.QComboBox(), pg.PlotWidget(), pg.PlotWidget()]
+        self.graph_0_widget = pg.PlotWidget()
+        self.graph_1_widget = pg.PlotWidget()
+        column_1_widgets = [self.channel_selection_comboboxes["x_axis"], self.graph_0_widget, self.graph_1_widget]
         column_2_widgets = [self.buttons["exit"], self.channel_selection_comboboxes["y_axis_0"], self.channel_selection_comboboxes["y_axis_1"]]
         self.graph_0 = self.graph_0_widget.getPlotItem() # Get the plotitems corresponding to the plot widgets
         self.graph_1 = self.graph_1_widget.getPlotItem()
-        self.x_channel_box.setFixedWidth(500)
+        #self.x_channel_box.setFixedWidth(500)
 
         [self.layouts["main"].addWidget(widget, i, 1, alignment = QtCore.Qt.AlignmentFlag.AlignCenter) for i, widget in enumerate(column_1_widgets)]
         [self.layouts["main"].addWidget(widget, i, 2, alignment = QtCore.Qt.AlignmentFlag.AlignCenter) for i, widget in enumerate(column_2_widgets)]
@@ -138,7 +144,7 @@ class SpectrumViewer(QtWidgets.QMainWindow):
     def connect_buttons(self):
         # Connect all the combobox and checkbox changes to spectrum redrawing
         [checkbox.clicked.connect(self.redraw_spectra) for checkbox in self.checkbox]
-        [self.plot_number_comboboxes[f"channel_{index}"].currentIndexChanged.connect(self.redraw_spectra) for index in range(len(self.plot_number_comboboxes))]
+        [self.plot_number_comboboxes[f"{index}"].currentIndexChanged.connect(self.redraw_spectra) for index in range(len(self.plot_number_comboboxes))]
 
     def connect_keys(self):
         QKey = QtCore.Qt.Key
@@ -195,7 +201,7 @@ class SpectrumViewer(QtWidgets.QMainWindow):
             color = self.color_list[i]
 
             if self.checkbox[i].isChecked():
-                spec_index = self.plot_number_comboboxes[f"channel_{i}"].currentIndex()
+                spec_index = self.plot_number_comboboxes[f"{i}"].currentIndex()
                 spec_object = self.spec_objects[spec_index]
                 spec_signal = spec_object.signals
                 
@@ -408,6 +414,7 @@ class AppWindow(QtWidgets.QMainWindow):
             "gaussian_width": make_line_edit("", "Width in nm for Gaussian blur application"),
             "file_name": make_line_edit("", "Base name of the file when saved to png or hdf5")
         }
+        self.line_edits["gaussian_width"].editingFinished.connect(self.load_process_display)
         self.comboboxes = {
             "channels": make_combobox("Channels", "Available scan channels", self.on_chan_change),
             "projection": make_combobox("Projection", "Select a projection or toggle with (H)", self.load_process_display, items = ["re", "im", "abs", "arg (b/w)", "arg (hue)", "complex", "abs^2", "log(abs)"]),
@@ -1003,9 +1010,9 @@ class AppWindow(QtWidgets.QMainWindow):
             case "sobel":
                 checked = self.checkboxes["sobel"].isChecked()
                 self.processing_flags["sobel"] = checked
-            case "gaussian":
+            case "gauss":
                 checked = self.checkboxes["gauss"].isChecked()
-                self.processing_flags["gauss"] = checked
+                self.processing_flags["gaussian"] = checked
             case "fft":
                 checked = self.checkboxes["fft"].isChecked()
                 self.processing_flags["fft"] = checked
