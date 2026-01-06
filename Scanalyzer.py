@@ -2,6 +2,7 @@ import os
 import sys
 import yaml
 import numpy as np
+import pint
 from PyQt6 import QtCore, QtGui, QtWidgets
 import pyqtgraph as pg
 from pyqtgraph.Qt import QtCore
@@ -27,11 +28,8 @@ class SpectrumViewer(QtWidgets.QMainWindow):
         self.parameters_init()
         self.make_gui_items()
         self.draw_layout()
-        self.connect_buttons()
         self.connect_keys()
-        self.read_spectroscopy_files()
-        # Switch on spectra
-        for i in range(min(len(self.associated_spectra), len(self.plot_number_comboboxes))): self.checkbox[i].setChecked(True)
+        self.spec_objects, self.channels = self.read_spectroscopy_files()
 
     def parameters_init(self):
         icon_files = os.listdir(self.paths["icon_folder"])
@@ -56,7 +54,7 @@ class SpectrumViewer(QtWidgets.QMainWindow):
         make_groupbox = gui_functions.make_groupbox
 
         self.buttons = {
-            "exit": make_button("Exit", self.close, "Exit Spectrum Viewer")
+            "exit": make_button("", self.close, "Exit Spectrum Viewer", self.icons.get("escape"))
         }
         self.channel_selection_comboboxes = {
             "x_axis": make_combobox("x_axis", "Channel to display on the x axis", self.redraw_spectra),
@@ -66,6 +64,9 @@ class SpectrumViewer(QtWidgets.QMainWindow):
         self.layouts = {
             "main": make_layout("g"),
             "selector": make_layout("g")
+        }
+        self.option_checkboxes = {
+            "offset": make_checkbox("offset", "Offset successive spectra", self.icons.get("offset"))
         }
         self.checkboxes = {}
         [self.checkboxes.update({f"{number}": make_checkbox(f"{number}", f"toggle visibility of plot {number}")}) for number in range(16)]
@@ -85,12 +86,6 @@ class SpectrumViewer(QtWidgets.QMainWindow):
         spectrum_selector_widget = QtWidgets.QWidget()
         spectrum_selector_layout = self.layouts["selector"]
 
-        self.checkbox = [QtWidgets.QCheckBox(f"({i})") for i in range(10)]
-        """
-        self.leftarrows = [QtWidgets.QToolButton() for _ in range(10)]
-        [leftarrow.setArrowType(QtCore.Qt.ArrowType.LeftArrow) for leftarrow in self.leftarrows]
-        [leftarrow.setToolButtonStyle(QtCore.Qt.ToolButtonStyle.ToolButtonIconOnly) for leftarrow in self.leftarrows]
-        """
         #self.rightarrows = [QtWidgets.QToolButton() for _ in range(10)]
         #[rightarrow.setArrowType(QtCore.Qt.ArrowType.RightArrow) for rightarrow in self.rightarrows]
         #[rightarrow.setToolButtonStyle(QtCore.Qt.ToolButtonStyle.ToolButtonIconOnly) for rightarrow in self.rightarrows]
@@ -100,12 +95,12 @@ class SpectrumViewer(QtWidgets.QMainWindow):
         # Put a little star on the spectrum names that are associated with the scan
         spec_labels = self.spec_files[:, 0]
         for i in range(len(spec_labels)):
-            if spec_labels[i] in self.associated_spectra: spec_labels[i] = spec_labels[i] + "*"
-        """[self.qbox[i].setStyleSheet("QComboBox { color: " + self.color_list[i] + "; }") for i in range(len(self.qbox))]"""
+            if spec_labels[i] in self.associated_spectra: spec_labels[i] = "*" + spec_labels[i]
         [self.plot_number_comboboxes[f"{number}"].addItems(self.spec_files[:, 0]) for number in range(len(self.plot_number_comboboxes))]
 
-        """
         # Initialize the comboboxes to the associated spectra if possible
+        print(self.spec_files)
+        print(self.spec_files[:, 0])
         for index, combobox in enumerate(self.plot_number_comboboxes):
             try:
                 if index < len(self.associated_spectra):
@@ -117,15 +112,12 @@ class SpectrumViewer(QtWidgets.QMainWindow):
                         pass
             except:
                 pass
-        """
 
         [spectrum_selector_layout.addWidget(self.checkboxes[f"{i}"], i, 0) for i in range(len(self.checkboxes))]
         [spectrum_selector_layout.addWidget(self.leftarrows[f"{i}"], i, 1) for i in range(len(self.leftarrows))]
         [spectrum_selector_layout.addWidget(self.plot_number_comboboxes[f"{i}"], i, 2) for i in range(len(self.plot_number_comboboxes))]
         [spectrum_selector_layout.addWidget(self.rightarrows[f"{i}"], i, 3) for i in range(len(self.rightarrows))]
         spectrum_selector_widget.setLayout(spectrum_selector_layout)
-    
-
 
         # Main widgets
         self.layouts["main"].addWidget(spectrum_selector_widget, 1, 0, 2, 1) # Spectrum selector buttons
@@ -141,9 +133,6 @@ class SpectrumViewer(QtWidgets.QMainWindow):
         [self.layouts["main"].addWidget(widget, i, 2, alignment = QtCore.Qt.AlignmentFlag.AlignCenter) for i, widget in enumerate(column_2_widgets)]
         central_widget.setLayout(self.layouts["main"])
 
-    def connect_buttons(self):
-        # Connect all the combobox and checkbox changes to spectrum redrawing
-        [checkbox.clicked.connect(self.redraw_spectra) for checkbox in self.checkbox]
         [self.plot_number_comboboxes[f"{index}"].currentIndexChanged.connect(self.redraw_spectra) for index in range(len(self.plot_number_comboboxes))]
 
     def connect_keys(self):
@@ -155,36 +144,42 @@ class SpectrumViewer(QtWidgets.QMainWindow):
         exit_shortcuts = [QShortcut(QKeySequence(keystroke), self) for keystroke in [QKey.Key_Q, QKey.Key_X, QKey.Key_E, QKey.Key_Escape]]
         [exit_shortcut.activated.connect(self.close) for exit_shortcut in exit_shortcuts]
 
-    def read_spectroscopy_files(self):
-        self.spec_objects = [get_spectrum(spec_file[1]) for spec_file in self.spec_files] # Get a spectroscopy object for each spectroscopy file
-        all_channels = [] # Find all the channels recorded during all the spectroscopies and combine them into a list called all_channels
-        for spec_object in self.spec_objects:
+    def read_spectroscopy_files(self) -> tuple:
+        spec_objects = [get_spectrum(spec_file[1]) for spec_file in self.spec_files] # Get a spectroscopy object for each spectroscopy file
+        
+        # Find all the channels recorded during all the spectroscopies and combine them into a list called all_channels
+        all_channels = []
+        for spec_object in spec_objects:
             all_channels.extend(list(spec_object.channels))
         all_channels = list(set(all_channels))
         all_channels = [str(channel) for channel in all_channels]
         [combobox.addItems(all_channels) for combobox in [self.channel_selection_comboboxes["x_axis"], self.channel_selection_comboboxes["y_axis_0"], self.channel_selection_comboboxes["y_axis_1"]]]
-        # Set the channel toggle boxes to logical values
+        
+        # Attempt to set the channel toggle boxes to logical starting defaults
         try:
-            if "Bias calc (V)" in all_channels:
-                channel_index = np.where(all_channels == "Bias calc (V)")[0][0]
-                self.x_channel_box.setCurrentIndex(channel_index)
-            elif "Bias (V)" in all_channels:
-                channel_index = np.where(all_channels == "Bias (V)")[0][0]
-                self.x_channel_box.setCurrentIndex(channel_index)
-            
-            if "Current (A)" in all_channels:
-                channel_index = np.where(all_channels == "Current (A)")[0][0]
-                self.y_channel_1_box.setCurrentIndex(channel_index)
+            for label in ["Bias calc (V)", "Bias [bwd] V", "Bias (V)"]:
+                if label in all_channels:
+                    channel_index = np.where(all_channels == label)[0][0]
+                    self.channel_selection_comboboxes["x_axis"].setCurrentIndex(channel_index)
+            for label in ["LI demod X1 (A)"]:
+                if label in all_channels:
+                    channel_index = np.where(all_channels == label)[0][0]
+                    self.channel_selection_comboboxes["y_axis_0"].setCurrentIndex(channel_index)
+            for label in ["Current calc (A)", "Current [bwd] (A)", "Current (A)"]:
+                if label in all_channels:
+                    channel_index = np.where(all_channels == label)[0][0]
+                    self.channel_selection_comboboxes["y_axis_1"].setCurrentIndex(channel_index)
         except:
             pass
-                
-        self.channels = all_channels
+
+        return spec_objects, all_channels
 
     def redraw_spectra(self, toggle_checkbox: bool = None):
         if type(toggle_checkbox) == int:
             if -1 < toggle_checkbox < 10:
                 #self.checkbox[toggle_checkbox].disconnect()
-                self.checkbox[toggle_checkbox].setChecked(not self.checkbox[toggle_checkbox].isChecked())
+                try: self.checkboxes[f"{toggle_checkbox}"].setChecked(not self.checkboxes[toggle_checkbox].isChecked())
+                except: pass
                 # self.checkbox[toggle_checkbox].toggled.connect(self.redraw_spectra)
 
         # Read the QComboboxes and retrieve what channels are requested
@@ -197,10 +192,10 @@ class SpectrumViewer(QtWidgets.QMainWindow):
         x_data = np.linspace(-2, 2, 20)
         [graph.clear() for graph in [self.graph_0, self.graph_1]]
 
-        for i in range(len(self.checkbox) - 1, -1, -1):
+        for i in range(len(self.checkboxes) - 1, -1, -1):
             color = self.color_list[i]
 
-            if self.checkbox[i].isChecked():
+            if self.checkboxes[f"{i}"].isChecked():
                 spec_index = self.plot_number_comboboxes[f"{i}"].currentIndex()
                 spec_object = self.spec_objects[spec_index]
                 spec_signal = spec_object.signals
@@ -242,7 +237,8 @@ class AppWindow(QtWidgets.QMainWindow):
         central_widget = QtWidgets.QWidget()
         self.setCentralWidget(central_widget)        
         main_layout = QtWidgets.QHBoxLayout(central_widget)
-        main_layout.addWidget(self.image_view, 3)
+
+        main_layout.addWidget(self.image_view, 3)        
         main_layout.addLayout(self.draw_toolbar(), 1)
         
         # Ensure the central widget and QMainWindow can both receive keyboard focus
@@ -258,7 +254,7 @@ class AppWindow(QtWidgets.QMainWindow):
                 yaml_data = yaml.safe_load(file)
                 last_file = yaml_data.get("last_file")
                 self.load_folder(last_file)
-                self.on_full_scale("both")
+                #self.on_full_scale("both")
         except:
             pass
 
@@ -309,6 +305,7 @@ class AppWindow(QtWidgets.QMainWindow):
         self.channel_index = 0
         self.max_channel_index = 0
         self.scale_toggle_index = 0
+        self.ureg = pint.UnitRegistry()
 
         self.processing_flags = {
             "direction": "forward",
@@ -411,7 +408,7 @@ class AppWindow(QtWidgets.QMainWindow):
             "min_absolute": make_line_edit("0", "minimum absolute value"),
             "max_absolute": make_line_edit("1", "maximum absolute value"),
 
-            "gaussian_width": make_line_edit("", "Width in nm for Gaussian blur application"),
+            "gaussian_width": make_line_edit("0", "Width in nm for Gaussian blur application"),
             "file_name": make_line_edit("", "Base name of the file when saved to png or hdf5")
         }
         self.line_edits["gaussian_width"].editingFinished.connect(self.load_process_display)
@@ -472,9 +469,9 @@ class AppWindow(QtWidgets.QMainWindow):
 
             if self.max_file_index == 0: self.labels["number_of_files"].setText("which contains 1 sxm file")
             else: self.labels["number_of_files"].setText(f"which contains {self.max_file_index + 1} sxm files")
+
             [self.layouts["file_channel_direction"].addWidget(widget) for widget in [self.labels["in_folder"], self.buttons["folder_name"], self.labels["number_of_files"], self.labels["channel_selected"]]]
 
-            self.comboboxes["channels"].addItems(["Channels"])
             self.buttons["direction"].setCheckable(True)
             self.layouts["channel_navigation"].addWidget(self.buttons["previous_channel"], 1)
             self.layouts["channel_navigation"].addWidget(self.comboboxes["channels"], 4)
@@ -528,6 +525,12 @@ class AppWindow(QtWidgets.QMainWindow):
             [limits_layout.addWidget(line_edit, index, 3) for index, line_edit in enumerate(max_radio_buttons)]
             [limits_layout.addWidget(line_edit, index, 4) for index, line_edit in enumerate(max_line_edits)]
             self.layouts["image_processing"].addLayout(limits_layout)
+
+            # The startup default is 100%; set the buttons accordingly (without triggering the redrawing of the scan image)
+            for button in [self.radio_buttons["min_full"], self.radio_buttons["max_full"]]:
+                button.blockSignals(True)
+                button.setChecked(True)
+                button.blockSignals(False)
 
             self.groupboxes["image_processing"].setLayout(self.layouts["image_processing"])
             return self.groupboxes["image_processing"]
@@ -698,6 +701,8 @@ class AppWindow(QtWidgets.QMainWindow):
         try:
             self.paths["data_folder"] = os.path.dirname(file_name) # Set the folder to the directory of the file
             (self.sxm_files, self.spec_files) = read_files(self.paths["data_folder"]) # Read the names and datetimes of all scans (.sxm files) and spectra (.dat files)
+            print(self.sxm_files)
+            print(self.spec_files)
             
             self.max_file_index = len(self.sxm_files) - 1
             self.file_index = np.where([os.path.samefile(sxm_file, file_name) for sxm_file in self.sxm_files[:, 1]])[0][0] # Find the number of the specific file that was selected
@@ -747,16 +752,21 @@ class AppWindow(QtWidgets.QMainWindow):
 
         # Read the header and save the scan parameters
         self.bias = self.scan_object.bias
-        self.scan_range = [round(dimension, 3) for dimension in self.scan_object.scan_range]
+        self.bias_V = self.bias.to("V").magnitude
+
+        self.scan_range = self.scan_object.scan_range
+        self.scan_range_nm = [range_dim.to("nm").magnitude for range_dim in self.scan_range]
+
         self.feedback = self.scan_object.feedback # Read whether the scan was recorded in STM feedback
-        self.setpoint = round(self.scan_object.setpoint, 3)
+        self.setpoint = self.scan_object.setpoint
+        self.setpoint_pA = self.setpoint.to("pA").magnitude
         self.scan_time = self.scan_object.date_time
 
         # Display scan data in the app
         if self.feedback:
-            self.summary_text = f"STM topographic scan recorded on\n{self.scan_time.strftime('%Y/%m/%d   at   %H:%M:%S')}\n\n(V = {self.bias} V; I_fb = {self.setpoint} pA)\nScan range: {self.scan_range[0]} nm by {self.scan_range[1]} nm"
+            self.summary_text = f"STM topographic scan recorded on\n{self.scan_time.strftime('%Y/%m/%d   at   %H:%M:%S')}\n\n(V = {self.bias_V:.3f} V; I_fb = {self.setpoint_pA:.3f} pA)\nScan range: {self.scan_range_nm[0]:.3f} nm by {self.scan_range_nm[1]:.3f} nm"
         else:
-            self.summary_text = f"Constant height scan recorded on\n{self.scan_time.strftime('%Y/%m/%d   at   %H:%M:%S')}\n\n(V = {self.bias} V)\nScan range: {self.scan_range[0]} nm by {self.scan_range[1]} nm"
+            self.summary_text = f"Constant height scan recorded on\n{self.scan_time.strftime('%Y/%m/%d   at   %H:%M:%S')}\n\n(V = {self.bias_V:.3f} V)\nScan range: {self.scan_range_nm[0]:.3f} nm by {self.scan_range_nm[1]:.3f} nm"
         self.labels["scan_summary"].setText(self.summary_text)
         
         # Find the associated spectra
@@ -889,7 +899,7 @@ class AppWindow(QtWidgets.QMainWindow):
 
         self.image_view.setImage(scan, autoRange = True) # Show the scan in the app
         image_item = self.image_view.getImageItem()
-        image_item.setRect(QtCore.QRectF(0, 0, self.scan_range[1], self.scan_range[0]))  # Add dimensions to the ImageView object
+        image_item.setRect(QtCore.QRectF(0, 0, self.scan_range_nm[1], self.scan_range_nm[0]))  # Add dimensions to the ImageView object
         
         # Reset the limits and histogram
         self.image_view.autoRange()

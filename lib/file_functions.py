@@ -3,10 +3,11 @@ import os
 import numpy as np
 import nanonispy2 as nap
 from datetime import datetime
+import pint
 
 
 
-def get_datetime(file_name):
+def get_datetime_and_location(file_name):
     if not os.path.exists(file_name):
         print(f"Error: File \"{file_name}\" does not exist.")
         return False
@@ -20,7 +21,8 @@ def get_datetime(file_name):
     if extension == ".dat":
         try:
             spec_object = nap.read.Spec(file_name)
-            [spec_date, spec_time] = spec_object.header.get("Start time").split()
+            spec_header = spec_object.header
+            [spec_date, spec_time] = spec_header.get("Start time").split()
 
             # Extract and convert time parameters and convert to datetime object
             rec_date = [int(number) for number in spec_date.split(".")]
@@ -39,28 +41,27 @@ def get_datetime(file_name):
         try:
             date_tag = ":REC_DATE:"
             time_tag = ":REC_TIME:"
-            date_tag_found = False
-            time_tag_found = False
-            date_tag_read = False
-            time_tag_read = False
+            range_tag = ":SCAN_RANGE:"
+            offset_tag = ":SCAN_OFFSET:"
+            angle_tag = ":SCAN_ANGLE:"
+            
+            [date_found, time_found, range_found, offset_found, angle_found] = [False for _ in range(5)]
+            [date_read, time_read, range_read, offset_read, angle_read] = [False for _ in range(5)]
 
             # Read the file line by line until the tags are found
             with open(file_name, "rb") as file:
                 for line in file:
-                    if date_tag_found and not date_tag_read:
+                    if date_found and not date_read:
                         date_line = line.decode().strip() # Use .strip() to remove leading/trailing whitespace including newlines
-                        date_tag_read = True
-                    if time_tag_found and not time_tag_read:
+                        date_read = True
+                    if time_found and not time_read:
                         time_line = line.decode().strip()
-                        time_tag_read = True
+                        time_read = True
                     
-                    if date_tag in line.decode():
-                        date_tag_found = True
-                    if time_tag in line.decode():
-                        time_tag_found = True
+                    if date_tag in line.decode(): date_found = True
+                    if time_tag in line.decode(): time_found = True
                         
-                    if date_tag_read and time_tag_read:
-                        break
+                    if date_read and time_read: break
 
             # Construct a datetime object from the found date and time
             if date_line is not None and time_line is not None:                
@@ -116,7 +117,7 @@ def read_files(directory):
     scan_list = []
     for file in sxm_files:
         try:
-            date_time = get_datetime(file)
+            date_time = get_datetime_and_location(file)
             scan_list.append([os.path.basename(file), file, date_time])
         except:
             pass
@@ -125,11 +126,12 @@ def read_files(directory):
     # Parse the spectroscopy files
     spectrum_list = []
     for file in dat_files:
-        spec_object = get_spectrum(file, units = {"length": "nm", "current": "nA"})
+        spec_object = get_spectrum(file)
         if spec_object:
             try:
-                #location = spec_object.coords
-                spectrum_list.append([spec_object.basename, spec_object.fname, spec_object.date_time, 0, 0])
+                location = spec_object.coords
+                # The '0' elements are placeholders that will be replaced by the file names of the associated scans
+                spectrum_list.append([spec_object.basename, spec_object.fname, spec_object.date_time, 0, location[0], location[1], location[2]])
             except:
                 pass
     spectrum_list = np.array(spectrum_list)
@@ -159,9 +161,11 @@ def get_scan(file_name, units: dict = {"length": "m", "current": "A"}, default_c
         return
 
     try:
-        scan_data = nap.read.Scan(file_name) # Read the scan data. scan_data is an object whose attributes contain all the data of the scan
-        channels = np.array(list(scan_data.signals.keys())) # Read the channels
-        scan_header = scan_data.header
+        scan_object = nap.read.Scan(file_name) # Read the scan data. scan_data is an object whose attributes contain all the data of the scan
+        scans = scan_object.signals # Read the scans
+        channels = np.array(list(scan_object.signals.keys())) # Read the channels
+
+        scan_header = scan_object.header
         up_or_down = scan_header.get("scan_dir", "down") # Read whether the scan was recorded in the upward or downward direction
         pixels_uncropped = scan_header.get("scan_pixels", np.array([100, 100], dtype = int)) # Read the number of pixels in the scan
         scan_range_uncropped = scan_header.get("scan_range", np.array([1E-8, 1E-8], dtype = float)) # Read the size of the scan
@@ -169,12 +173,18 @@ def get_scan(file_name, units: dict = {"length": "m", "current": "A"}, default_c
         z_controller = scan_header.get("z-controller") # Extract and convert z-controller parameters
         feedback = bool(z_controller.get("on")[0]) # Bool, true or false
         setpoint_str = z_controller.get("Setpoint")[0]
+        scan_angle = scan_header.get("scan_angle")
         
         # Extract and convert time parameters and convert to datetime object
-        rec_date = [int(element) for element in scan_data.header.get("rec_date", "00.00.1900").split(".")]
-        rec_time = [int(element) for element in scan_data.header.get("rec_time", "00:00:00").split(":")]
+        rec_date = [int(element) for element in scan_header.get("rec_date", "00.00.1900").split(".")]
+        rec_time = [int(element) for element in scan_header.get("rec_time", "00:00:00").split(":")]
         dt_object = datetime(rec_date[2], rec_date[1], rec_date[0], rec_time[0], rec_time[1], rec_time[2])
         
+        ureg = pint.UnitRegistry()
+        bias_unitized = ureg.Quantity(bias, "V")
+        scan_range_uncropped_unitized = [ureg.Quantity(range_dim, "m") for range_dim in scan_range_uncropped]
+
+        # Deprecate this after completing the switch to pint:
         # Compute the re-unitization factors
         # Lengths
         channel_units = default_channel_units.copy() # Initialize channel_units to the default setting
@@ -217,11 +227,11 @@ def get_scan(file_name, units: dict = {"length": "m", "current": "A"}, default_c
         # Rescale the scan data by the multiplication factors determined in the reunitization        
         for channel in channels:
             for direction in ["forward", "backward"]:
-                if channel in length_channels: scan_data.signals[channel][direction] = np.array(scan_data.signals[channel][direction] * L_multiplication_factor, dtype = float)
-                elif channel in current_channels: scan_data.signals[channel][direction] = np.array(scan_data.signals[channel][direction] * I_multiplication_factor, dtype = float)
+                if channel in length_channels: scans[channel][direction] = np.array(scans[channel][direction] * L_multiplication_factor, dtype = float)
+                elif channel in current_channels: scans[channel][direction] = np.array(scans[channel][direction] * I_multiplication_factor, dtype = float)
         
         # Stack the forward and backward scans for each channel in a tensor. Flip the backward scan
-        scan_tensor_uncropped = np.stack([np.stack((np.array(scan_data.signals[channel]["forward"], dtype = float), np.flip(np.array(scan_data.signals[channel]["backward"], dtype = float), axis = 1))) for channel in channels])
+        scan_tensor_uncropped = np.stack([np.stack((np.array(scans[channel]["forward"], dtype = float), np.flip(np.array(scans[channel]["backward"], dtype = float), axis = 1))) for channel in channels])
         if up_or_down == "up": scan_tensor_uncropped = np.flip(scan_tensor_uncropped, axis = 2) # Flip the scan if it recorded in the upward direction
         # scan_tensor: axis 0 = direction (0 for forward, 1 for backward); axis 1 = channel; axis 2 and 3 are x and y
 
@@ -233,28 +243,30 @@ def get_scan(file_name, units: dict = {"length": "m", "current": "A"}, default_c
         
         pixels = np.asarray(np.shape(scan_tensor[0, 0])) # The number of pixels is recalculated on the basis of the scans potentially being cropped
         scan_range = np.array([scan_range_uncropped[0] * pixels[0] / pixels_uncropped[0], scan_range_uncropped[1]]) # Recalculate the size of the slow scan direction after cropping
+        scan_range_unitized = [ureg.Quantity(range_dim, "m").to("nm") for range_dim in scan_range]
         
         # Apply the re-unitization to various attributes in the header
         scan_range = [scan_dimension * L_multiplication_factor for scan_dimension in scan_range]
-        setpoint = float(setpoint_str.split()[0]) * I_multiplication_factor
+        setpoint_unitized = ureg.Quantity(float(setpoint_str.split()[0]), "A").to("pA")
 
         # Add new attributes to the scan object
-        setattr(scan_data, "default_channel_units", default_channel_units)
-        setattr(scan_data, "channel_units", channel_units)
-        setattr(scan_data, "units", units)
-        setattr(scan_data, "bias", bias)
-        setattr(scan_data, "channels", channels)
-        setattr(scan_data, "tensor_uncropped", scan_tensor_uncropped) # Uncropped means the size of the scan before deleting the rows that were not recorded
-        setattr(scan_data, "pixels_uncropped", pixels_uncropped)
-        setattr(scan_data, "scan_range_uncropped", scan_range_uncropped)
-        setattr(scan_data, "tensor", scan_tensor)
-        setattr(scan_data, "pixels", pixels)
-        setattr(scan_data, "scan_range", scan_range)
-        setattr(scan_data, "feedback", feedback)
-        setattr(scan_data, "setpoint", setpoint)
-        setattr(scan_data, "date_time", dt_object)
+        setattr(scan_object, "default_channel_units", default_channel_units)
+        setattr(scan_object, "channel_units", channel_units)
+        setattr(scan_object, "units", units)
+        setattr(scan_object, "bias", bias_unitized)
+        setattr(scan_object, "channels", channels)
+        setattr(scan_object, "tensor_uncropped", scan_tensor_uncropped) # Uncropped means the size of the scan before deleting the rows that were not recorded
+        setattr(scan_object, "pixels_uncropped", pixels_uncropped)
+        setattr(scan_object, "scan_range_uncropped", scan_range_uncropped)
+        setattr(scan_object, "scan_range_uncropped_unitized", scan_range_uncropped_unitized)
+        setattr(scan_object, "tensor", scan_tensor)
+        setattr(scan_object, "pixels", pixels)
+        setattr(scan_object, "scan_range", scan_range_unitized)
+        setattr(scan_object, "feedback", feedback)
+        setattr(scan_object, "setpoint", setpoint_unitized)
+        setattr(scan_object, "date_time", dt_object)
     
-        return scan_data
+        return scan_object
 
     except Exception as e:
         print(f"Error reading sxm file: {e}")
@@ -263,7 +275,7 @@ def get_scan(file_name, units: dict = {"length": "m", "current": "A"}, default_c
 
 
 
-def get_spectrum(file_name, units: dict = {"length": "m", "current": "A"}):
+def get_spectrum(file_name):
     if not os.path.exists(file_name):
         print(f"Error: File \"{file_name}\" does not exist.")
         return
@@ -275,8 +287,13 @@ def get_spectrum(file_name, units: dict = {"length": "m", "current": "A"}):
 
     try:
         spec_object = nap.read.Spec(file_name)
+        spec_spectra = spec_object.signals
         spec_header = spec_object.header
+
+        ureg = pint.UnitRegistry()
         spec_coords = np.array([spec_header.get("X (m)", 0), spec_header.get("Y (m)", 0), spec_header.get("Z (m)", 0)], dtype = float)
+        # Unitize the spectrum coordinates and switch to nm by default
+        spec_coords = [ureg.Quantity(coordinate, "m").to("nm") for coordinate in spec_coords]
         [spec_date, spec_time] = spec_header.get("Start time").split()
     
         # Extract and convert time parameters and convert to datetime object
@@ -284,52 +301,17 @@ def get_spectrum(file_name, units: dict = {"length": "m", "current": "A"}):
         rec_time = [int(element) for element in spec_time.split(":")]
         dt_object = datetime(rec_date[2], rec_date[1], rec_date[0], rec_time[0], rec_time[1], rec_time[2])
         
-        channels = np.array(list(spec_object.signals.keys()), dtype = str)
-        spectrum_matrix = np.array(list(spec_object.signals.values()))
-        
-        # Compute the re-unitization factors
-        # Lengths
-        match units.get("length", "m"):
-            case "m": L_multiplication_factor = 1
-            case "dm": L_multiplication_factor = 10
-            case "cm": L_multiplication_factor = 100
-            case "mm": L_multiplication_factor = 1E3
-            case "um": L_multiplication_factor = 1E6
-            case "nm": L_multiplication_factor = 1E9
-            case "A": L_multiplication_factor = 1E10
-            case "pm": L_multiplication_factor = 1E12
-            case "fm": L_multiplication_factor = 1E15
-            case _: L_multiplication_factor = 1
-        if L_multiplication_factor == 1: units["length"] = "m" # Fall back to m
-    
-        # Current
-        match units.get("current", "A"):
-            case "A": I_multiplication_factor = 1
-            case "dA": I_multiplication_factor = 10
-            case "cA": I_multiplication_factor = 100
-            case "mA": I_multiplication_factor = 1E3
-            case "uA": I_multiplication_factor = 1E6
-            case "nA": I_multiplication_factor = 1E9
-            case "pA": I_multiplication_factor = 1E12
-            case "fA": I_multiplication_factor = 1E15
-            case _: I_multiplication_factor = 1
-        if I_multiplication_factor == 1: units["current"] = "A" # Fall back to A]
-
-        spec_coords *= L_multiplication_factor
-        for channel_index in range(len(channels)):
-            channel = channels[channel_index]
-            if channel in ["Current (A)", "Current [bwd] (A)"]:
-                spectrum_matrix[channel_index] *= I_multiplication_factor
-            elif channel in ["X (m)", "Y (m)", "Z (m)"]:
-                spectrum_matrix[channel_index] *= L_multiplication_factor
+        channels = np.array(list(spec_spectra.keys()), dtype = str)
+        spectrum_matrix = np.array(list(spec_spectra.values()))
 
         # Add the new attributes to the scan object
+        # Redundant attribute names for the coordinates are for ease of use
         setattr(spec_object, "coords", spec_coords)
         setattr(spec_object, "location", spec_coords)
         setattr(spec_object, "position", spec_coords)
-        setattr(spec_object, "x", float(spec_coords[0]))
-        setattr(spec_object, "y", float(spec_coords[1]))
-        setattr(spec_object, "z", float(spec_coords[2]))
+        setattr(spec_object, "x", spec_coords[0])
+        setattr(spec_object, "y", spec_coords[1])
+        setattr(spec_object, "z", spec_coords[2])
         setattr(spec_object, "channels", channels)
         setattr(spec_object, "matrix", spectrum_matrix)
         setattr(spec_object, "date_time", dt_object)
@@ -337,6 +319,6 @@ def get_spectrum(file_name, units: dict = {"length": "m", "current": "A"}):
         return spec_object
     
     except Exception as e:
-        # print(f"Error: {e}")
+        print(f"Error: {e}")
         
         return False
