@@ -26,10 +26,12 @@ class SpectrumViewer(QtWidgets.QMainWindow):
         self.parameters_init()
         self.make_gui_items()
         self.draw_layout()
-        self.connect_keys()
         self.spec_objects, self.channels = self.read_spectroscopy_files()
+        self.connect_keys()
+        self.set_focus_row(0)
+        self.redraw_spectra()
 
-    def parameters_init(self):
+    def parameters_init(self) -> None:
         icon_files = os.listdir(self.paths["icon_folder"])
         self.icons = {}
         for icon_file in icon_files:
@@ -39,10 +41,11 @@ class SpectrumViewer(QtWidgets.QMainWindow):
             except:
                 pass
         self.setWindowIcon(self.icons.get("graph"))
+        self.focus_row = 0
 
-    def make_gui_items(self):
+    def make_gui_items(self) -> None:
         gui_functions = GUIFunctions()
-        make_button = gui_functions.make_button
+        make_button = lambda *args, **kwargs: gui_functions.make_button(*args, parent = self, **kwargs)
         make_label = gui_functions.make_label
         make_radio_button = gui_functions.make_radio_button
         make_checkbox = gui_functions.make_checkbox
@@ -66,16 +69,20 @@ class SpectrumViewer(QtWidgets.QMainWindow):
         self.option_checkboxes = {
             "offset": make_checkbox("offset", "Offset successive spectra", self.icons.get("offset"))
         }
+        
         self.checkboxes = {}
-        [self.checkboxes.update({f"{number}": make_checkbox(f"{number}", f"toggle visibility of plot {number}")}) for number in range(16)]
         self.plot_number_comboboxes = {}
-        [self.plot_number_comboboxes.update({f"{number}": make_combobox(f"{number}", f"data for plot {number}", self.redraw_spectra)}) for number in range(16)]
         self.leftarrows = {}
-        [self.leftarrows.update({f"{number}": make_button("", self.redraw_spectra, f"decrease plot number {number}", self.icons.get("single_arrow"), rotate_degrees = 180)}) for number in range(16)]
         self.rightarrows = {}
-        [self.rightarrows.update({f"{number}": make_button("", self.redraw_spectra, f"increase plot number {number}", self.icons.get("single_arrow"))}) for number in range(16)]
 
-    def draw_layout(self):
+        for number in range(16):
+            self.checkboxes.update({f"{number}": make_checkbox(f"{number}", f"toggle visibility of plot {number}")})
+            self.checkboxes[f"{number}"].setStyleSheet(f"color: {self.color_list[number]};")
+            self.plot_number_comboboxes.update({f"{number}": make_combobox(f"{number}", f"data for plot {number}")})
+            self.leftarrows.update({f"{number}": make_button("", lambda n = number: self.toggle_plot_number(n, increase = False), f"decrease plot number {number}", self.icons.get("single_arrow"), rotate_degrees = 180)})
+            self.rightarrows.update({f"{number}": make_button("", lambda n = number: self.toggle_plot_number(n, increase = True), f"increase plot number {number}", self.icons.get("single_arrow"))})
+
+    def draw_layout(self) -> None:
         # Set the central widget of the QMainWindow
         central_widget = QtWidgets.QWidget()
         self.setCentralWidget(central_widget)
@@ -83,29 +90,6 @@ class SpectrumViewer(QtWidgets.QMainWindow):
         # Spectrum selector
         spectrum_selector_widget = QtWidgets.QWidget()
         spectrum_selector_layout = self.layouts["selector"]
-        
-        # Put a star on the spectrum names that are associated with the scan
-        spec_labels = self.spec_files[:, 0]
-        associated_spectra_names = [spectrum[0] for spectrum in self.associated_spectra]
-        for i in range(len(spec_labels)):
-            if spec_labels[i] in associated_spectra_names: spec_labels[i] = "*" + spec_labels[i]
-        [self.plot_number_comboboxes[f"{number}"].addItems(self.spec_files[:, 0]) for number in range(len(self.plot_number_comboboxes))]
-
-        # Initialize the comboboxes to the associated spectra if possible
-        print(self.spec_files)
-        print(self.spec_files[:, 0])
-        for index, combobox in enumerate(self.plot_number_comboboxes):
-            try:
-                if index < len(self.associated_spectra):
-                    associated_index = np.where(self.spec_files[:, 0] == self.associated_spectra[index, 0])[0][0]
-                    combobox.setCurrentIndex(associated_index)
-                else:
-                    if index < len(self.spec_files):
-                        combobox.setCurrentIndex(index)
-                    else:
-                        pass
-            except:
-                pass
 
         [spectrum_selector_layout.addWidget(self.checkboxes[f"{i}"], i, 0) for i in range(len(self.checkboxes))]
         [spectrum_selector_layout.addWidget(self.leftarrows[f"{i}"], i, 1) for i in range(len(self.leftarrows))]
@@ -127,16 +111,26 @@ class SpectrumViewer(QtWidgets.QMainWindow):
         [self.layouts["main"].addWidget(widget, i, 2, alignment = QtCore.Qt.AlignmentFlag.AlignCenter) for i, widget in enumerate(column_2_widgets)]
         central_widget.setLayout(self.layouts["main"])
 
-        [self.plot_number_comboboxes[f"{index}"].currentIndexChanged.connect(self.redraw_spectra) for index in range(len(self.plot_number_comboboxes))]
+        [self.plot_number_comboboxes[f"{index}"].currentIndexChanged.connect(lambda: self.redraw_spectra(toggle_checkbox = False)) for index in range(len(self.plot_number_comboboxes))]
 
-    def connect_keys(self):
+    def connect_keys(self) -> None:
         QKey = QtCore.Qt.Key
 
-        checkbox_shortcuts = [QtGui.QShortcut(QtGui.QKeySequence(keystroke), self) for keystroke in [QKey.Key_0, QKey.Key_1, QKey.Key_2, QKey.Key_3, QKey.Key_4, QKey.Key_5, QKey.Key_6, QKey.Key_7, QKey.Key_8, QKey.Key_9]]
-        [checkbox_shortcuts[i].activated.connect(lambda: self.redraw_spectra(toggle_checkbox = i)) for i in range(len(checkbox_shortcuts))]
-        
-        exit_shortcuts = [QtGui.QShortcut(QtGui.QKeySequence(keystroke), self) for keystroke in [QKey.Key_Q, QKey.Key_X, QKey.Key_E, QKey.Key_Escape]]
+        exit_shortcuts = [QtGui.QShortcut(QtGui.QKeySequence(keystroke), self) for keystroke in [QKey.Key_Q, QKey.Key_X, QKey.Key_Escape]]
         [exit_shortcut.activated.connect(self.close) for exit_shortcut in exit_shortcuts]
+
+        focus_shortcuts = []
+        for index, keystroke in enumerate([QKey.Key_0, QKey.Key_1, QKey.Key_2, QKey.Key_3, QKey.Key_4, QKey.Key_5, QKey.Key_6, QKey.Key_7,
+                                           QKey.Key_8, QKey.Key_9, QKey.Key_A, QKey.Key_B, QKey.Key_C, QKey.Key_D, QKey.Key_E, QKey.Key_F]):
+            focus_shortcut = QtGui.QShortcut(QtGui.QKeySequence(keystroke), self)
+            focus_shortcut.activated.connect(lambda i = index: self.set_focus_row(i))
+            focus_shortcuts.append(focus_shortcut)
+        
+        toggle_shortcuts = [QtGui.QShortcut(QtGui.QKeySequence(keystroke), self) for keystroke in [QKey.Key_Up, QKey.Key_Down, QKey.Key_Left, QKey.Key_Right, QKey.Key_Space]]
+        [self.up_shortcut, self.down_shortcut, self.left_shortcut, self.right_shortcut, self.checkbox_shortcut] = toggle_shortcuts
+        
+        self.up_shortcut.activated.connect(lambda: self.set_focus_row(-1, increase = False))
+        self.down_shortcut.activated.connect(lambda: self.set_focus_row(-1, increase = True))
 
     def read_spectroscopy_files(self) -> tuple:
         spec_objects = [get_spectrum(spec_file[1]) for spec_file in self.spec_files] # Get a spectroscopy object for each spectroscopy file
@@ -146,35 +140,80 @@ class SpectrumViewer(QtWidgets.QMainWindow):
         for spec_object in spec_objects:
             all_channels.extend(list(spec_object.channels))
         all_channels = list(set(all_channels))
-        all_channels = [str(channel) for channel in all_channels]
+        all_channels = np.array([str(channel) for channel in all_channels])
         [combobox.addItems(all_channels) for combobox in [self.channel_selection_comboboxes["x_axis"], self.channel_selection_comboboxes["y_axis_0"], self.channel_selection_comboboxes["y_axis_1"]]]
         
         # Attempt to set the channel toggle boxes to logical starting defaults
+        [combobox.blockSignals(True) for combobox in self.channel_selection_comboboxes.values()]
         try:
-            for label in ["Bias calc (V)", "Bias [bwd] V", "Bias (V)"]:
+            x_axis_targets = ["Bias (V)", "Bias [bwd] V", "Bias calc (V)"]
+            for label in x_axis_targets:
                 if label in all_channels:
                     channel_index = np.where(all_channels == label)[0][0]
                     self.channel_selection_comboboxes["x_axis"].setCurrentIndex(channel_index)
-            for label in ["LI demod X1 (A)"]:
+                    break
+
+            y_axis_0_targets = ["LI demod X1 (A)", "Current (A)"]
+            for label in y_axis_0_targets:
                 if label in all_channels:
                     channel_index = np.where(all_channels == label)[0][0]
                     self.channel_selection_comboboxes["y_axis_0"].setCurrentIndex(channel_index)
-            for label in ["Current calc (A)", "Current [bwd] (A)", "Current (A)"]:
+                    break
+
+            y_axis_1_targets = ["Current (A)", "Current [bwd] (A)", "Current calc (A)"]
+            for label in y_axis_1_targets:
                 if label in all_channels:
                     channel_index = np.where(all_channels == label)[0][0]
                     self.channel_selection_comboboxes["y_axis_1"].setCurrentIndex(channel_index)
-        except:
-            pass
+                    break
+        except Exception as e:
+            print(f"Error while trying to set the comboboxes to default values: {e}")
+        [combobox.blockSignals(False) for combobox in self.channel_selection_comboboxes.values()]
+
+        # Put a star on the spectrum names that are associated with the scan and initialize the comboboxes
+        [combobox.blockSignals(True) for combobox in self.plot_number_comboboxes.values()]
+        spec_labels = self.spec_files[:, 0]
+        associated_labels = [spectrum[0] for spectrum in self.associated_spectra]
+        for i in range(len(spec_labels)):
+            if spec_labels[i] in associated_labels:
+                [self.plot_number_comboboxes[f"{number}"].addItem("*" + spec_labels[i]) for number in range(len(self.plot_number_comboboxes))]
+            else:
+                [self.plot_number_comboboxes[f"{number}"].addItem(spec_labels[i]) for number in range(len(self.plot_number_comboboxes))]
+
+        # Initialize the comboboxes to the associated spectra if possible
+        spec_labels = self.spec_files[:, 0]
+        for index, combobox in enumerate(self.plot_number_comboboxes.values()):
+            try:
+                if index < len(self.associated_spectra):
+                    associated_index = np.where(spec_labels == associated_labels[index])[0][0]
+                    combobox.setCurrentIndex(associated_index)
+                    self.checkboxes[f"{index}"].setChecked(True)
+                elif index < len(spec_labels):
+                    combobox.setCurrentIndex(index)
+                else:
+                    pass
+            except Exception as e:
+                print(f"Error initializing some or all plot number comboboxes: {e}")
+        [combobox.blockSignals(False) for combobox in self.plot_number_comboboxes.values()]
+
+        # Connect the checkboxes
+        [checkbox.toggled.connect(self.redraw_spectra) for checkbox in self.checkboxes.values()]
 
         return spec_objects, all_channels
 
-    def redraw_spectra(self, toggle_checkbox: bool = None):
-        if type(toggle_checkbox) == int:
-            if -1 < toggle_checkbox < 10:
-                #self.checkbox[toggle_checkbox].disconnect()
-                try: self.checkboxes[f"{toggle_checkbox}"].setChecked(not self.checkboxes[toggle_checkbox].isChecked())
-                except: pass
-                # self.checkbox[toggle_checkbox].toggled.connect(self.redraw_spectra)
+    def redraw_spectra(self, toggle_checkbox: bool = False) -> None:
+        if toggle_checkbox:
+            checked = self.checkboxes[f"{self.focus_row}"].isChecked()
+            [checkbox.blockSignals(True) for checkbox in self.checkboxes.values()]
+            self.checkboxes[f"{self.focus_row}"].setChecked(not checked)
+            [checkbox.blockSignals(False) for checkbox in self.checkboxes.values()]
+
+        # Grey out the plot rows that are not enabled (checked using the checkbox)
+        for index in range(len(self.checkboxes)):
+            checkbox = self.checkboxes[f"{index}"]
+            checked = checkbox.isChecked()
+            if checked: [button.setEnabled(True) for button in [self.leftarrows[f"{index}"], self.plot_number_comboboxes[f"{index}"], self.rightarrows[f"{index}"]]]
+            else: [button.setEnabled(False) for button in [self.leftarrows[f"{index}"], self.plot_number_comboboxes[f"{index}"], self.rightarrows[f"{index}"]]]
 
         # Read the QComboboxes and retrieve what channels are requested
         if not hasattr(self, "channels"): return # Return if the channels have not yet been read
@@ -198,14 +237,74 @@ class SpectrumViewer(QtWidgets.QMainWindow):
                     x_data = spec_signal[x_channel]
                     y_0_data = spec_signal[y_0_channel]
                     self.graph_0.plot(x_data, y_0_data, pen = color)
-                except KeyError:
-                    pass
+                except Exception as e:
+                    print(f"Error: {e}")
                 try:
                     x_data = spec_signal[x_channel]
                     y_1_data = spec_signal[y_1_channel]
                     self.graph_1.plot(x_data, y_1_data, pen = color)
-                except KeyError:
-                    pass
+                except Exception as e:
+                    print(f"Error: {e}")
+
+    def toggle_plot_number(self, plot_index: int = 0, increase: bool = True) -> None:
+        try:
+            current_index = self.plot_number_comboboxes[f"{plot_index}"].currentIndex()
+
+            if increase: new_index = current_index + 1
+            else: new_index = current_index - 1
+            
+            if new_index > len(self.spec_files) - 1: new_index = 0
+            if new_index < 0: new_index = len(self.spec_files) - 1
+
+            # Changing the index of the combobox automatically activates self.redraw_spectra() since the currentIndexChanged signal is connected to that method
+            self.plot_number_comboboxes[f"{plot_index}"].setCurrentIndex(new_index)
+
+        except Exception as e:
+            print(f"Error toggling the plot: {e}")
+        
+        return
+
+    def set_focus_row(self, number: int = -1, increase: bool = True) -> None:
+        # Disconnect the key shortcuts
+        try:
+            self.left_shortcut.disconnect()
+            self.right_shortcut.disconnect()
+            self.checkbox_shortcut.disconnect()
+        except Exception as e:
+            print(f"Error disconnecting the key shortcuts: {e}")
+
+        # Change the background color of the buttons
+        for index in range(len(self.leftarrows)):
+            [button.setStyleSheet(f"background-color: black;") for button in [self.leftarrows[f"{index}"], self.plot_number_comboboxes[f"{index}"], self.rightarrows[f"{index}"]]]
+
+        # Number is set
+        if number > -1 and number < len(self.leftarrows):
+            try:
+                self.focus_row = number
+                [button.setStyleSheet(f"background-color: #404000;") for button in [self.leftarrows[f"{self.focus_row}"], self.plot_number_comboboxes[f"{self.focus_row}"], self.rightarrows[f"{self.focus_row}"]]]
+            except Exception as e:
+                print(f"Error changing the focus row: {e}")
+        # Number is toggled up or down
+        else:
+            try:
+                if increase: new_row = self.focus_row + 1
+                else: new_row = self.focus_row - 1
+
+                if new_row < 0: new_row = len(self.leftarrows) - 1
+                if new_row > len(self.leftarrows) - 1: new_row = 0
+
+                self.focus_row = new_row
+                [button.setStyleSheet(f"background-color: #404000;") for button in [self.leftarrows[f"{self.focus_row}"], self.plot_number_comboboxes[f"{self.focus_row}"], self.rightarrows[f"{self.focus_row}"]]]
+            except Exception as e:
+                print(f"Error changing the focus row: {e}")
+        
+        # Change the key shortcuts
+        try:
+            self.left_shortcut.activated.connect(lambda plot_index = self.focus_row: self.toggle_plot_number(plot_index, increase = False))
+            self.right_shortcut.activated.connect(lambda plot_index = self.focus_row: self.toggle_plot_number(plot_index))
+            self.checkbox_shortcut.activated.connect(lambda: self.redraw_spectra(toggle_checkbox = True))
+        except Exception as e:
+            print(f"Error connecting the key shortcuts: {e}")
 
 
 
@@ -251,6 +350,8 @@ class AppWindow(QtWidgets.QMainWindow):
                 #self.on_full_scale("both")
         except:
             pass
+
+        self.open_spectrum_viewer()
 
 
 
