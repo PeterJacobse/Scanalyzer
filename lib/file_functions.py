@@ -1,4 +1,4 @@
-from pathlib import Path
+import re
 import os
 import numpy as np
 import nanonispy2 as nap
@@ -7,7 +7,16 @@ import pint
 
 
 
-def get_datetime_and_location(file_name):
+def get_scientific_numbers(text: str) -> list:
+    pattern = r"[-+]?[0-9]*\.?[0-9]+(?:[eE][-+]?[0-9]+)?"
+    matches = re.findall(pattern, text)
+    numbers = [float(x) for x in matches]
+
+    return numbers
+
+
+
+def get_basic_header(file_name) -> dict:
     if not os.path.exists(file_name):
         print(f"Error: File \"{file_name}\" does not exist.")
         return False
@@ -16,20 +25,44 @@ def get_datetime_and_location(file_name):
     if extension not in [".sxm", ".dat"]:
         print("Error: Unknown file type.")
         return False
+    
+    ureg = pint.UnitRegistry()
 
     # Parse the date and time from a spectroscopy (.dat file)
     if extension == ".dat":
         try:
-            spec_object = nap.read.Spec(file_name)
-            spec_header = spec_object.header
-            [spec_date, spec_time] = spec_header.get("Start time").split()
+            [x, y, z] = [False for _ in range(3)]
 
-            # Extract and convert time parameters and convert to datetime object
-            rec_date = [int(number) for number in spec_date.split(".")]
-            rec_time = [int(number) for number in spec_time.split(":")]
-            dt_object = datetime(rec_date[2], rec_date[1], rec_date[0], rec_time[0], rec_time[1], rec_time[2])
+            # Read the file line by line until the tags are found
+            with open(file_name, "rb") as file:
+                for line in file:
+                    decoded = line.decode()
+
+                    if "X (m)" in decoded and not x: x = get_scientific_numbers(decoded)[0]
+                    if "Y (m)" in decoded and not y: y = get_scientific_numbers(decoded)[0]
+                    if "Z (m)" in decoded and not z: z = get_scientific_numbers(decoded)[0]
+                    if "Saved Date" in decoded:
+                        try:
+                            format_string = "Saved Date\t%d.%m.%Y %H:%M:%S\t"
+                            dt_object = datetime.strptime(decoded, format_string)
+                        except:
+                            pass
+
+                    if x and y and z and dt_object: break
             
-            return dt_object
+            x = ureg.Quantity(x, "m").to("nm")
+            y = ureg.Quantity(y, "m").to("nm")
+            z = ureg.Quantity(z, "m").to("nm")
+            
+            header = {
+                "x": x,
+                "y": y,
+                "z": z,
+                "coords": [x, y, z],
+                "datetime": dt_object
+            }
+
+            return header
 
         except Exception as e:
             print(f"Could not read date and time from .dat file: {e}")
@@ -44,71 +77,80 @@ def get_datetime_and_location(file_name):
             range_tag = ":SCAN_RANGE:"
             offset_tag = ":SCAN_OFFSET:"
             angle_tag = ":SCAN_ANGLE:"
-            
-            [date_found, time_found, range_found, offset_found, angle_found] = [False for _ in range(5)]
-            [date_read, time_read, range_read, offset_read, angle_read] = [False for _ in range(5)]
+
+            date_found = False
+            time_found = False
+            range_found = False
+            offset_found = False
+            angle_found = False
+            date_line = ""
+            time_line = ""
+            range_line = ""
+            offset_line = ""
+            angle_line = ""
 
             # Read the file line by line until the tags are found
             with open(file_name, "rb") as file:
                 for line in file:
-                    if date_found and not date_read:
-                        date_line = line.decode().strip() # Use .strip() to remove leading/trailing whitespace including newlines
-                        date_read = True
-                    if time_found and not time_read:
-                        time_line = line.decode().strip()
-                        time_read = True
+                    decoded = line.decode()
+
+                    if date_found and not date_line: date_line = line.decode().strip() # Use .strip() to remove leading/trailing whitespace including newlines
+                    if time_found and not time_line: time_line = line.decode().strip()
+                    if range_found and not range_line: range_line = line.decode().strip()
+                    if offset_found and not offset_line: offset_line = line.decode().strip()
+                    if angle_found and not angle_line: angle_line = line.decode().strip()
                     
-                    if date_tag in line.decode(): date_found = True
-                    if time_tag in line.decode(): time_found = True
-                        
-                    if date_read and time_read: break
+                    if date_tag in decoded: date_found = True
+                    if time_tag in decoded: time_found = True
+                    if range_tag in decoded: range_found = True
+                    if offset_tag in decoded: offset_found = True
+                    if angle_tag in decoded: angle_found = True
+
+                    if date_line and time_line and range_line and offset_line and angle_line: break
+
+            if not (date_line and time_line and range_line and offset_line and angle_line):
+                print("Error! Could not parse the header data from hte sxm file")
 
             # Construct a datetime object from the found date and time
-            if date_line is not None and time_line is not None:                
+            try:
                 date_list = [int(number) for number in date_line.split(".")]
                 time_list = [int(number) for number in time_line.split(":")]
 
                 dt_object = datetime(date_list[2], date_list[1], date_list[0], time_list[0], time_list[1], time_list[2])
+
+                scan_range = get_scientific_numbers(range_line)
+                offset = get_scientific_numbers(offset_line)
+                angle = get_scientific_numbers(angle_line)[0]
+
+                x = ureg.Quantity(offset[0], "m").to("nm")
+                y = ureg.Quantity(offset[1], "m").to("nm")
+                range_x = ureg.Quantity(scan_range[0], "m").to("nm")
+                range_y = ureg.Quantity(scan_range[1], "m").to("nm")
+                angle = ureg.Quantity(angle, "degree")
+
+                header = {
+                    "x": x,
+                    "y": y,
+                    "center": [x, y],
+                    "height": range_y,
+                    "width": range_x,
+                    "size": [range_x, range_y],
+                    "scan_range": [range_x, range_y],
+                    "angle": angle,
+                    "datetime": dt_object
+                }
+
+                return header
                 
-                return dt_object
-                
-            else:
-                print(f"Could not read date and time from .sxm file: {e}")
-                
-                return False
+            except Exception as e:
+                print(f"Error: could not read all data from the .sxm file: {e}")
 
         except Exception as e:
             print(f"Error: {e}")
-            
-            return False
 
 
 
-def get_grid(scan_object) -> object:
-    grid = {
-        "x": 0,
-        "y": 1,
-        "center": [0, 1],
-        "width": 3,
-        "height": 4,
-        "size": [5, 6],
-        "angle": 7,
-        "pixels": [8, 9],
-        "aspect_ratio": 10 / 11,
-        "pixel_width": 12 / 13,
-        "pixel_height": 14 / 15,
-        "pixel_ratio": 16 / 17,
-        "num_channels": 0,
-        "channel_indices": 0
-    }
-
-    setattr(scan_object, "grid", grid)
-
-    return scan_object
-
-
-
-def read_files(directory):
+def read_files(directory) -> tuple:
     all_files = os.listdir(directory)
     dat_files = [os.path.join(directory, file) for file in all_files if file.endswith(".dat")]
     sxm_files = [os.path.join(directory, file) for file in all_files if file.endswith(".sxm")]
@@ -117,8 +159,11 @@ def read_files(directory):
     scan_list = []
     for file in sxm_files:
         try:
-            date_time = get_datetime_and_location(file)
-            scan_list.append([os.path.basename(file), file, date_time])
+            header = get_basic_header(file)
+            date_time = header.get("datetime")
+            file_basename = os.path.basename(file)
+
+            scan_list.append([file_basename, file, date_time, header])
         except:
             pass
     scan_list = np.array(scan_list)
@@ -126,14 +171,18 @@ def read_files(directory):
     # Parse the spectroscopy files
     spectrum_list = []
     for file in dat_files:
-        spec_object = get_spectrum(file)
-        if spec_object:
-            try:
-                location = spec_object.coords
-                # The '0' elements are placeholders that will be replaced by the file names of the associated scans
-                spectrum_list.append([spec_object.basename, spec_object.fname, spec_object.date_time, 0, location[0], location[1], location[2]])
-            except:
-                pass
+        try:
+            header = get_basic_header(file)
+            date_time = header.get("datetime")
+            file_basename = os.path.basename(file)
+            x = header.get("x")
+            y = header.get("y")
+            z = header.get("z")
+            
+            # The '0' elements are placeholders that will be replaced by the file names of the associated scans
+            spectrum_list.append([file_basename, file, date_time, 0, x, y, z])
+        except:
+            pass
     spectrum_list = np.array(spectrum_list)
     no_spectra = len(spectrum_list)
 
@@ -150,7 +199,7 @@ def read_files(directory):
 
 
 
-def get_scan(file_name, units: dict = {"length": "m", "current": "A"}, default_channel_units: dict = {"X": "m", "Y": "m", "Z": "m", "Current": "A", "LI Demod 1 X": "A", "LI Demod 1 Y": "A", "LI Demod 2 X": "A", "LI Demod 2 Y": "A"}):
+def get_scan(file_name, units: dict = {"length": "m", "current": "A"}, default_channel_units: dict = {"X": "m", "Y": "m", "Z": "m", "Current": "A", "LI Demod 1 X": "A", "LI Demod 1 Y": "A", "LI Demod 2 X": "A", "LI Demod 2 Y": "A"}) -> object:
     if not os.path.exists(file_name):
         print(f"Error: File \"{file_name}\" does not exist.")
         return
@@ -173,7 +222,8 @@ def get_scan(file_name, units: dict = {"length": "m", "current": "A"}, default_c
         z_controller = scan_header.get("z-controller") # Extract and convert z-controller parameters
         feedback = bool(z_controller.get("on")[0]) # Bool, true or false
         setpoint_str = z_controller.get("Setpoint")[0]
-        scan_angle = scan_header.get("scan_angle")
+        angle = scan_header.get("scan_angle")
+        offset = scan_header.get("scan_offset")
         
         # Extract and convert time parameters and convert to datetime object
         rec_date = [int(element) for element in scan_header.get("rec_date", "00.00.1900").split(".")]
@@ -248,6 +298,11 @@ def get_scan(file_name, units: dict = {"length": "m", "current": "A"}, default_c
         # Apply the re-unitization to various attributes in the header
         scan_range = [scan_dimension * L_multiplication_factor for scan_dimension in scan_range]
         setpoint_unitized = ureg.Quantity(float(setpoint_str.split()[0]), "A").to("pA")
+        
+        x_center = ureg.Quantity(float(offset[0]), "m").to("nm")
+        y_center = ureg.Quantity(float(offset[1]), "m").to("nm")
+        angle = ureg.Quantity(float(angle), "degree")
+        center = [x_center, y_center]
 
         # Add new attributes to the scan object
         setattr(scan_object, "default_channel_units", default_channel_units)
@@ -265,6 +320,11 @@ def get_scan(file_name, units: dict = {"length": "m", "current": "A"}, default_c
         setattr(scan_object, "feedback", feedback)
         setattr(scan_object, "setpoint", setpoint_unitized)
         setattr(scan_object, "date_time", dt_object)
+        setattr(scan_object, "angle", angle)
+        setattr(scan_object, "x", x_center)
+        setattr(scan_object, "y", y_center)
+        setattr(scan_object, "center", center)
+        setattr(scan_object, "offset", center)
     
         return scan_object
 
@@ -275,7 +335,7 @@ def get_scan(file_name, units: dict = {"length": "m", "current": "A"}, default_c
 
 
 
-def get_spectrum(file_name):
+def get_spectrum(file_name) -> object:
     if not os.path.exists(file_name):
         print(f"Error: File \"{file_name}\" does not exist.")
         return

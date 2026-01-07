@@ -1,12 +1,6 @@
-import os
-import sys
-import yaml
-import numpy as np
-from PyQt6 import QtGui, QtWidgets
-from PyQt6.QtCore import Qt, QSize
-from PyQt6.QtGui import QShortcut, QKeySequence
-from datetime import datetime
-from typing import Callable, Dict, List, Tuple
+from PyQt6 import QtGui, QtWidgets, QtCore
+import pyqtgraph as pg
+from typing import Callable
 
 
 
@@ -26,9 +20,9 @@ class GUIFunctions:
         button.clicked.connect(lambda checked, f = func: f())
         button.setToolTip(description)
 
-        if isinstance(key_shortcut, Qt.Key):
+        if isinstance(key_shortcut, QtCore.Qt.Key):
             if parent is not None:
-                shortcut = QShortcut(QKeySequence(key_shortcut), parent)
+                shortcut = QtGui.QShortcut(QtGui.QKeySequence(key_shortcut), parent)
                 shortcut.activated.connect(func)
             else:
                 button.setShortcut(key_shortcut)
@@ -43,7 +37,7 @@ class GUIFunctions:
     
     def make_label(self, name: str, description: str = "", icon_path = None) -> QtWidgets.QLabel:
         label = QtWidgets.QLabel(name)
-        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
         label.setObjectName(name)
         label.setToolTip(description)
 
@@ -129,13 +123,35 @@ class GUIFunctions:
 
     def rotate_icon(self, icon, angle) -> QtGui.QIcon:
         try:
-            pixmap = icon.pixmap(QSize(92, 92))
+            pixmap = icon.pixmap(QtCore.QSize(92, 92))
             transform = QtGui.QTransform()
             transform.rotate(angle)
 
             rotated_pixmap = pixmap.transformed(transform)
 
             return QtGui.QIcon(rotated_pixmap)
+    
         except Exception as e:
             print(f"Error: {e}")
             return False
+
+
+
+class HoverTargetItem(pg.TargetItem):
+    def __init__(self, pos = None, size = 10, tip_text = ""):
+        super().__init__(pos, size)
+        self.size = size
+        self.tip_text = tip_text
+
+        self.text_item = pg.TextItem(tip_text, anchor = (0, 1), fill = 'k')
+        self.text_item.setParentItem(self)
+        self.text_item.hide()
+
+    def hoverEvent(self, event):
+        super().hoverEvent(event)
+
+        if event.isEnter():
+            self.text_item.setPos(0, 0) # Adjust position as needed
+            self.text_item.show()
+        elif event.isExit():
+            self.text_item.hide()

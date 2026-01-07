@@ -5,11 +5,9 @@ import numpy as np
 import pint
 from PyQt6 import QtCore, QtGui, QtWidgets
 import pyqtgraph as pg
-from pyqtgraph.Qt import QtCore
-from PyQt6.QtGui import QShortcut, QKeySequence
 from lib.image_functions import apply_gaussian, apply_fft, image_gradient, compute_normal, apply_laplace, complex_image_to_colors, background_subtract, get_image_statistics
 from lib.file_functions import read_files, get_scan, get_spectrum
-from lib.gui_functions import GUIFunctions
+from lib.gui_functions import GUIFunctions, HoverTargetItem
 
 
 
@@ -71,7 +69,7 @@ class SpectrumViewer(QtWidgets.QMainWindow):
         self.checkboxes = {}
         [self.checkboxes.update({f"{number}": make_checkbox(f"{number}", f"toggle visibility of plot {number}")}) for number in range(16)]
         self.plot_number_comboboxes = {}
-        [self.plot_number_comboboxes.update({f"{number}": make_combobox(f"{number}", f"data for plot {number}")}) for number in range(16)]
+        [self.plot_number_comboboxes.update({f"{number}": make_combobox(f"{number}", f"data for plot {number}", self.redraw_spectra)}) for number in range(16)]
         self.leftarrows = {}
         [self.leftarrows.update({f"{number}": make_button("", self.redraw_spectra, f"decrease plot number {number}", self.icons.get("single_arrow"), rotate_degrees = 180)}) for number in range(16)]
         self.rightarrows = {}
@@ -85,17 +83,12 @@ class SpectrumViewer(QtWidgets.QMainWindow):
         # Spectrum selector
         spectrum_selector_widget = QtWidgets.QWidget()
         spectrum_selector_layout = self.layouts["selector"]
-
-        #self.rightarrows = [QtWidgets.QToolButton() for _ in range(10)]
-        #[rightarrow.setArrowType(QtCore.Qt.ArrowType.RightArrow) for rightarrow in self.rightarrows]
-        #[rightarrow.setToolButtonStyle(QtCore.Qt.ToolButtonStyle.ToolButtonIconOnly) for rightarrow in self.rightarrows]
-        #[arrow.setEnabled(False) for arrow in self.leftarrows]
-        #[arrow.setEnabled(False) for arrow in self.rightarrows]
         
-        # Put a little star on the spectrum names that are associated with the scan
+        # Put a star on the spectrum names that are associated with the scan
         spec_labels = self.spec_files[:, 0]
+        associated_spectra_names = [spectrum[0] for spectrum in self.associated_spectra]
         for i in range(len(spec_labels)):
-            if spec_labels[i] in self.associated_spectra: spec_labels[i] = "*" + spec_labels[i]
+            if spec_labels[i] in associated_spectra_names: spec_labels[i] = "*" + spec_labels[i]
         [self.plot_number_comboboxes[f"{number}"].addItems(self.spec_files[:, 0]) for number in range(len(self.plot_number_comboboxes))]
 
         # Initialize the comboboxes to the associated spectra if possible
@@ -104,10 +97,11 @@ class SpectrumViewer(QtWidgets.QMainWindow):
         for index, combobox in enumerate(self.plot_number_comboboxes):
             try:
                 if index < len(self.associated_spectra):
-                    associated_index = np.where(self.spec_files[:, 0] == self.associated_spectra[index])[0][0]
+                    associated_index = np.where(self.spec_files[:, 0] == self.associated_spectra[index, 0])[0][0]
+                    combobox.setCurrentIndex(associated_index)
                 else:
                     if index < len(self.spec_files):
-                        self.qbox[index].setCurrentIndex(index)
+                        combobox.setCurrentIndex(index)
                     else:
                         pass
             except:
@@ -138,10 +132,10 @@ class SpectrumViewer(QtWidgets.QMainWindow):
     def connect_keys(self):
         QKey = QtCore.Qt.Key
 
-        checkbox_shortcuts = [QShortcut(QKeySequence(keystroke), self) for keystroke in [QKey.Key_0, QKey.Key_1, QKey.Key_2, QKey.Key_3, QKey.Key_4, QKey.Key_5, QKey.Key_6, QKey.Key_7, QKey.Key_8, QKey.Key_9]]
+        checkbox_shortcuts = [QtGui.QShortcut(QtGui.QKeySequence(keystroke), self) for keystroke in [QKey.Key_0, QKey.Key_1, QKey.Key_2, QKey.Key_3, QKey.Key_4, QKey.Key_5, QKey.Key_6, QKey.Key_7, QKey.Key_8, QKey.Key_9]]
         [checkbox_shortcuts[i].activated.connect(lambda: self.redraw_spectra(toggle_checkbox = i)) for i in range(len(checkbox_shortcuts))]
         
-        exit_shortcuts = [QShortcut(QKeySequence(keystroke), self) for keystroke in [QKey.Key_Q, QKey.Key_X, QKey.Key_E, QKey.Key_Escape]]
+        exit_shortcuts = [QtGui.QShortcut(QtGui.QKeySequence(keystroke), self) for keystroke in [QKey.Key_Q, QKey.Key_X, QKey.Key_E, QKey.Key_Escape]]
         [exit_shortcut.activated.connect(self.close) for exit_shortcut in exit_shortcuts]
 
     def read_spectroscopy_files(self) -> tuple:
@@ -306,6 +300,7 @@ class AppWindow(QtWidgets.QMainWindow):
         self.max_channel_index = 0
         self.scale_toggle_index = 0
         self.ureg = pint.UnitRegistry()
+        self.spec_targets = []
 
         self.processing_flags = {
             "direction": "forward",
@@ -316,7 +311,8 @@ class AppWindow(QtWidgets.QMainWindow):
             "fft": False,
             "normal": False,
             "min_selection": 0,
-            "max_selection": 0
+            "max_selection": 0,
+            "spec_locations": False
         }
 
         self.gui_functions = GUIFunctions()
@@ -348,6 +344,7 @@ class AppWindow(QtWidgets.QMainWindow):
             "standard_deviation": make_button("", self.on_standard_deviations, "Set the image value range by standard deviations (D)", self.icons.get("deviation"), key_shortcut = QKey.Key_D),
             "absolute_values": make_button("", self.on_absolute_values, "Set the image value range by absolute values (A)", self.icons.get("numbers"), key_shortcut = QKey.Key_A),
 
+            "spec_locations": make_button("", self.on_toggle_spec_locations, "View the spectroscopy locations (3)", self.icons.get("spec_locations"), key_shortcut = QKey.Key_3),
             "spectrum_viewer": make_button("", self.open_spectrum_viewer, "Open Spectrum Viewer (O)", self.icons.get("graph"), key_shortcut = QKey.Key_O),
 
             "save_png": make_button("", self.on_save_png, "Save as png file (S)", self.icons.get("floppy"), key_shortcut = QKey.Key_S),
@@ -355,7 +352,9 @@ class AppWindow(QtWidgets.QMainWindow):
             "output_folder": make_button("Output folder", self.open_output_folder, "Open output folder (T)", self.icons.get("folder_blue"), key_shortcut = QKey.Key_T),
             "exit": make_button("", self.on_exit, "Exit scanalyzer (Esc/X/E)", self.icons.get("escape"))
         }
-        exit_shortcuts = [QShortcut(QKeySequence(keystroke), self) for keystroke in [QKey.Key_Q, QKey.Key_E, QKey.Key_Escape]]
+        self.buttons["direction"].setCheckable(True)
+        self.buttons["spec_locations"].setCheckable(True)
+        exit_shortcuts = [QtGui.QShortcut(QtGui.QKeySequence(keystroke), self) for keystroke in [QKey.Key_Q, QKey.Key_E, QKey.Key_Escape]]
         [exit_shortcut.activated.connect(self.on_exit) for exit_shortcut in exit_shortcuts]
         self.labels = {
             "scan_summary": make_label("Scanalyzer by Peter H. Jacobse"),
@@ -417,7 +416,7 @@ class AppWindow(QtWidgets.QMainWindow):
             "projection": make_combobox("Projection", "Select a projection or toggle with (H)", self.load_process_display, items = ["re", "im", "abs", "arg (b/w)", "arg (hue)", "complex", "abs^2", "log(abs)"]),
             "spectra": make_combobox("spectra", "Spectra associated with the current scan")
         }
-        projection_toggle_shortcut = QShortcut(QKeySequence(QKey.Key_H), self)
+        projection_toggle_shortcut = QtGui.QShortcut(QtGui.QKeySequence(QKey.Key_H), self)
         projection_toggle_shortcut.activated.connect(self.toggle_projections)
 
         self.layouts = {
@@ -472,7 +471,6 @@ class AppWindow(QtWidgets.QMainWindow):
 
             [self.layouts["file_channel_direction"].addWidget(widget) for widget in [self.labels["in_folder"], self.buttons["folder_name"], self.labels["number_of_files"], self.labels["channel_selected"]]]
 
-            self.buttons["direction"].setCheckable(True)
             self.layouts["channel_navigation"].addWidget(self.buttons["previous_channel"], 1)
             self.layouts["channel_navigation"].addWidget(self.comboboxes["channels"], 4)
             self.layouts["channel_navigation"].addWidget(self.buttons["next_channel"], 1)
@@ -537,6 +535,7 @@ class AppWindow(QtWidgets.QMainWindow):
         
         def draw_associated_spectra_group() -> QtWidgets.QGroupBox: # Associated spectra dropdown menu
             self.layouts["spectra"].addWidget(self.comboboxes["spectra"], 4)
+            self.layouts["spectra"].addWidget(self.buttons["spec_locations"], 1)
             self.layouts["spectra"].addWidget(self.buttons["spectrum_viewer"], 1)
 
             self.groupboxes["associated_spectra"].setLayout(self.layouts["spectra"])
@@ -583,10 +582,13 @@ class AppWindow(QtWidgets.QMainWindow):
         self.checkboxes["laplace"].setShortcut(QKey.Key_C)
 
         # Limits control group
-        toggle_min_shortcut = QShortcut(QKeySequence(QKey.Key_Minus), self)
+        toggle_min_shortcut = QtGui.QShortcut(QtGui.QKeySequence(QKey.Key_Minus), self)
         toggle_min_shortcut.activated.connect(lambda: self.toggle_limits("min"))
-        toggle_max_shortcut = QShortcut(QKeySequence(QKey.Key_Equal), self)
+        toggle_max_shortcut = QtGui.QShortcut(QtGui.QKeySequence(QKey.Key_Equal), self)
         toggle_max_shortcut.activated.connect(lambda: self.toggle_limits("max"))
+
+        self.radio_buttons["bg_inferred"].setEnabled(False)
+        self.buttons["save_hdf5"].setEnabled(False)
 
         return
 
@@ -701,8 +703,6 @@ class AppWindow(QtWidgets.QMainWindow):
         try:
             self.paths["data_folder"] = os.path.dirname(file_name) # Set the folder to the directory of the file
             (self.sxm_files, self.spec_files) = read_files(self.paths["data_folder"]) # Read the names and datetimes of all scans (.sxm files) and spectra (.dat files)
-            print(self.sxm_files)
-            print(self.spec_files)
             
             self.max_file_index = len(self.sxm_files) - 1
             self.file_index = np.where([os.path.samefile(sxm_file, file_name) for sxm_file in self.sxm_files[:, 1]])[0][0] # Find the number of the specific file that was selected
@@ -728,7 +728,8 @@ class AppWindow(QtWidgets.QMainWindow):
         
         return
 
-    def load_scan(self) -> np.ndarray:
+    def load_scan(self) -> np.ndarray:        
+        # Load the sxm file from the list of sxm files
         self.sxm_file = self.sxm_files[self.file_index]
         self.file_label = self.sxm_file[0]
         
@@ -754,6 +755,12 @@ class AppWindow(QtWidgets.QMainWindow):
         self.bias = self.scan_object.bias
         self.bias_V = self.bias.to("V").magnitude
 
+        self.offset = self.scan_object.offset
+        self.offset_nm = [range_dim.to("nm").magnitude for range_dim in self.offset]
+
+        self.angle = self.scan_object.angle
+        self.angle_deg = self.angle.to("degree").magnitude
+
         self.scan_range = self.scan_object.scan_range
         self.scan_range_nm = [range_dim.to("nm").magnitude for range_dim in self.scan_range]
 
@@ -769,16 +776,8 @@ class AppWindow(QtWidgets.QMainWindow):
             self.summary_text = f"Constant height scan recorded on\n{self.scan_time.strftime('%Y/%m/%d   at   %H:%M:%S')}\n\n(V = {self.bias_V:.3f} V)\nScan range: {self.scan_range_nm[0]:.3f} nm by {self.scan_range_nm[1]:.3f} nm"
         self.labels["scan_summary"].setText(self.summary_text)
         
-        # Find the associated spectra
-        try:
-            associated_spectra_indices = np.where(self.spec_files[:, 3] == self.sxm_file[0])[0]
-            self.associated_spectra = [self.spec_files[index, 0] for index in associated_spectra_indices]
-        except:
-            self.associated_spectra = []
-        self.comboboxes["spectra"].blockSignals(True)
-        self.comboboxes["spectra"].clear()
-        self.comboboxes["spectra"].addItems(self.associated_spectra)
-        self.comboboxes["spectra"].blockSignals(False)
+        # Find the spectra associated with this scan and make them available for viewing as target items and in the combobox
+        self.find_associated_spectra()
 
         # Channel / scan direction selection
         # Pick the correct frame out of the scan tensor based on channel and scan direction
@@ -786,6 +785,55 @@ class AppWindow(QtWidgets.QMainWindow):
         else: selected_scan = scan_tensor[self.channel_index, 0]
 
         return selected_scan
+
+    def find_associated_spectra(self):
+        # From the list of spectra (spec_files), select the ones that are associated with the current scan (associated scan name is column 3 in self.spec_files and column 0 in self.sxm_files)
+        try:
+            associated_spectra_indices = np.where(self.spec_files[:, 3] == self.sxm_file[0])[0]
+            self.associated_spectra = [self.spec_files[index] for index in associated_spectra_indices]
+        except:
+            self.associated_spectra = []
+
+        # Update the spectra combobox        
+        self.comboboxes["spectra"].blockSignals(True)
+        self.comboboxes["spectra"].clear()
+        self.comboboxes["spectra"].addItems([spectrum[0] for spectrum in self.associated_spectra])
+        self.comboboxes["spectra"].blockSignals(False)
+
+        # Remove all spectroscopy targets if there were any
+        view_box = self.image_view.getView()
+        for target in self.spec_targets:
+            view_box.removeItem(target)
+
+        # Get the new targets
+        self.spec_targets = []
+
+        for index, data in enumerate(self.associated_spectra):
+            try:
+                x = data[4]
+                y = data[5]
+
+                x_nm = x.to("nm").magnitude
+                y_nm = y.to("nm").magnitude
+
+                x_relative_to_frame = x_nm - self.offset_nm[0]
+                y_relative_to_frame = y_nm - self.offset_nm[1]
+
+                cos_theta = np.cos(self.angle_deg)
+                sin_theta = np.sin(self.angle_deg)
+
+                x_rotated = cos_theta * x_relative_to_frame - sin_theta * y_relative_to_frame
+                y_rotated = cos_theta * y_relative_to_frame + sin_theta * x_relative_to_frame
+
+                target_item = pg.TargetItem(size = 10, pen = pg.mkPen(None), brush = pg.mkBrush('r'), movable = False)
+                target_item = HoverTargetItem(pos = [x_rotated, y_rotated], size = 10, tip_text = data[0])
+                target_item.setZValue(10)
+                
+                self.spec_targets.append(target_item)
+            except Exception as e:
+                print("Error populating the target items")
+        
+        return
 
     def process_scan(self, scan: np.ndarray) -> np.ndarray:
         # Background subtraction
@@ -815,13 +863,15 @@ class AppWindow(QtWidgets.QMainWindow):
 
         # Calculate the image statistics and display them
         self.statistics = get_image_statistics(processed_scan)
-        if self.channel == "X" or self.channel == "Y" or self.channel == "Z":
-            self.labels["statistics"].setText(f"\nValue range: {round(self.statistics.range_total, 3)} nm; Mean ± std dev: {round(self.statistics.mean, 3)} ± {round(self.statistics.standard_deviation, 3)} nm")
-        elif self.channel == "Current":
-            self.labels["statistics"].setText(f"\nValue range: {round(self.statistics.range_total, 3)} pA; Mean ± std dev: {round(self.statistics.mean, 3)} ± {round(self.statistics.standard_deviation, 3)} pA")
-        else:
-            self.labels["statistics"].setText(f"\nValue range: {round(self.statistics.range_total, 3)}; Mean ± std dev: {round(self.statistics.mean, 3)} ± {round(self.statistics.standard_deviation, 3)}")
-        
+        range_tot = self.statistics.get("range_total")
+        mean = self.statistics.get("mean")
+        standard_deviation = self.statistics.get("standard_deviation")
+
+        unit_label = ""
+        if self.channel == "X" or self.channel == "Y" or self.channel == "Z": unit_label = " nm"
+        elif self.channel == "Current": unit_label = " pA"
+        self.labels["statistics"].setText(f"\nValue range: {round(range_tot, 3)}{unit_label}; Mean ± std dev: {round(mean, 3)} ± {round(standard_deviation, 3)}{unit_label}")
+
         # Update the filename for the scan
         self.update_filename()
         
@@ -835,10 +885,10 @@ class AppWindow(QtWidgets.QMainWindow):
 
         # Update the min according to which limit method is selected
         if self.radio_buttons["min_percentiles"].isChecked(): # Percentiles
-            if hasattr(self, "statistics") and hasattr(self.statistics, "min") and hasattr(self.statistics, "range_total") and hasattr(self.statistics, "data_sorted"):
+            if hasattr(self, "statistics"):
                 try:
                     min_percentile = float(self.line_edits["min_percentiles"].text())
-                    data_sorted = self.statistics.data_sorted
+                    data_sorted = self.statistics.get("data_sorted")
                     n_data = len(data_sorted)
 
                     min = data_sorted[int(.01 * min_percentile * n_data)]
@@ -850,10 +900,10 @@ class AppWindow(QtWidgets.QMainWindow):
             except Exception as e:
                 print(f"Error: {e}")
         elif self.radio_buttons["min_deviations"].isChecked(): # Standard deviation
-            if hasattr(self, "statistics") and hasattr(self.statistics, "standard_deviation") and hasattr(self.statistics, "mean"):
+            if hasattr(self, "statistics"):
                 try:
                     value = float(self.line_edits["min_deviations"].text())
-                    min = self.statistics.mean - value * self.statistics.standard_deviation
+                    min = self.statistics.get("mean") - value * self.statistics.get("standard_deviation")
                 except Exception as e:
                     print(f"Error: {e}")
         else:
@@ -861,10 +911,10 @@ class AppWindow(QtWidgets.QMainWindow):
 
         # Update the max according to which limit method is selected
         if self.radio_buttons["max_percentiles"].isChecked(): # Percentiles
-            if hasattr(self, "statistics") and hasattr(self.statistics, "min") and hasattr(self.statistics, "range_total") and hasattr(self.statistics, "data_sorted"):
+            if hasattr(self, "statistics"):
                 try:
                     max_percentile = float(self.line_edits["max_percentiles"].text())
-                    data_sorted = self.statistics.data_sorted
+                    data_sorted = self.statistics.get("data_sorted")
                     n_data = len(data_sorted)
 
                     max = data_sorted[int(.01 * max_percentile * n_data)]
@@ -876,10 +926,10 @@ class AppWindow(QtWidgets.QMainWindow):
             except Exception as e:
                 print(f"Error: {e}")
         elif self.radio_buttons["max_deviations"].isChecked(): # Standard deviation
-            if hasattr(self, "statistics") and hasattr(self.statistics, "standard_deviation") and hasattr(self.statistics, "mean"):
+            if hasattr(self, "statistics"):
                 try:
                     value = float(self.line_edits["max_deviations"].text())
-                    max = self.statistics.mean + value * self.statistics.standard_deviation
+                    max = self.statistics.get("mean") + value * self.statistics.get("standard_deviation")
                 except Exception as e:
                     print(f"Error: {e}")
         else:
@@ -899,8 +949,12 @@ class AppWindow(QtWidgets.QMainWindow):
 
         self.image_view.setImage(scan, autoRange = True) # Show the scan in the app
         image_item = self.image_view.getImageItem()
-        image_item.setRect(QtCore.QRectF(0, 0, self.scan_range_nm[1], self.scan_range_nm[0]))  # Add dimensions to the ImageView object
-        
+        image_item.setRect(QtCore.QRectF(-self.scan_range_nm[1] / 2, -self.scan_range_nm[1] / 2, self.scan_range_nm[1], self.scan_range_nm[0]))  # Add dimensions to the ImageView object
+
+        if self.processing_flags["spec_locations"]:
+            view_box = self.image_view.getView()        
+            for target in self.spec_targets: view_box.addItem(target)
+
         # Reset the limits and histogram
         self.image_view.autoRange()
         self.update_limits() # The sigLevelChangeFinished method will be reconnected within self.update_limits() after the new limits are set
@@ -1056,12 +1110,23 @@ class AppWindow(QtWidgets.QMainWindow):
         
         return
 
+    # Spectroscopy
+    def on_toggle_spec_locations(self) -> None:
+        self.processing_flags["spec_locations"] = not self.processing_flags["spec_locations"]
+        self.buttons["spec_locations"].blockSignals(True)
+        self.buttons["spec_locations"].setChecked(self.processing_flags["spec_locations"] == True)
+        self.buttons["spec_locations"].blockSignals(False)
+
+        self.load_process_display(new_scan = True)
+    
+        return
+
     # Save button
     def on_save_png(self) -> None:
         # Properly rescale to 0-255
         processed_scan = self.process_scan(self.current_scan)
         
-        min_val, max_val = (self.statistics.min, self.statistics.max)
+        min_val, max_val = (self.statistics.get("min"), self.statistics.get("max"))
         try:
             if self.hist is not None: min_val, max_val = self.hist.getLevels()
         except Exception as e:
@@ -1115,14 +1180,14 @@ class AppWindow(QtWidgets.QMainWindow):
         return
 
     # Drag and drop
-    def dragEnterEvent(self, event):
+    def dragEnterEvent(self, event) -> None:
         # 2. Accept the drag if it contains URLs (files)
         if event.mimeData().hasUrls():
             event.acceptProposedAction()
         else:
             super().dragEnterEvent(event)
 
-    def dropEvent(self, event):
+    def dropEvent(self, event) -> None:
         # 3. Process the dropped files
         for url in event.mimeData().urls():
             file_name = url.toLocalFile()

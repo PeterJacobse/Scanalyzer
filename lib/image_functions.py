@@ -1,18 +1,14 @@
-import os
 import numpy as np
-import nanonispy2 as nap
 from scipy.signal import convolve2d
 from scipy.ndimage import gaussian_filter
 from scipy.fft import fft2, fftshift
-from datetime import datetime
-from types import SimpleNamespace
 from matplotlib import colors
 from scipy.linalg import lstsq
 import pint
 
 
 
-def apply_gaussian(image, sigma = 2, scan_range = None):
+def apply_gaussian(image, sigma = 2, scan_range = None) -> np.ndarray:
     if not isinstance(image, np.ndarray):
         print("Error. The provided image is not a numpy array.")
         return image
@@ -38,7 +34,9 @@ def apply_gaussian(image, sigma = 2, scan_range = None):
 
     return filtered_image
 
-def image_gradient(image, scan_range = None):
+
+
+def image_gradient(image, scan_range = None) -> np.ndarray:
     if not isinstance(image, np.ndarray):
         print("Error. The provided image is not a numpy array.")
         return image
@@ -72,7 +70,9 @@ def image_gradient(image, scan_range = None):
 
     return gradient_image
 
-def compute_normal(image, scan_range = None):
+
+
+def compute_normal(image, scan_range = None) -> np.ndarray:
     if not isinstance(image, np.ndarray):
         print("Error. The provided image is not a numpy array.")
         return image
@@ -108,7 +108,9 @@ def compute_normal(image, scan_range = None):
 
     return normals
 
-def apply_laplace(image, scan_range = None):
+
+
+def apply_laplace(image, scan_range = None) -> np.ndarray:
     if not isinstance(image, np.ndarray):
         print("Error. The provided image is not a numpy array.")
         return image
@@ -133,7 +135,9 @@ def apply_laplace(image, scan_range = None):
     
     return laplacian
 
-def apply_fft(image, scan_range = None):
+
+
+def apply_fft(image, scan_range = None) -> np.ndarray:
     if not isinstance(image, np.ndarray):
         print("Error. The provided image is not a numpy array.")
         return image
@@ -168,7 +172,9 @@ def apply_fft(image, scan_range = None):
 
     return fft_image, reciprocal_range
 
-def line_subtract(image):
+
+
+def line_subtract(image) -> np.ndarray:
     if not isinstance(image, np.ndarray):
         print("Error. The provided image is not a numpy array.")
         return image
@@ -191,7 +197,9 @@ def line_subtract(image):
 
     return image_subtracted
 
-def complex_image_to_colors(image, saturate: bool = False):
+
+
+def complex_image_to_colors(image, saturate: bool = False) -> np.ndarray:
     if not isinstance(image, np.ndarray):
         print("Error. The provided image is not a numpy array.")
         return image
@@ -210,27 +218,40 @@ def complex_image_to_colors(image, saturate: bool = False):
     
     return rgb_array
 
-def background_subtract(image, mode: str = "plane"):
-    avg_image = np.mean(image.flatten()) # The average value of the image, or the offset
-    gradient_image = image_gradient(image) # The (complex) gradient of the image
-    avg_gradient = np.mean(gradient_image.flatten()) # The average value of the gradient
 
-    pix_y, pix_x = np.shape(image)
-    x_values = np.arange(-(pix_x - 1) / 2, pix_x / 2, 1)
-    y_values = np.arange(-(pix_y - 1) / 2, pix_y / 2, 1)
 
-    plane = np.array([[-x * np.real(avg_gradient) - y * np.imag(avg_gradient) for x in x_values] for y in y_values])
-
-    if mode == "plane":
-        return image - plane - avg_image
-    elif mode == "linewise":
-        return line_subtract(image)
-    elif mode == "average":
-        return image - avg_image
-    else:
+def background_subtract(image, mode: str = "plane") -> np.ndarray:
+    if not isinstance(image, np.ndarray):
+        print("Error. The provided image is not a numpy array.")
         return image
 
-def get_image_statistics(image, pixels_per_bin: int = 200):
+    try:
+        avg_image = np.mean(image.flatten()) # The average value of the image, or the offset
+        gradient_image = image_gradient(image) # The (complex) gradient of the image
+        avg_gradient = np.mean(gradient_image.flatten()) # The average value of the gradient
+
+        pix_y, pix_x = np.shape(image)
+        x_values = np.arange(-(pix_x - 1) / 2, pix_x / 2, 1)
+        y_values = np.arange(-(pix_y - 1) / 2, pix_y / 2, 1)
+
+        plane = np.array([[-x * np.real(avg_gradient) - y * np.imag(avg_gradient) for x in x_values] for y in y_values])
+
+        if mode == "plane":
+            return image - plane - avg_image
+        elif mode == "linewise":
+            return line_subtract(image)
+        elif mode == "average":
+            return image - avg_image
+        else:
+            return image
+
+    except Exception as e:
+        print(f"Error performing the background subtraction: {e}")
+        return image
+
+
+
+def get_image_statistics(image, pixels_per_bin: int = 200) -> dict:
     data_sorted = np.sort(image.flatten())
     n_pixels = len(data_sorted)
     data_firsthalf = data_sorted[:int(n_pixels / 2)]
@@ -251,20 +272,20 @@ def get_image_statistics(image, pixels_per_bin: int = 200):
     bincenters = np.concatenate([[bounds[0] - .5 * binsize], np.convolve(bounds, [.5, .5], mode = "valid"), [bounds[-1] + .5 * binsize]])
     histogram = np.array([bincenters, padded_counts])
 
-    image_statistics = SimpleNamespace()
-    
-    setattr(image_statistics, "data_sorted", data_sorted)
-    setattr(image_statistics, "n_pixels", n_pixels)
-    setattr(image_statistics, "min", range_min)
-    setattr(image_statistics, "Q1", Q1)
-    setattr(image_statistics, "mean", range_mean)
-    setattr(image_statistics, "average", range_mean)
-    setattr(image_statistics, "Q2", Q2)
-    setattr(image_statistics, "median", Q2)
-    setattr(image_statistics, "Q3", Q3)
-    setattr(image_statistics, "max", range_max)
-    setattr(image_statistics, "range_total", range_total)
-    setattr(image_statistics, "standard_deviation", standard_deviation)
-    setattr(image_statistics, "histogram", histogram)
-    
+    image_statistics = {
+        "data_sorted": data_sorted,
+        "n_pixels": n_pixels,
+        "min": range_min,
+        "Q1": Q1,
+        "mean": range_mean,
+        "average": range_mean,
+        "Q2": Q2,
+        "median": Q2,
+        "Q3": Q3,
+        "max": range_max,
+        "range_total": range_total,
+        "standard_deviation": standard_deviation,
+        "histogram": histogram
+    }
+
     return image_statistics
