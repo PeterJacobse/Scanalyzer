@@ -55,12 +55,12 @@ class SpectrumViewer(QtWidgets.QMainWindow):
         make_groupbox = gui_functions.make_groupbox
 
         self.buttons = {
-            "exit": make_button("", self.close, "Exit Spectrum Viewer", self.icons.get("escape"))
+            "exit": make_button("", self.close, "Exit Spectrum Viewer (Q / Esc)", self.icons.get("escape"))
         }
         self.channel_selection_comboboxes = {
-            "x_axis": make_combobox("x_axis", "Channel to display on the x axis", self.redraw_spectra),
-            "y_axis_0": make_combobox("y_axis_0", "Channel to display on the y axis", self.redraw_spectra),
-            "y_axis_1": make_combobox("y_axis_1", "Channel to display on the y axis", self.redraw_spectra),
+            "x_axis": make_combobox("x_axis", "Channel to display on the x axis (X)", self.redraw_spectra),
+            "y_axis_0": make_combobox("y_axis_0", "Channel to display on the y axis (Y)", self.redraw_spectra),
+            "y_axis_1": make_combobox("y_axis_1", "Channel to display on the y axis (Z)", self.redraw_spectra),
         }
         self.layouts = {
             "main": make_layout("g"),
@@ -76,11 +76,11 @@ class SpectrumViewer(QtWidgets.QMainWindow):
         self.rightarrows = {}
 
         for number in range(16):
-            self.checkboxes.update({f"{number}": make_checkbox(f"{number}", f"toggle visibility of plot {number}")})
+            self.checkboxes.update({f"{number}": make_checkbox(f"{number}", f"toggle visibility of plot {number} (space when row is highlighted)")})
             self.checkboxes[f"{number}"].setStyleSheet(f"color: {self.color_list[number]};")
             self.plot_number_comboboxes.update({f"{number}": make_combobox(f"{number}", f"data for plot {number}")})
-            self.leftarrows.update({f"{number}": make_button("", lambda n = number: self.toggle_plot_number(n, increase = False), f"decrease plot number {number}", self.icons.get("single_arrow"), rotate_degrees = 180)})
-            self.rightarrows.update({f"{number}": make_button("", lambda n = number: self.toggle_plot_number(n, increase = True), f"increase plot number {number}", self.icons.get("single_arrow"))})
+            self.leftarrows.update({f"{number}": make_button("", lambda n = number: self.toggle_plot_number(n, increase = False), f"decrease plot number {number} (left arrow when row is highlighted)", self.icons.get("single_arrow"), rotate_degrees = 180)})
+            self.rightarrows.update({f"{number}": make_button("", lambda n = number: self.toggle_plot_number(n, increase = True), f"increase plot number {number} (right arrow when row is highlighted)", self.icons.get("single_arrow"))})
 
     def draw_layout(self) -> None:
         # Set the central widget of the QMainWindow
@@ -116,7 +116,7 @@ class SpectrumViewer(QtWidgets.QMainWindow):
     def connect_keys(self) -> None:
         QKey = QtCore.Qt.Key
 
-        exit_shortcuts = [QtGui.QShortcut(QtGui.QKeySequence(keystroke), self) for keystroke in [QKey.Key_Q, QKey.Key_X, QKey.Key_Escape]]
+        exit_shortcuts = [QtGui.QShortcut(QtGui.QKeySequence(keystroke), self) for keystroke in [QKey.Key_Q, QKey.Key_Escape]]
         [exit_shortcut.activated.connect(self.close) for exit_shortcut in exit_shortcuts]
 
         focus_shortcuts = []
@@ -131,6 +131,11 @@ class SpectrumViewer(QtWidgets.QMainWindow):
         
         self.up_shortcut.activated.connect(lambda: self.set_focus_row(-1, increase = False))
         self.down_shortcut.activated.connect(lambda: self.set_focus_row(-1, increase = True))
+
+        [x_axis_shortcut, y_axis_0_shortcut, y_axis_1_shortcut] = [QtGui.QShortcut(QtGui.QKeySequence(keystroke), self) for keystroke in [QKey.Key_X, QKey.Key_Y, QKey.Key_Z]]
+        x_axis_shortcut.activated.connect(lambda: self.toggle_axis("x_axis"))
+        y_axis_0_shortcut.activated.connect(lambda: self.toggle_axis("y_axis_0"))
+        y_axis_1_shortcut.activated.connect(lambda: self.toggle_axis("y_axis_1"))
 
     def read_spectroscopy_files(self) -> tuple:
         spec_objects = [get_spectrum(spec_file[1]) for spec_file in self.spec_files] # Get a spectroscopy object for each spectroscopy file
@@ -197,7 +202,7 @@ class SpectrumViewer(QtWidgets.QMainWindow):
         [combobox.blockSignals(False) for combobox in self.plot_number_comboboxes.values()]
 
         # Connect the checkboxes
-        [checkbox.toggled.connect(self.redraw_spectra) for checkbox in self.checkboxes.values()]
+        [checkbox.toggled.connect(lambda: self.redraw_spectra(False)) for checkbox in self.checkboxes.values()]
 
         return spec_objects, all_channels
 
@@ -306,6 +311,20 @@ class SpectrumViewer(QtWidgets.QMainWindow):
         except Exception as e:
             print(f"Error connecting the key shortcuts: {e}")
 
+    def toggle_axis(self, name: str = "") -> None:
+        try:
+            index = self.channel_selection_comboboxes[name].currentIndex()
+            index += 1
+            if index > len(self.channels) - 1: index = 0
+            self.channel_selection_comboboxes[name].blockSignals(True)
+            self.channel_selection_comboboxes[name].setCurrentIndex(index)
+            self.channel_selection_comboboxes[name].blockSignals(False)
+            self.redraw_spectra(False)
+        except Exception as e:
+            print(f"Error toggling the combobox: {e}")
+
+        return
+
 
 
 class AppWindow(QtWidgets.QMainWindow):
@@ -350,8 +369,6 @@ class AppWindow(QtWidgets.QMainWindow):
                 #self.on_full_scale("both")
         except:
             pass
-
-        self.open_spectrum_viewer()
 
 
 
@@ -832,7 +849,11 @@ class AppWindow(QtWidgets.QMainWindow):
     def load_scan(self) -> np.ndarray:        
         # Load the sxm file from the list of sxm files
         self.sxm_file = self.sxm_files[self.file_index]
-        self.file_label = self.sxm_file[0]
+        try:
+            self.file_label = self.sxm_file[0]
+        except:
+            print("Error. Could not retrieve scan.")
+            return
         
         self.buttons["select_file"].setText(self.file_label) # Make the select file button display the file name
 
@@ -1072,10 +1093,14 @@ class AppWindow(QtWidgets.QMainWindow):
 
     # Spectroscopy
     def open_spectrum_viewer(self) -> None:
-        if len(self.spec_files) > 0:
+        spec_shape = self.spec_files.shape
+        if spec_shape[0] * spec_shape[1] > 0:
             if not hasattr(self, "second_window") or self.second_window is None: # Create only if not already created:
                 self.current_scan = self.load_scan()
-                processed_scan = self.process_scan(self.current_scan)
+                if isinstance(self.current_scan, np.ndarray): processed_scan = self.process_scan(self.current_scan)
+                else: processed_scan = np.zeros((2, 2))
+                if not hasattr(self, "associated_spectra"): self.associated_spectra = np.array([[]])
+                
                 self.second_window = SpectrumViewer(processed_scan, self.spec_files, self.associated_spectra, self.paths)
             self.second_window.show()
         else:
@@ -1247,7 +1272,6 @@ class AppWindow(QtWidgets.QMainWindow):
                 qimg = QtGui.QImage(uint8_array, width, height, width, QtGui.QImage.Format.Format_Grayscale8)
 
             output_file_name = os.path.join(self.paths["output_folder"], self.paths["output_file_basename"] + ".png")
-            print(output_file_name)
             os.makedirs(self.paths["output_folder"], exist_ok = True)
             qimg.save(output_file_name)
 
