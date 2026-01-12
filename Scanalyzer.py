@@ -42,6 +42,10 @@ class SpectrumViewer(QtWidgets.QMainWindow):
                 pass
         self.setWindowIcon(self.icons.get("graph"))
         self.focus_row = 0
+        self.processing_flags = {
+            "line_width": 1,
+            "opacity": 1
+        }
 
     def make_gui_items(self) -> None:
         gui_functions = GUIFunctions()
@@ -64,10 +68,13 @@ class SpectrumViewer(QtWidgets.QMainWindow):
         }
         self.layouts = {
             "main": make_layout("g"),
-            "selector": make_layout("g")
+            "selector": make_layout("g"),
+            "plots": make_layout("v"),
+            "options": make_layout("v")
         }
-        self.option_checkboxes = {
-            "offset": make_checkbox("offset", "Offset successive spectra", self.icons.get("offset"))
+        self.line_edits = {
+            "offset": make_line_edit("0", "Offset successive spectra", self.icons.get("offset")),
+            "line_width": make_line_edit("1", "Line width")
         }
         
         self.checkboxes = {}
@@ -97,23 +104,35 @@ class SpectrumViewer(QtWidgets.QMainWindow):
         [spectrum_selector_layout.addWidget(self.rightarrows[f"{i}"], i, 3) for i in range(len(self.rightarrows))]
         spectrum_selector_widget.setLayout(spectrum_selector_layout)
 
-        # Main widgets
-        self.layouts["main"].addWidget(spectrum_selector_widget, 1, 0, 2, 1) # Spectrum selector buttons
+        # Plots
+        plot_widget = QtWidgets.QWidget()
         self.graph_0_widget = pg.PlotWidget()
         self.graph_1_widget = pg.PlotWidget()
-        column_1_widgets = [self.channel_selection_comboboxes["x_axis"], self.graph_0_widget, self.graph_1_widget]
-        column_2_widgets = [self.buttons["exit"], self.channel_selection_comboboxes["y_axis_0"], self.channel_selection_comboboxes["y_axis_1"]]
+        [self.layouts["plots"].addWidget(widget) for widget in [self.channel_selection_comboboxes["x_axis"], self.graph_0_widget, self.graph_1_widget]]
+        plot_widget.setLayout(self.layouts["plots"])
         self.graph_0 = self.graph_0_widget.getPlotItem() # Get the plotitems corresponding to the plot widgets
         self.graph_1 = self.graph_1_widget.getPlotItem()
-        #self.x_channel_box.setFixedWidth(500)
 
-        [self.layouts["main"].addWidget(widget, i, 1, alignment = QtCore.Qt.AlignmentFlag.AlignCenter) for i, widget in enumerate(column_1_widgets)]
-        [self.layouts["main"].addWidget(widget, i, 2, alignment = QtCore.Qt.AlignmentFlag.AlignCenter) for i, widget in enumerate(column_2_widgets)]
+        # Options
+        option_widget = QtWidgets.QWidget()
+        option_widgets = [self.buttons["exit"], self.channel_selection_comboboxes["y_axis_0"], self.line_edits["offset"], self.line_edits["line_width"], self.channel_selection_comboboxes["y_axis_1"]]
+        [self.layouts["options"].addWidget(widget) for widget in option_widgets]
+        option_widget.setLayout(self.layouts["options"])
+
+        # Main widget
+        self.layouts["main"].addWidget(spectrum_selector_widget, 1, 0, 2, 1) # Spectrum selector buttons
+        self.layouts["main"].addWidget(plot_widget, 0, 1, 3, 1)
+        self.layouts["main"].addWidget(option_widget, 0, 2, 3, 1)
+
+        #[self.layouts["main"].addWidget(widget, i, 1, alignment = QtCore.Qt.AlignmentFlag.AlignCenter) for i, widget in enumerate(column_1_widgets)]
+        #[self.layouts["main"].addWidget(widget, i, 2, alignment = QtCore.Qt.AlignmentFlag.AlignCenter) for i, widget in enumerate(column_2_widgets)]
         central_widget.setLayout(self.layouts["main"])
 
-        [self.plot_number_comboboxes[f"{index}"].currentIndexChanged.connect(lambda: self.redraw_spectra(toggle_checkbox = False)) for index in range(len(self.plot_number_comboboxes))]
-
     def connect_keys(self) -> None:
+        # Connect the final clicky things before connecting the key-y things
+        [self.plot_number_comboboxes[f"{index}"].currentIndexChanged.connect(lambda: self.redraw_spectra(toggle_checkbox = False)) for index in range(len(self.plot_number_comboboxes))]
+        self.line_edits["line_width"].editingFinished.connect(self.change_pen_style)
+
         QKey = QtCore.Qt.Key
 
         exit_shortcuts = [QtGui.QShortcut(QtGui.QKeySequence(keystroke), self) for keystroke in [QKey.Key_Q, QKey.Key_Escape]]
@@ -230,6 +249,10 @@ class SpectrumViewer(QtWidgets.QMainWindow):
         x_data = np.linspace(-2, 2, 20)
         [graph.clear() for graph in [self.graph_0, self.graph_1]]
 
+        # Set the pen
+        pen = pg.mkPen()
+        pen.setWidth(self.processing_flags.get("line_width", 1))
+
         for i in range(len(self.checkboxes) - 1, -1, -1):
             color = self.color_list[i]
 
@@ -239,15 +262,17 @@ class SpectrumViewer(QtWidgets.QMainWindow):
                 spec_signal = spec_object.signals
                 
                 try:
+                    pen.setColor(QtGui.QColor(color))
+
                     x_data = spec_signal[x_channel]
                     y_0_data = spec_signal[y_0_channel]
-                    self.graph_0.plot(x_data, y_0_data, pen = color)
+                    self.graph_0.plot(x_data, y_0_data, pen)
                 except Exception as e:
                     print(f"Error: {e}")
                 try:
                     x_data = spec_signal[x_channel]
                     y_1_data = spec_signal[y_1_channel]
-                    self.graph_1.plot(x_data, y_1_data, pen = color)
+                    self.graph_1.plot(x_data, y_1_data, pen)
                 except Exception as e:
                     print(f"Error: {e}")
 
@@ -323,6 +348,11 @@ class SpectrumViewer(QtWidgets.QMainWindow):
         except Exception as e:
             print(f"Error toggling the combobox: {e}")
 
+        return
+
+    def change_pen_style(self) -> None:
+        self.processing_flags["line_width"] = float(self.line_edits("line_width"))
+        self.redraw_spectra()
         return
 
 
