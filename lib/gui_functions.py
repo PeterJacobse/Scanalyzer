@@ -81,8 +81,7 @@ class GUIFunctions:
         box.setToolTip(description)
 
         if len(items) > 0: box.addItems(items)
-
-        if callable(func): box.currentIndexChanged.connect(lambda index, f = func: f(index))
+        
         return box
     
     def make_line_edit(self, name: str, description: str = "", icon = None, key_shortcut = None, rotate_degrees: float = 0) -> QtWidgets.QLineEdit:
