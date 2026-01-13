@@ -1,13 +1,10 @@
-import os
-import sys
-import yaml
+import os, sys, yaml, pint
 import numpy as np
-import pint
 from PyQt6 import QtCore, QtGui, QtWidgets
 import pyqtgraph as pg
 from lib.image_functions import apply_gaussian, apply_fft, image_gradient, compute_normal, apply_laplace, complex_image_to_colors, background_subtract, get_image_statistics
 from lib.file_functions import read_files, get_scan, get_spectrum
-from lib.gui_functions import GUIFunctions, HoverTargetItem
+from lib import GUIFunctions, HoverTargetItem
 
 
 
@@ -24,12 +21,14 @@ class SpectrumViewer(QtWidgets.QMainWindow):
         self.color_list = ["#FFFFFF", "#FFFF00", "#FF90FF", "#00FFFF", "#00FF00", "#A0A0A0", "#FF4040", "#5050FF", "#FFA500", "#9050FF", "#808000", "#008080", "#900090", "#009000", "#B00000", "#0000C0"]
         
         self.parameters_init()
-        self.make_gui_items()
+        self.gui_items_init()
         self.draw_layout()
         self.spec_objects, self.channels = self.read_spectroscopy_files()
         self.connect_keys()
         self.set_focus_row(0)
         self.redraw_spectra()
+
+
 
     def parameters_init(self) -> None:
         icon_files = os.listdir(self.paths["icon_folder"])
@@ -43,7 +42,7 @@ class SpectrumViewer(QtWidgets.QMainWindow):
         self.setWindowIcon(self.icons.get("graph"))
         self.focus_row = 0
 
-    def make_gui_items(self) -> None:
+    def gui_items_init(self) -> None:
         gui_functions = GUIFunctions()
         make_button = lambda *args, **kwargs: gui_functions.make_button(*args, parent = self, **kwargs)
         make_label = gui_functions.make_label
@@ -81,6 +80,8 @@ class SpectrumViewer(QtWidgets.QMainWindow):
             self.plot_number_comboboxes.update({f"{number}": make_combobox(f"{number}", f"data for plot {number}")})
             self.leftarrows.update({f"{number}": make_button("", lambda n = number: self.toggle_plot_number(n, increase = False), f"decrease plot number {number} (left arrow when row is highlighted)", self.icons.get("single_arrow"), rotate_degrees = 180)})
             self.rightarrows.update({f"{number}": make_button("", lambda n = number: self.toggle_plot_number(n, increase = True), f"increase plot number {number} (right arrow when row is highlighted)", self.icons.get("single_arrow"))})
+
+
 
     def draw_layout(self) -> None:
         # Set the central widget of the QMainWindow
@@ -342,7 +343,7 @@ class AppWindow(QtWidgets.QMainWindow):
 
         # Initialize parameters and GUI items
         self.parameters_init()
-        self.make_gui_items()
+        self.gui_items_init()
         self.connect_keys()
 
         # Set the central widget of the QMainWindow, then draw a toolbar next to it
@@ -435,7 +436,10 @@ class AppWindow(QtWidgets.QMainWindow):
 
         self.gui_functions = GUIFunctions()
 
-    def make_gui_items(self) -> None:
+    def gui_items_init(self) -> None:
+        QKey = QtCore.Qt.Key
+        QMod = QtCore.Qt.Modifier
+
         make_button = lambda *args, **kwargs: self.gui_functions.make_button(*args, parent = self, **kwargs)
         make_label = self.gui_functions.make_label
         make_radio_button = self.gui_functions.make_radio_button
@@ -444,7 +448,6 @@ class AppWindow(QtWidgets.QMainWindow):
         make_line_edit = self.gui_functions.make_line_edit
         make_layout = self.gui_functions.make_layout
         make_groupbox = self.gui_functions.make_groupbox
-        QKey = QtCore.Qt.Key
 
         self.buttons = {
             "previous_file": make_button("", self.on_previous_file, "Previous file (←)", self.icons.get("single_arrow"), rotate_degrees = 180, key_shortcut = QKey.Key_Left),
@@ -457,10 +460,14 @@ class AppWindow(QtWidgets.QMainWindow):
 
             "folder_name": make_button("Open folder", self.open_data_folder, "Open the data folder (1)", self.icons.get("folder_blue"), key_shortcut = QKey.Key_1),
 
-            "full_data_range": make_button("", self.on_full_scale, "Set the image value range to the full data range (U)", self.icons.get("100"), key_shortcut = QKey.Key_U),
-            "percentiles": make_button("", self.on_percentiles, "Set the image value range by percentiles (R)", self.icons.get("percentiles"), key_shortcut = QKey.Key_R),
-            "standard_deviation": make_button("", self.on_standard_deviations, "Set the image value range by standard deviations (D)", self.icons.get("deviation"), key_shortcut = QKey.Key_D),
-            "absolute_values": make_button("", self.on_absolute_values, "Set the image value range by absolute values (A)", self.icons.get("numbers"), key_shortcut = QKey.Key_A),
+            "full_data_range": make_button("", self.on_full_scale, "Set the image value range to the full data range (Shift + U)", self.icons.get("100"),
+                                           key_shortcut = QKey.Key_U, modifier = QMod.SHIFT),
+            "percentiles": make_button("", self.on_percentiles, "Set the image value range by percentiles (Shift + R)", self.icons.get("percentiles"),
+                                       key_shortcut = QKey.Key_R, modifier = QMod.SHIFT),
+            "standard_deviation": make_button("", self.on_standard_deviations, "Set the image value range by standard deviations (Shift + D)", self.icons.get("deviation"),
+                                              key_shortcut = QKey.Key_D, modifier = QMod.SHIFT),
+            "absolute_values": make_button("", self.on_absolute_values, "Set the image value range by absolute values (Shift + A)", self.icons.get("numbers"),
+                                           key_shortcut = QKey.Key_A, modifier = QMod.SHIFT),
 
             "spec_locations": make_button("", self.on_toggle_spec_locations, "View the spectroscopy locations (3)", self.icons.get("spec_locations"), key_shortcut = QKey.Key_3),
             "spectrum_viewer": make_button("", self.open_spectrum_viewer, "Open Spectrum Viewer (O)", self.icons.get("graph"), key_shortcut = QKey.Key_O),
@@ -491,10 +498,10 @@ class AppWindow(QtWidgets.QMainWindow):
             "in_output_folder": make_label("In output folder")
         }
         self.radio_buttons = {
-            "bg_none": make_radio_button("", "None (0)", self.icons.get("0")),
-            "bg_plane": make_radio_button("", "Plane (P)", self.icons.get("plane_subtract")),
-            "bg_linewise": make_radio_button("", "Linewise (W)", self.icons.get("lines")),
-            "bg_inferred": make_radio_button("", "None (0)", self.icons.get("0")),
+            "bg_none": make_radio_button("", "None (Shift + 0)", self.icons.get("0")),
+            "bg_plane": make_radio_button("", "Plane (Shift + P)", self.icons.get("plane_subtract")),
+            "bg_linewise": make_radio_button("", "Linewise (Shift + L)", self.icons.get("lines")),
+            "bg_inferred": make_radio_button("", "None (Shift + 0)", self.icons.get("0")),
 
             "min_full": make_radio_button("", "set to minimum value of scan data range; (-) to toggle"),
             "max_full": make_radio_button("", "set to maximum value of scan data range; (=) to toggle"),
@@ -509,11 +516,11 @@ class AppWindow(QtWidgets.QMainWindow):
         self.radio_buttons["min_full"].toggled.connect(self.load_process_display)
 
         self.checkboxes = {
-            "sobel": make_checkbox("Sobel", "Compute the complex gradient d/dx + i d/dy; (B)", self.icons.get("derivative")),
-            "laplace": make_checkbox("Laplace", "Compute the Laplacian (d/dx)^2 + (d/dy)^2; (C)", self.icons.get("laplacian")),
-            "fft": make_checkbox("Fft", "Compute the 2D Fourier transform; (F)", self.icons.get("fourier")),
-            "normal": make_checkbox("Normal", "Compute the z component of the surface normal (N)", self.icons.get("surface_normal")),
-            "gauss": make_checkbox("Gauss", "Apply a Gaussian blur (G)", self.icons.get("gaussian")),
+            "sobel": make_checkbox("Sobel", "Compute the complex gradient d/dx + i d/dy; (Shift + S)", self.icons.get("derivative")),
+            "laplace": make_checkbox("Laplace", "Compute the Laplacian (d/dx)^2 + (d/dy)^2; (Shift + L)", self.icons.get("laplacian")),
+            "fft": make_checkbox("Fft", "Compute the 2D Fourier transform; (Shift + F)", self.icons.get("fourier")),
+            "normal": make_checkbox("Normal", "Compute the z component of the surface normal (Shift + N)", self.icons.get("surface_normal")),
+            "gauss": make_checkbox("Gauss", "Apply a Gaussian blur (Shift + G)", self.icons.get("gaussian")),
         }
         self.line_edits = {
             "min_full": make_line_edit("", "minimum value of scan data range"),
@@ -531,11 +538,11 @@ class AppWindow(QtWidgets.QMainWindow):
         self.line_edits["gaussian_width"].editingFinished.connect(self.load_process_display)
         self.comboboxes = {
             "channels": make_combobox("Channels", "Available scan channels", self.on_chan_change),
-            "projection": make_combobox("Projection", "Select a projection or toggle with (H)", self.load_process_display, items = ["re", "im", "abs", "arg (b/w)", "arg (hue)", "complex", "abs^2", "log(abs)"]),
+            "projection": make_combobox("Projection", "Select a projection or toggle with (Shift + ↑)", self.load_process_display, items = ["re", "im", "abs", "arg (b/w)", "arg (hue)", "complex", "abs^2", "log(abs)"]),
             "spectra": make_combobox("spectra", "Spectra associated with the current scan")
         }
-        projection_toggle_shortcut = QtGui.QShortcut(QtGui.QKeySequence(QKey.Key_H), self)
-        projection_toggle_shortcut.activated.connect(self.toggle_projections)
+        projection_toggle_shortcuts = [QtGui.QShortcut(QtGui.QKeySequence(QKey.Key_Up | QMod.SHIFT), self), QtGui.QShortcut(QtGui.QKeySequence(QKey.Key_Down | QMod.SHIFT), self)]
+        [shortcut.activated.connect(self.toggle_projections) for shortcut in projection_toggle_shortcuts]
 
         self.layouts = {
             "toolbar": make_layout("v"),
@@ -567,7 +574,9 @@ class AppWindow(QtWidgets.QMainWindow):
         }
 
         return
-    
+
+
+
     def draw_toolbar(self) -> QtWidgets.QVBoxLayout:
 
         def draw_summary_group() -> QtWidgets.QGroupBox: # Scan summary group
@@ -683,26 +692,28 @@ class AppWindow(QtWidgets.QMainWindow):
 
     def connect_keys(self) -> None:
         QKey = QtCore.Qt.Key
+        QMod = QtCore.Qt.Modifier
+        seq = QtGui.QKeySequence
 
         self.radio_buttons["bg_none"].clicked.connect(lambda: self.on_bg_change("none"))
-        self.radio_buttons["bg_none"].setShortcut(QKey.Key_0)
+        self.radio_buttons["bg_none"].setShortcut(seq(QKey.Key_0 | QMod.SHIFT))
         self.radio_buttons["bg_plane"].clicked.connect(lambda: self.on_bg_change("plane"))
-        self.radio_buttons["bg_plane"].setShortcut(QKey.Key_P)
+        self.radio_buttons["bg_plane"].setShortcut(seq(QKey.Key_P | QMod.SHIFT))
         self.radio_buttons["bg_linewise"].clicked.connect(lambda: self.on_bg_change("linewise"))
-        self.radio_buttons["bg_linewise"].setShortcut(QKey.Key_W)
+        self.radio_buttons["bg_linewise"].setShortcut(seq(QKey.Key_L | QMod.SHIFT))
 
         # Matrix operations
         [self.checkboxes[operation].clicked.connect(lambda checked, op = operation: self.toggle_matrix_processing(op)) for operation in ["sobel", "gauss", "normal", "fft", "laplace"]]
-        self.checkboxes["sobel"].setShortcut(QKey.Key_B)
-        self.checkboxes["normal"].setShortcut(QKey.Key_N)
-        self.checkboxes["gauss"].setShortcut(QKey.Key_G)
-        self.checkboxes["fft"].setShortcut(QKey.Key_F)
-        self.checkboxes["laplace"].setShortcut(QKey.Key_C)
+        self.checkboxes["sobel"].setShortcut(seq(QKey.Key_S | QMod.SHIFT))
+        self.checkboxes["normal"].setShortcut(seq(QKey.Key_N | QMod.SHIFT))
+        self.checkboxes["gauss"].setShortcut(seq(QKey.Key_G | QMod.SHIFT))
+        self.checkboxes["fft"].setShortcut(seq(QKey.Key_F | QMod.SHIFT))
+        self.checkboxes["laplace"].setShortcut(seq(QKey.Key_C | QMod.SHIFT))
 
         # Limits control group
-        toggle_min_shortcut = QtGui.QShortcut(QtGui.QKeySequence(QKey.Key_Minus), self)
+        toggle_min_shortcut = QtGui.QShortcut(seq(QKey.Key_Minus), self)
         toggle_min_shortcut.activated.connect(lambda: self.toggle_limits("min"))
-        toggle_max_shortcut = QtGui.QShortcut(QtGui.QKeySequence(QKey.Key_Equal), self)
+        toggle_max_shortcut = QtGui.QShortcut(seq(QKey.Key_Equal), self)
         toggle_max_shortcut.activated.connect(lambda: self.toggle_limits("max"))
 
         self.radio_buttons["bg_inferred"].setEnabled(False)
@@ -715,6 +726,8 @@ class AppWindow(QtWidgets.QMainWindow):
         self.draw_toolbar()
 
         return
+
+
 
     # Button functions
     # File selection
@@ -908,7 +921,7 @@ class AppWindow(QtWidgets.QMainWindow):
 
         return selected_scan
 
-    def find_associated_spectra(self):
+    def find_associated_spectra(self) -> None:
         # From the list of spectra (spec_files), select the ones that are associated with the current scan (associated scan name is column 3 in self.spec_files and column 0 in self.sxm_files)
         try:
             associated_spectra_indices = np.where(self.spec_files[:, 3] == self.sxm_file[0])[0]
