@@ -2,8 +2,9 @@ import os, sys, yaml, pint
 import numpy as np
 from PyQt6 import QtCore, QtGui, QtWidgets
 import pyqtgraph as pg
+import pyqtgraph.exporters as expts
 from lib.image_functions import apply_gaussian, apply_fft, image_gradient, compute_normal, apply_laplace, complex_image_to_colors, background_subtract, get_image_statistics
-from lib.file_functions import read_files, get_scan, get_spectrum
+from lib.file_functions import get_scan, get_spectrum, create_files_dict
 from lib import GUIFunctions, HoverTargetItem
 
 
@@ -12,9 +13,10 @@ class SpectrumViewer(QtWidgets.QMainWindow):
     def __init__(self, processed_scan, spec_files, associated_spectra, paths):
         super().__init__()
         self.setWindowTitle("Spectrum viewer")
-        self.setGeometry(200, 200, 900, 600)
+        self.setGeometry(200, 200, 1200, 800)
         self.spec_files = spec_files # Make the spectroscopy file list an attribute of the SpectroscopyWindow class
         self.associated_spectra = associated_spectra
+        self.processed_scan = processed_scan
         self.paths = paths
 
         # Spectrum colors
@@ -41,6 +43,10 @@ class SpectrumViewer(QtWidgets.QMainWindow):
                 pass
         self.setWindowIcon(self.icons.get("graph"))
         self.focus_row = 0
+        self.processing_flags = {
+            "line_width": 2,
+            "opacity": 1
+        }
 
     def gui_items_init(self) -> None:
         gui_functions = GUIFunctions()
@@ -54,19 +60,41 @@ class SpectrumViewer(QtWidgets.QMainWindow):
         make_groupbox = gui_functions.make_groupbox
 
         self.buttons = {
+            "save_0": make_button("", lambda: self.on_save_spectrum(0), "Save graph 0 to svg", self.icons.get("floppy")),
+            "save_1": make_button("", lambda: self.on_save_spectrum(1), "Save graph 1 to svg", self.icons.get("floppy")),
             "exit": make_button("", self.close, "Exit Spectrum Viewer (Q / Esc)", self.icons.get("escape"))
         }
         self.channel_selection_comboboxes = {
-            "x_axis": make_combobox("x_axis", "Channel to display on the x axis (X)", self.redraw_spectra),
-            "y_axis_0": make_combobox("y_axis_0", "Channel to display on the y axis (Y)", self.redraw_spectra),
-            "y_axis_1": make_combobox("y_axis_1", "Channel to display on the y axis (Z)", self.redraw_spectra),
+            "x_axis": make_combobox("x_axis", "Channel to display on the x axis (X)", lambda: self.redraw_spectra(toggle_checkbox = False)),
+            "y_axis_0": make_combobox("y_axis_0", "Channel to display on the y axis (Y)", lambda: self.redraw_spectra(toggle_checkbox = False)),
+            "y_axis_1": make_combobox("y_axis_1", "Channel to display on the y axis (Z)", lambda: self.redraw_spectra(toggle_checkbox = False)),
         }
+        for combobox in [self.channel_selection_comboboxes["x_axis"], self.channel_selection_comboboxes["y_axis_0"], self.channel_selection_comboboxes["y_axis_1"]]:
+            combobox.currentIndexChanged.connect(lambda: self.redraw_spectra(toggle_checkbox = False))
+
         self.layouts = {
             "main": make_layout("g"),
-            "selector": make_layout("g")
+            "selector": make_layout("g"),
+            "x_axis": make_layout("h"),
+            "plots": make_layout("v"),
+            "options": make_layout("g")
         }
-        self.option_checkboxes = {
-            "offset": make_checkbox("offset", "Offset successive spectra", self.icons.get("offset"))
+        self.line_edits = {
+            "offset_0": make_line_edit("0", "Offset between successive spectra"),
+            "offset_1": make_line_edit("0", "Offset between successive spectra"),
+            "line_width": make_line_edit("2", "Line width"),
+            "opacity": make_line_edit("1", "Opacity")
+        }
+        self.labels = {
+            "save_0": make_label("save (plot 0)", "Save plot 0 to svg (S)"),
+            "save_1": make_label("save (plot 1)", "Save plot 1 to svg (Z)"),
+            "x_axis": make_label("x axis", "Toggle with (X)"),
+            "y_axis_0": make_label("y axis (plot 0)", "Toggle with (Y)"),
+            "y_axis_1": make_label("y axis (plot 1)", "Toggle with (Z)"),
+            "offset_0": make_label("Offset", "Offset between successive spectra", self.icons.get("offset")),
+            "offset_1": make_label("Offset", "Offset between successive spectra", self.icons.get("offset")),
+            "line_width": make_label("Line width", "Line width"),
+            "opacity": make_label("Opacity", "Opacity")
         }
         
         self.checkboxes = {}
@@ -98,23 +126,63 @@ class SpectrumViewer(QtWidgets.QMainWindow):
         [spectrum_selector_layout.addWidget(self.rightarrows[f"{i}"], i, 3) for i in range(len(self.rightarrows))]
         spectrum_selector_widget.setLayout(spectrum_selector_layout)
 
-        # Main widgets
-        self.layouts["main"].addWidget(spectrum_selector_widget, 1, 0, 2, 1) # Spectrum selector buttons
+        # Plots
+        plot_widget = QtWidgets.QWidget()
         self.graph_0_widget = pg.PlotWidget()
         self.graph_1_widget = pg.PlotWidget()
-        column_1_widgets = [self.channel_selection_comboboxes["x_axis"], self.graph_0_widget, self.graph_1_widget]
-        column_2_widgets = [self.buttons["exit"], self.channel_selection_comboboxes["y_axis_0"], self.channel_selection_comboboxes["y_axis_1"]]
+        [self.layouts["plots"].addWidget(widget) for widget in [self.channel_selection_comboboxes["x_axis"], self.graph_0_widget, self.graph_1_widget]]
+        plot_widget.setLayout(self.layouts["plots"])
         self.graph_0 = self.graph_0_widget.getPlotItem() # Get the plotitems corresponding to the plot widgets
         self.graph_1 = self.graph_1_widget.getPlotItem()
-        #self.x_channel_box.setFixedWidth(500)
+        self.graph_0.setFixedWidth(500)
 
-        [self.layouts["main"].addWidget(widget, i, 1, alignment = QtCore.Qt.AlignmentFlag.AlignCenter) for i, widget in enumerate(column_1_widgets)]
-        [self.layouts["main"].addWidget(widget, i, 2, alignment = QtCore.Qt.AlignmentFlag.AlignCenter) for i, widget in enumerate(column_2_widgets)]
+        # Options
+        option_widget = QtWidgets.QWidget()
+        option_widgets_col0 = [self.labels["y_axis_0"], self.labels["offset_0"], self.labels["save_0"],
+                               self.labels["y_axis_1"], self.labels["offset_1"], self.labels["save_1"],
+                               self.labels["line_width"], self.labels["opacity"]]
+        option_widgets_col1 = [self.channel_selection_comboboxes["y_axis_0"], self.line_edits["offset_0"], self.buttons["save_0"],
+                               self.channel_selection_comboboxes["y_axis_1"], self.line_edits["offset_1"], self.buttons["save_1"],
+                               self.line_edits["line_width"], self.line_edits["opacity"]]
+        [self.layouts["options"].addWidget(widget, index, 0) for index, widget in enumerate(option_widgets_col0)]
+        [self.layouts["options"].addWidget(widget, index, 1) for index, widget in enumerate(option_widgets_col1)]
+        option_widget.setLayout(self.layouts["options"])
+        
+        #self.layouts["options"].addWidget(self.gui_functions.line_widget("h", 1))
+
+        # x axis
+        x_widget = QtWidgets.QWidget()
+        [self.layouts["x_axis"].addWidget(widget) for widget in [self.labels["x_axis"], self.channel_selection_comboboxes["x_axis"]]]
+        x_widget.setLayout(self.layouts["x_axis"])
+
+        # Scan
+        self.image_widget = pg.GraphicsLayoutWidget()
+        self.view_box = self.image_widget.addViewBox()
+        self.view_box.setAspectLocked(True)
+        self.view_box.invertY(True)
+        self.image_item = pg.ImageItem()
+        self.view_box.addItem(self.image_item)
+        self.image_item.setImage(self.processed_scan)
+
+        # Main widget
+        self.layouts["main"].addWidget(spectrum_selector_widget, 1, 0, 2, 1) # Spectrum selector buttons
+        self.layouts["main"].addWidget(x_widget, 0, 1) # x axis channel selection combobox
+        self.layouts["main"].addWidget(plot_widget, 1, 1, 2, 1)
+        self.layouts["main"].addWidget(self.buttons["exit"], 0, 2)
+        self.layouts["main"].addWidget(option_widget, 1, 2)
+        self.layouts["main"].addWidget(self.image_widget, 2, 2)
+        self.layouts["main"].setColumnMinimumWidth(1, 500)
+
+        #[self.layouts["main"].addWidget(widget, i, 1, alignment = QtCore.Qt.AlignmentFlag.AlignCenter) for i, widget in enumerate(column_1_widgets)]
+        #[self.layouts["main"].addWidget(widget, i, 2, alignment = QtCore.Qt.AlignmentFlag.AlignCenter) for i, widget in enumerate(column_2_widgets)]
         central_widget.setLayout(self.layouts["main"])
 
-        [self.plot_number_comboboxes[f"{index}"].currentIndexChanged.connect(lambda: self.redraw_spectra(toggle_checkbox = False)) for index in range(len(self.plot_number_comboboxes))]
-
     def connect_keys(self) -> None:
+        # Connect the final clicky things before connecting the key-y things
+        [self.plot_number_comboboxes[f"{index}"].currentIndexChanged.connect(lambda: self.redraw_spectra(toggle_checkbox = False)) for index in range(len(self.plot_number_comboboxes))]
+        [edit.editingFinished.connect(self.change_pen_style) for edit in [self.line_edits["line_width"], self.line_edits["opacity"]]]
+        [edit.editingFinished.connect(lambda: self.redraw_spectra(toggle_checkbox = False)) for edit in [self.line_edits["offset_0"], self.line_edits["offset_1"]]]
+
         QKey = QtCore.Qt.Key
 
         exit_shortcuts = [QtGui.QShortcut(QtGui.QKeySequence(keystroke), self) for keystroke in [QKey.Key_Q, QKey.Key_Escape]]
@@ -137,6 +205,8 @@ class SpectrumViewer(QtWidgets.QMainWindow):
         x_axis_shortcut.activated.connect(lambda: self.toggle_axis("x_axis"))
         y_axis_0_shortcut.activated.connect(lambda: self.toggle_axis("y_axis_0"))
         y_axis_1_shortcut.activated.connect(lambda: self.toggle_axis("y_axis_1"))
+
+
 
     def read_spectroscopy_files(self) -> tuple:
         spec_objects = [get_spectrum(spec_file[1]) for spec_file in self.spec_files] # Get a spectroscopy object for each spectroscopy file
@@ -231,6 +301,14 @@ class SpectrumViewer(QtWidgets.QMainWindow):
         x_data = np.linspace(-2, 2, 20)
         [graph.clear() for graph in [self.graph_0, self.graph_1]]
 
+        # Set the pen
+        # Set the pen properties from processing flags
+        line_width = self.processing_flags.get("line_width", 1)
+        opacity = self.processing_flags.get("opacity", 1)
+
+        offset_0 = float(self.line_edits["offset_0"].text())
+        offset_1 = float(self.line_edits["offset_1"].text())
+
         for i in range(len(self.checkboxes) - 1, -1, -1):
             color = self.color_list[i]
 
@@ -240,15 +318,24 @@ class SpectrumViewer(QtWidgets.QMainWindow):
                 spec_signal = spec_object.signals
                 
                 try:
+                    # Create pen with color, width, and opacity
+                    pen = pg.mkPen(color = color, width = line_width, alphaF = opacity)
+                    pen.setCapStyle(QtCore.Qt.PenCapStyle.RoundCap)
+                    pen.setJoinStyle(QtCore.Qt.PenJoinStyle.RoundJoin)
+
                     x_data = spec_signal[x_channel]
                     y_0_data = spec_signal[y_0_channel]
-                    self.graph_0.plot(x_data, y_0_data, pen = color)
+                    y_0_data_shifted = y_0_data + i * offset_0
+
+                    self.graph_0.plot(x_data, y_0_data_shifted, pen = pen)
                 except Exception as e:
                     print(f"Error: {e}")
                 try:
                     x_data = spec_signal[x_channel]
                     y_1_data = spec_signal[y_1_channel]
-                    self.graph_1.plot(x_data, y_1_data, pen = color)
+                    y_1_data_shifted = y_1_data + i * offset_1
+                
+                    self.graph_1.plot(x_data, y_1_data_shifted, pen = pen)
                 except Exception as e:
                     print(f"Error: {e}")
 
@@ -326,12 +413,36 @@ class SpectrumViewer(QtWidgets.QMainWindow):
 
         return
 
+    def change_pen_style(self) -> None:
+        self.processing_flags["line_width"] = float(self.line_edits["line_width"].text())
+        self.processing_flags["opacity"] = float(self.line_edits["opacity"].text())
+        self.redraw_spectra()
+        return
+
+    def on_save_spectrum(self, plot_number: int = 0) -> None:
+        try:
+            export_folder = self.paths["output_folder"]
+            if plot_number == 0:
+                scene = self.graph_0_widget.scene()
+            else:
+                scene = self.graph_1_widget.scene()
+            exporter = expts.SVGExporter(scene)
+
+            file_path, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Save file", export_folder, "svg files (*.svg)")
+            if file_path:
+                exporter.export(file_path)
+        
+        except Exception as e:
+            print("Error saving file.")
+        
+        return
+
 
 
 class AppWindow(QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Scanalyzer by Peter H. Jacobse") # Make the app window
+        self.setWindowTitle("Scanalyzer") # Make the app window
         self.setGeometry(100, 100, 1400, 800) # x, y, width, height
 
         # Add ImageView
@@ -374,7 +485,7 @@ class AppWindow(QtWidgets.QMainWindow):
 
 
     def parameters_init(self) -> None:
-        # I/O paths
+        # Paths
         script_path = os.path.abspath(__file__) # The full path of Scanalyzer.py, including the filename itself
         script_folder = os.path.dirname(script_path) # The parent directory of Scanalyzer.py
         sys_folder = os.path.join(script_folder, "sys") # The directory of the config file
@@ -382,6 +493,7 @@ class AppWindow(QtWidgets.QMainWindow):
         icon_folder = os.path.join(script_folder, "icons") # The directory of the icon files
         config_path = os.path.join(sys_folder, "config.yml") # The path to the configuration file
         data_folder = sys_folder # Set current folder to the config file; read from the config file later to reset it to a data folder
+        metadata_file = os.path.join(data_folder, "metadata.yml") # Metadata file that is populated with all the scan and spectroscopy metadata of the files in the data folder
         output_folder_name = "Extracted Files"
 
         self.paths = {
@@ -392,11 +504,13 @@ class AppWindow(QtWidgets.QMainWindow):
             "icon_folder": icon_folder,
             "config_path": config_path,
             "data_folder": lib_folder,
+            "metadata_file": metadata_file,
             "output_folder_name": output_folder_name,
             "output_folder": os.path.join(data_folder, output_folder_name),
             "output_file_basename": ""
         }
 
+        # Icons
         icon_files = os.listdir(self.paths["icon_folder"])
         self.icons = {}
         for icon_file in icon_files:
@@ -407,7 +521,8 @@ class AppWindow(QtWidgets.QMainWindow):
                 pass
         self.setWindowIcon(self.icons.get("scanalyzer"))
         
-        self.sxm_files = np.array([[]])
+        # Some attributes
+        self.files_dict = {}
         self.spec_files = np.array([[]])
         self.image_files = [""]
         self.file_index = 0
@@ -421,6 +536,7 @@ class AppWindow(QtWidgets.QMainWindow):
         self.ureg = pint.UnitRegistry()
         self.spec_targets = []
 
+        # Image processing flags
         self.processing_flags = {
             "direction": "forward",
             "background_subtraction": "none",
@@ -469,13 +585,15 @@ class AppWindow(QtWidgets.QMainWindow):
             "absolute_values": make_button("", self.on_absolute_values, "Set the image value range by absolute values (Shift + A)", self.icons.get("numbers"),
                                            key_shortcut = QKey.Key_A, modifier = QMod.SHIFT),
 
+            "spec_info": make_button("", self.load_process_display, "Spectrum information", self.icons.get("question")),
             "spec_locations": make_button("", self.on_toggle_spec_locations, "View the spectroscopy locations (3)", self.icons.get("spec_locations"), key_shortcut = QKey.Key_3),
             "spectrum_viewer": make_button("", self.open_spectrum_viewer, "Open Spectrum Viewer (O)", self.icons.get("graph"), key_shortcut = QKey.Key_O),
 
             "save_png": make_button("", self.on_save_png, "Save as png file (S)", self.icons.get("floppy"), key_shortcut = QKey.Key_S),
             "save_hdf5": make_button("", self.on_save_png, "Save as hdf5 file (5)", self.icons.get("h5"), key_shortcut = QKey.Key_5),
             "output_folder": make_button("Output folder", self.open_output_folder, "Open output folder (T)", self.icons.get("folder_blue"), key_shortcut = QKey.Key_T),
-            "exit": make_button("", self.on_exit, "Exit scanalyzer (Esc/X/E)", self.icons.get("escape"))
+            "exit": make_button("", self.on_exit, "Exit scanalyzer (Esc/X/E)", self.icons.get("escape")),
+            "info": make_button("", self.on_info, "Info", self.icons.get("i"))
         }
         self.buttons["direction"].setCheckable(True)
         self.buttons["spec_locations"].setCheckable(True)
@@ -543,6 +661,8 @@ class AppWindow(QtWidgets.QMainWindow):
         }
         projection_toggle_shortcuts = [QtGui.QShortcut(QtGui.QKeySequence(QKey.Key_Up | QMod.SHIFT), self), QtGui.QShortcut(QtGui.QKeySequence(QKey.Key_Down | QMod.SHIFT), self)]
         [shortcut.activated.connect(self.toggle_projections) for shortcut in projection_toggle_shortcuts]
+        self.comboboxes["channels"].currentIndexChanged.connect(self.on_chan_change)
+        self.comboboxes["projection"].currentIndexChanged.connect(self.load_process_display)
 
         self.layouts = {
             "toolbar": make_layout("v"),
@@ -562,7 +682,7 @@ class AppWindow(QtWidgets.QMainWindow):
             "scan_summary": make_groupbox("Scan summary", "Information about the currently selected scan"),
             "file_chan_dir": make_groupbox("File / Channel / Direction", "Select and toggle through scan files and channels"),
             "image_processing": make_groupbox("Image processing", "Select the background subtraction, matrix operations and set the image range limits"),
-            "associated_spectra": make_groupbox("Associated spectra", "Spectra recorded after the acquisition of the selected scan"),
+            "spectra": make_groupbox("Spectra", "Associated spectra (those recorded after the acquisition of the selected scan) are shown with an asterisk"),
             "i/o": make_groupbox("Output", "Save or find the processed image, or exit the app")
         }
         self.expanded_groups = {
@@ -660,13 +780,14 @@ class AppWindow(QtWidgets.QMainWindow):
             self.groupboxes["image_processing"].setLayout(self.layouts["image_processing"])
             return self.groupboxes["image_processing"]
         
-        def draw_associated_spectra_group() -> QtWidgets.QGroupBox: # Associated spectra dropdown menu
+        def draw_spectra_group() -> QtWidgets.QGroupBox: # Spectra dropdown menu
+            self.layouts["spectra"].addWidget(self.buttons["spec_info"], 1)
             self.layouts["spectra"].addWidget(self.comboboxes["spectra"], 4)
             self.layouts["spectra"].addWidget(self.buttons["spec_locations"], 1)
             self.layouts["spectra"].addWidget(self.buttons["spectrum_viewer"], 1)
 
-            self.groupboxes["associated_spectra"].setLayout(self.layouts["spectra"])
-            return self.groupboxes["associated_spectra"]
+            self.groupboxes["spectra"].setLayout(self.layouts["spectra"])
+            return self.groupboxes["spectra"]
 
         def draw_io_group() -> QtWidgets.QGroupBox: # I/O group
             io_layout = self.layouts["i/o"]
@@ -676,17 +797,21 @@ class AppWindow(QtWidgets.QMainWindow):
             io_layout.addWidget(self.line_edits["file_name"], 0, 0)
             io_layout.addWidget(self.buttons["save_png"], 0, 1)
             io_layout.addWidget(self.buttons["save_hdf5"], 0, 2)
+            io_layout.addWidget(self.buttons["info"], 0, 3)
             io_layout.addWidget(self.labels["in_output_folder"], 1, 0)
-            io_layout.addWidget(self.buttons["output_folder"], 1, 1)
-            io_layout.addWidget(self.buttons["exit"], 1, 2)
+            io_layout.addWidget(self.buttons["output_folder"], 1, 1, 1, 2)
+            io_layout.addWidget(self.buttons["exit"], 1, 3)
 
             self.groupboxes["i/o"].setLayout(io_layout)
             return self.groupboxes["i/o"]
 
         # Make the buttons. Overal layout is a QVBoxLayout
         self.layouts["toolbar"].setContentsMargins(4, 4, 4, 4)
-        [self.layouts["toolbar"].addWidget(group) for group in [draw_summary_group(), draw_file_chan_dir_group(), draw_image_processing_group(), draw_associated_spectra_group(), draw_io_group()]]
+        [self.layouts["toolbar"].addWidget(group) for group in [draw_summary_group(), draw_file_chan_dir_group(), draw_image_processing_group(), draw_spectra_group(), draw_io_group()]]
         self.layouts["toolbar"].addStretch(1) # Add a stretch at the end to push buttons up
+
+        self.radio_buttons["bg_inferred"].setEnabled(False)
+        self.buttons["save_hdf5"].setEnabled(False)
 
         return self.layouts["toolbar"]
 
@@ -716,8 +841,8 @@ class AppWindow(QtWidgets.QMainWindow):
         toggle_max_shortcut = QtGui.QShortcut(seq(QKey.Key_Equal), self)
         toggle_max_shortcut.activated.connect(lambda: self.toggle_limits("max"))
 
-        self.radio_buttons["bg_inferred"].setEnabled(False)
-        self.buttons["save_hdf5"].setEnabled(False)
+        projection_toggle_shortcut = QtGui.QShortcut(QtGui.QKeySequence(QKey.Key_H), self)
+        projection_toggle_shortcut.activated.connect(self.toggle_projections)
 
         return
 
@@ -739,8 +864,8 @@ class AppWindow(QtWidgets.QMainWindow):
         return
 
     def on_select_file(self) -> None:
-        file_name, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Open file", self.paths["data_folder"], "SXM files (*.sxm);;Dat files (*.dat);;HDF5 files (*.hdf5)")
-        if file_name: self.load_folder(file_name)
+        file_path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Open file", self.paths["data_folder"], "SXM files (*.sxm);;Dat files (*.dat);;HDF5 files (*.hdf5)")
+        if file_path: self.load_folder(file_path)
 
         return
 
@@ -830,18 +955,27 @@ class AppWindow(QtWidgets.QMainWindow):
 
         return
 
-    def load_folder(self, file_name: str = "") -> None:
+    def load_folder(self, file_path: str = "") -> None:
         try:
-            self.paths["data_folder"] = os.path.dirname(file_name) # Set the folder to the directory of the file
-            (self.sxm_files, self.spec_files) = read_files(self.paths["data_folder"]) # Read the names and datetimes of all scans (.sxm files) and spectra (.dat files)
-            
-            self.max_file_index = len(self.sxm_files) - 1
-            self.file_index = np.where([os.path.samefile(sxm_file, file_name) for sxm_file in self.sxm_files[:, 1]])[0][0] # Find the number of the specific file that was selected
-            if self.file_index > self.max_file_index: self.file_index = 0 # Roll over if the selected file index is too large
-            self.paths["output_folder"] = os.path.join(self.paths["data_folder"], self.paths["output_folder_name"])
-            self.sxm_file = self.sxm_files[self.file_index] # Apply the index to the list of sxm files to pick the correct sxm file
-            self.file_label = self.sxm_file[0] # The file label is the file name without the directory path
+            self.paths["data_folder"] = os.path.dirname(file_path) # Set the folder to the directory of the file
+            self.paths["metadata_file"] = os.path.join(self.paths["data_folder"], "metadata.yml") # Set the metadata yaml file accordingly as well
+            self.paths["output_folder"] = os.path.join(self.paths["data_folder"], self.paths["output_folder_name"]) # Set the output folder name
 
+            # Create a bare bones dictionary containing the file names and paths of all the scan files and spectroscopy files in the folder
+            self.files_dict = create_files_dict(self.paths["data_folder"])
+            # Update the dictionary by reading the headers from the metadata file or from the individual dat files if necessary
+            self.read_spectroscopy_headers()
+            
+            # Match the requested file (full path) to the entry in the scan_files dict to extract the key. The key is an integer and is called self.file_index
+            scan_dict = self.files_dict.get("scan_files")
+            self.max_file_index = len(scan_dict) - 1
+            self.file_index = 0
+            for key, value in scan_dict.items():
+                if os.path.samefile(value.get("path"), file_path):
+                    self.file_index = key
+                    break
+            if self.file_index > self.max_file_index: self.file_index = 0 # Roll over if the selected file index is too large
+            
             # Update folder/contents labels
             try:
                 self.buttons["folder_name"].setText(self.paths["data_folder"])
@@ -850,28 +984,27 @@ class AppWindow(QtWidgets.QMainWindow):
             except Exception as e:
                 print(f"Error: {e}")
 
+            # Load the scan file and display it
             if self.max_file_index > 0:
                 self.load_process_display(new_scan = True)
 
         except Exception as e:
-            print(f"Error loading files: {e}")
+            print(f"Error loading folder: {e}")
             self.buttons["select_file"].setText("Select file")
         
         return
 
     def load_scan(self) -> np.ndarray:        
-        # Load the sxm file from the list of sxm files
-        self.sxm_file = self.sxm_files[self.file_index]
+        # Load the sxm file from the list of sxm files. Make the select file button display the file name
+        scan_dict = self.files_dict.get("scan_files")
         try:
-            self.file_label = self.sxm_file[0]
+            self.buttons["select_file"].setText(scan_dict[self.file_index].get("file_name"))
         except:
             print("Error. Could not retrieve scan.")
             return
-        
-        self.buttons["select_file"].setText(self.file_label) # Make the select file button display the file name
 
         # Load the scan object using nanonispy2
-        self.scan_object = get_scan(self.sxm_file[1], units = {"length": "nm", "current": "pA"})
+        self.scan_object = get_scan(scan_dict[self.file_index].get("path"), units = {"length": "nm", "current": "pA"})
         scan_tensor = self.scan_object.tensor
         self.channels = self.scan_object.channels # Load which channels have been recorded
         if self.channel not in self.channels: # If the requested channel does not exist in the scan, default the requested channel to be the first channel in the list of channels
@@ -886,31 +1019,15 @@ class AppWindow(QtWidgets.QMainWindow):
         self.comboboxes["channels"].setCurrentIndex(self.channel_index)
         self.comboboxes["channels"].blockSignals(False)
 
-        # Read the header and save the scan parameters
-        self.bias = self.scan_object.bias
-        self.bias_V = self.bias.to("V").magnitude
-
-        self.offset = self.scan_object.offset
-        self.offset_nm = [range_dim.to("nm").magnitude for range_dim in self.offset]
-
-        self.angle = self.scan_object.angle
-        self.angle_deg = self.angle.to("degree").magnitude
-
-        self.scan_range = self.scan_object.scan_range
-        self.scan_range_nm = [range_dim.to("nm").magnitude for range_dim in self.scan_range]
-
-        self.feedback = self.scan_object.feedback # Read whether the scan was recorded in STM feedback
-        self.setpoint = self.scan_object.setpoint
-        self.setpoint_pA = self.setpoint.to("pA").magnitude
-        self.scan_time = self.scan_object.date_time
+        # Read the metadata, the metadata file and update if necessary
+        self.read_metadata()
+        self.get_end_time()
 
         # Display scan data in the app
-        if self.feedback:
-            self.summary_text = f"STM topographic scan recorded on\n{self.scan_time.strftime('%Y/%m/%d   at   %H:%M:%S')}\n\n(V = {self.bias_V:.3f} V; I_fb = {self.setpoint_pA:.3f} pA)\nScan range: {self.scan_range_nm[0]:.3f} nm by {self.scan_range_nm[1]:.3f} nm"
-        else:
-            self.summary_text = f"Constant height scan recorded on\n{self.scan_time.strftime('%Y/%m/%d   at   %H:%M:%S')}\n\n(V = {self.bias_V:.3f} V)\nScan range: {self.scan_range_nm[0]:.3f} nm by {self.scan_range_nm[1]:.3f} nm"
+        if self.feedback: self.summary_text = f"STM topographic scan recorded on\n{self.date_time.strftime('%Y/%m/%d   at   %H:%M:%S')}\n\n(V = {self.bias_V:.3f} V; I_fb = {self.setpoint_pA:.3f} pA)\nScan range: {self.scan_range_nm[0]:.3f} nm by {self.scan_range_nm[1]:.3f} nm"
+        else: self.summary_text = f"Constant height scan recorded on\n{self.date_time.strftime('%Y/%m/%d   at   %H:%M:%S')}\n\n(V = {self.bias_V:.3f} V)\nScan range: {self.scan_range_nm[0]:.3f} nm by {self.scan_range_nm[1]:.3f} nm"
         self.labels["scan_summary"].setText(self.summary_text)
-        
+
         # Find the spectra associated with this scan and make them available for viewing as target items and in the combobox
         self.find_associated_spectra()
 
@@ -924,8 +1041,8 @@ class AppWindow(QtWidgets.QMainWindow):
     def find_associated_spectra(self) -> None:
         # From the list of spectra (spec_files), select the ones that are associated with the current scan (associated scan name is column 3 in self.spec_files and column 0 in self.sxm_files)
         try:
-            associated_spectra_indices = np.where(self.spec_files[:, 3] == self.sxm_file[0])[0]
-            self.associated_spectra = [self.spec_files[index] for index in associated_spectra_indices]
+            #associated_spectra_indices = np.where(self.spec_files[:, 3] == self.sxm_file[0])[0]
+            self.associated_spectra = [self.spec_files[index] for index in [0, 1, 2]]
         except:
             self.associated_spectra = []
 
@@ -960,7 +1077,6 @@ class AppWindow(QtWidgets.QMainWindow):
                 x_rotated = cos_theta * x_relative_to_frame - sin_theta * y_relative_to_frame
                 y_rotated = cos_theta * y_relative_to_frame + sin_theta * x_relative_to_frame
 
-                target_item = pg.TargetItem(size = 10, pen = pg.mkPen(None), brush = pg.mkBrush('r'), movable = False)
                 target_item = HoverTargetItem(pos = [x_rotated, y_rotated], size = 10, tip_text = data[0])
                 target_item.setZValue(10)
                 
@@ -978,11 +1094,11 @@ class AppWindow(QtWidgets.QMainWindow):
         # Apply matrix operations
         try: gaussian_sigma = float(self.line_edits["gaussian_width"].text())
         except: gaussian_sigma = 0
-        if self.processing_flags["sobel"]: processed_scan = image_gradient(processed_scan, self.scan_range)
-        if self.processing_flags["normal"]: processed_scan = compute_normal(processed_scan, self.scan_range)
-        if self.processing_flags["laplace"]: processed_scan = apply_laplace(processed_scan, self.scan_range)
-        if self.processing_flags["gaussian"]: processed_scan = apply_gaussian(processed_scan, sigma = gaussian_sigma, scan_range = self.scan_range)
-        if self.processing_flags["fft"]: processed_scan, reciprocal_range = apply_fft(processed_scan, self.scan_range)
+        if self.processing_flags["sobel"]: processed_scan = image_gradient(processed_scan, self.scan_range_nm)
+        if self.processing_flags["normal"]: processed_scan = compute_normal(processed_scan, self.scan_range_nm)
+        if self.processing_flags["laplace"]: processed_scan = apply_laplace(processed_scan, self.scan_range_nm)
+        if self.processing_flags["gaussian"]: processed_scan = apply_gaussian(processed_scan, sigma = gaussian_sigma, scan_range = self.scan_range_nm)
+        if self.processing_flags["fft"]: processed_scan, reciprocal_range = apply_fft(processed_scan, self.scan_range_nm)
         
         # Perform the correct projection
         match self.comboboxes["projection"].currentText():
@@ -1097,8 +1213,171 @@ class AppWindow(QtWidgets.QMainWindow):
     def load_process_display(self, new_scan: bool = False) -> None:
         if new_scan or not hasattr(self, "current_scan"):
             self.current_scan = self.load_scan()
-        processed_scan = self.process_scan(self.current_scan)
-        self.display(processed_scan)
+        if isinstance(self.current_scan, np.ndarray):
+            processed_scan = self.process_scan(self.current_scan)
+            self.display(processed_scan)
+        else:
+            print("Error. Could not load scan.")
+        
+        return
+
+    def read_spectroscopy_headers(self):
+        # Create a metadata file if it does not yet exist:
+        if not os.path.exists(self.paths["metadata_file"]):
+            try:
+                with open(self.paths["metadata_file"], "w") as file:
+                    yaml.safe_dump(self.files_dict, file)
+            except Exception as e:
+                print(f"Failed to write/parse the metadata file. {e}")
+
+        # Read the scan / spectrum file dictionaries from the metadata file
+        try:
+            with open(self.paths["metadata_file"], "r") as file:
+                metadata_obj = yaml.safe_load(file)
+        except Exception as e:
+            print(f"Failed to write/parse the metadata file. {e}")
+            return
+        
+        try:
+            scan_dict = metadata_obj.get("scan_files")
+            spec_dict = metadata_obj.get("spectroscopy_files")
+
+            # Iterate over the spectroscopy metadata in the metadata file, and check whether the keys date_time and position exist
+            for entry, data in spec_dict.items():
+                file_path = data.get("path")
+
+                if "date_time" in data and "position" in data:
+                    pass
+                # date_time and position are not present in the metadata file. Go ahead and read them from the spectroscopy file
+                else:
+                    header = get_basic_header(file_path)
+                    date_time = header.get("date_time")
+                    x = header.get("x")
+                    y = header.get("y")
+                    z = header.get("z")
+
+                    spec_dict[entry].update({
+                        "date_time": date_time.strftime("%Y-%m-%d %H:%M:%S"),
+                            "position": {
+                                "x (nm)": f"{x:.3f}",
+                                "y (nm)": f"{y:.3f}",
+                                "z (nm)": f"{z:.3f}"
+                            }
+                    })
+
+            # Local variable
+            files_dict = {
+                "scan_files": scan_dict,
+                "spectroscopy_files": spec_dict
+            }
+
+            # Save the spectroscopy metadata to the metadata yaml file
+            try:
+                with open(self.paths["metadata_file"], "w") as file:
+                    yaml.safe_dump(files_dict, file)
+            except Exception as e:
+                print(f"Failed to write/parse the metadata file. {e}")
+
+        except Exception as e:
+            print(f"Failed to write/parse the metadata file. {e}")
+            return
+
+        return
+
+    def read_metadata(self):
+        # Read metadata from the scan object file
+        if not hasattr(self, "scan_object"):
+            print("Error. No scan object available.")
+            return
+
+        bias = self.scan_object.bias
+        self.bias_V = bias.to("V").magnitude
+        offset = self.scan_object.offset
+        self.offset_nm = [range_dim.to("nm").magnitude for range_dim in offset]
+        angle = self.scan_object.angle
+        self.angle_deg = angle.to("degree").magnitude
+        scan_range = self.scan_object.scan_range
+        self.scan_range_nm = [range_dim.to("nm").magnitude for range_dim in scan_range]
+        setpoint = self.scan_object.setpoint
+        self.setpoint_pA = setpoint.to("pA").magnitude        
+        self.feedback = self.scan_object.feedback # Read whether the scan was recorded in STM feedback
+        self.date_time = self.scan_object.date_time
+
+
+ 
+        # Create a metadata file if it does not yet exist:
+        if not os.path.exists(self.paths["metadata_file"]):
+            try:
+                with open(self.paths["metadata_file"], "w") as file:
+                    yaml.safe_dump(self.files_dict, file)
+            except Exception as e:
+                print(f"Failed to write/parse the metadata file. {e}")
+        
+        # Read the scan / spectrum file dictionaries from the metadata file
+        try:
+            with open(self.paths["metadata_file"], "r") as file:
+                metadata_obj = yaml.safe_load(file)
+        except Exception as e:
+            print(f"Failed to write/parse the metadata file. {e}")
+            return
+        
+        # Update the metadata file information with the metadata read from the scan file
+        try:
+            scan_dict = metadata_obj.get("scan_files")
+            spec_dict = metadata_obj.get("spectroscopy_files")
+            file_dict = scan_dict.get(self.file_index)
+            
+            file_dict.update({
+                "bias (V)": f"{self.bias_V:.3f}",
+                "setpoint (pA)": f"{self.setpoint_pA:.3f}",
+                "feedback": f"{self.feedback}",
+                "date_time": self.date_time.strftime("%Y-%m-%d %H:%M:%S"),
+                "frame": {
+                    "scan_range (nm)": f"({self.scan_range_nm[0]:.3f}, {self.scan_range_nm[1]:.3f})",
+                    "offset (nm)": f"({self.offset_nm[0]:.3f}, {self.offset_nm[1]:.3f})",
+                    "angle (deg)": f"{self.angle_deg:.3f}"
+                }
+            })
+            scan_dict.update({self.file_index: file_dict})
+
+            new_files_dict = {
+                "scan_files": scan_dict,
+                "spectroscopy_files": spec_dict
+            }          
+            try:
+                with open(self.paths["metadata_file"], "w") as file:
+                    yaml.safe_dump(new_files_dict, file)
+            except Exception as e:
+                print(f"Failed to write/parse the metadata file. {e}")
+                
+        except Exception as e:
+            print("Error. Failed to update the metadata dictionaries.")
+
+        return
+
+    def get_end_time(self):
+        # Read the scan / spectrum file dictionaries from the metadata file
+        try:
+            with open(self.paths["metadata_file"], "r") as file:
+                metadata_obj = yaml.safe_load(file)
+        
+            scan_dict = metadata_obj.get("scan_files")
+            next_index = self.file_index + 1
+            if next_index > len(scan_dict) - 1:
+                return "EOT"
+            next_scan = scan_dict[next_index]
+
+            # Iterate over the spectroscopy metadata in the metadata file, and check whether the keys date_time and position exist
+            print(next_scan.keys())
+            if "date_time" in next_scan.keys():
+                next_date_time = next_scan.get("date_time")
+                print(next_date_time)
+            else:
+                print("No idea")
+
+        except Exception as e:
+            print(f"Failed to write/parse the metadata file. {e}")
+            return
         
         return
 
@@ -1107,6 +1386,10 @@ class AppWindow(QtWidgets.QMainWindow):
     # Spectroscopy
     def open_spectrum_viewer(self) -> None:
         spec_shape = self.spec_files.shape
+        if len(spec_shape) < 2:
+            print("Error. No spectroscopy files found in the data folder.")
+            return
+        
         if spec_shape[0] * spec_shape[1] > 0:
             if not hasattr(self, "second_window") or self.second_window is None: # Create only if not already created:
                 self.current_scan = self.load_scan()
@@ -1333,14 +1616,26 @@ class AppWindow(QtWidgets.QMainWindow):
         if file_name:
             self.load_folder(file_name)
 
+    def on_info(self) -> None:
+        msg_box = QtWidgets.QMessageBox(self)
+        
+        msg_box.setWindowTitle("Info")
+        msg_box.setText("Scanalyzer (2026)\nby Peter H. Jacobse\nRice University; Lawrence Berkeley National Lab")
+        msg_box.setStandardButtons(QtWidgets.QMessageBox.StandardButton.Ok)
+        msg_box.setIcon(QtWidgets.QMessageBox.Icon.Information)
+
+        #QtCore.QTimer.singleShot(5000, msg_box.close)
+        retval = msg_box.exec()
+
     # Exit
     def closeEvent(self, a0) -> None:
         self.on_exit
     
     def on_exit(self) -> None:
         try: # Save the currently opened scan folder to the config yaml file so it opens automatically on startup next time
+            scan_dict = self.files_dict.get("scan_files")
             with open(self.paths["config_path"], "w") as file:
-                yaml.safe_dump({"last_file": str(self.sxm_file[1])}, file)
+                yaml.safe_dump({"last_file": str(scan_dict[self.file_index].get("path"))}, file)
         except Exception as e:
             print("Failed to save the scan folder to the config.yml file.")
             print(e)

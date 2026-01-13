@@ -59,7 +59,7 @@ def get_basic_header(file_name) -> dict:
                 "y": y,
                 "z": z,
                 "coords": [x, y, z],
-                "datetime": dt_object
+                "date_time": dt_object
             }
 
             return header
@@ -132,12 +132,13 @@ def get_basic_header(file_name) -> dict:
                     "x": x,
                     "y": y,
                     "center": [x, y],
+                    "offset": [x, y],
                     "height": range_y,
                     "width": range_x,
                     "size": [range_x, range_y],
                     "scan_range": [range_x, range_y],
                     "angle": angle,
-                    "datetime": dt_object
+                    "date_time": dt_object
                 }
 
                 return header
@@ -147,6 +148,40 @@ def get_basic_header(file_name) -> dict:
 
         except Exception as e:
             print(f"Error: {e}")
+
+
+
+def create_files_dict(directory) -> dict:
+    all_files = os.listdir(directory)
+    dat_files = [os.path.join(directory, file) for file in all_files if file.endswith(".dat")]
+    sxm_files = [os.path.join(directory, file) for file in all_files if file.endswith(".sxm")]
+
+    # Set up dictionaries
+    scans_dict = {}
+    specs_dict = {}
+
+    # Read the file names
+    for index, file in enumerate(sxm_files):
+        file_basename = os.path.basename(file)
+        file_dict = {
+            "file_name": file_basename,
+            "path": file
+        }
+        scans_dict.update({index: file_dict})
+    for index, file in enumerate(dat_files):
+        file_basename = os.path.basename(file)
+        file_dict = {
+            "file_name": file_basename,
+            "path": file
+        }
+        specs_dict.update({index: file_dict})
+
+    # Create and return the dictionary
+    files_dict = {
+        "scan_files": scans_dict,
+        "spectroscopy_files": specs_dict
+    }
+    return files_dict
 
 
 
@@ -160,7 +195,7 @@ def read_files(directory) -> tuple:
     for file in sxm_files:
         try:
             header = get_basic_header(file)
-            date_time = header.get("datetime")
+            date_time = header.get("date_time")
             file_basename = os.path.basename(file)
 
             scan_list.append([file_basename, file, date_time, header])
@@ -173,7 +208,7 @@ def read_files(directory) -> tuple:
     for file in dat_files:
         try:
             header = get_basic_header(file)
-            date_time = header.get("datetime")
+            date_time = header.get("date_time")
             file_basename = os.path.basename(file)
             x = header.get("x")
             y = header.get("y")
@@ -195,7 +230,58 @@ def read_files(directory) -> tuple:
             associated_spectrum = spectrum_after_scan_indices[-1] # The last True is the scan associated with the spectrum
             spectrum_list[spectrum_index, 3] = scan_list[associated_spectrum, 0]
 
-    return (scan_list, spectrum_list)
+
+
+
+    # Set up dictionaries
+    scans_dict = {}
+    specs_dict = {}
+
+    for index, sxm_file in enumerate(scan_list):
+        header = sxm_file[3]
+        scan_range = header.get("scan_range")
+        scan_range_nm = [dim.to("nm").magnitude for dim in scan_range]
+        offset = header.get("offset")
+        offset_nm = [dim.to("nm").magnitude for dim in offset]
+        angle = header.get("angle")
+
+        sxm_dict = {
+            "file_name": sxm_file[0],
+            "path": sxm_file[1],
+            "date_time": sxm_file[2].strftime("%Y-%m-%d %H:%M:%S"),
+            "frame": {
+                "scan_range (nm)": f"({scan_range_nm[0]:.3f}, {scan_range_nm[1]:.3f})",
+                "offset (nm)": f"({offset_nm[0]:.3f}, {offset_nm[1]:.3f})",
+                "angle (deg)": f"{angle:.3f}"
+                }
+        }
+        scans_dict.update({index: sxm_dict})
+    
+    for index, spec_file in enumerate(spectrum_list):
+        scan_range = header.get("scan_range")
+        scan_range_nm = [dim.to("nm").magnitude for dim in scan_range]
+        offset = header.get("offset")
+        offset_nm = [dim.to("nm").magnitude for dim in offset]
+        angle = header.get("angle")
+
+        dat_dict = {
+            "file_name": spec_file[0],
+            "path": spec_file[1],
+            "date_time": spec_file[2].strftime("%Y-%m-%d %H:%M:%S"),
+            "position": {
+                "x (nm)": f"{spec_file[4]:.3f}",
+                "y (nm)": f"{spec_file[5]:.3f}",
+                "z (nm)": f"{spec_file[6]:.3f}"
+                }
+        }
+        specs_dict.update({index: dat_dict})
+
+    files_dict = {
+        "scan_files": scans_dict,
+        "spectroscopy_files": specs_dict
+    }
+
+    return (scan_list, spectrum_list, files_dict)
 
 
 
