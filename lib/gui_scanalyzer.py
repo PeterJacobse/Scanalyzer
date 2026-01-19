@@ -29,10 +29,10 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
         self.shortcuts = self.make_shortcuts()
                 
         # 3: Populate layouts with GUI items. Requires GUI items.
-        #self.populate_layouts()
+        self.populate_layouts()
         
         # 4: Make groupboxes and set their layouts. Requires populated layouts.
-        #self.groupboxes = self.make_groupboxes()
+        self.groupboxes = self.make_groupboxes()
         
         # 5: Set up the main window layout
         #self.setup_main_window()
@@ -81,7 +81,9 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
     
     def make_buttons(self) -> dict:
         make_button = self.gui_items.make_button
+        make_toggle_button = self.gui_items.make_toggle_button
         icons = self.icons
+        labels = self.labels
         arrow = icons.get("single_arrow")
         sivr = "Set the image value range "
 
@@ -92,7 +94,7 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
 
             "previous_channel": make_button("", "Previous channel\n(↑)", icon = arrow, rotate_icon = 270),
             "next_channel": make_button("","Next channel\n(↓)", icon = arrow, rotate_icon = 90),
-            "direction": make_button("", "Change scan direction\n(X)", self.icons.get("triple_arrow")),
+            "direction": make_toggle_button("", "Change scan direction\n(X)", self.icons.get("triple_arrow"), flip_icon = True),
 
             "folder_name": make_button("Open folder", "Open the data folder\n(1)", self.icons.get("folder_blue")),
 
@@ -102,7 +104,7 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
             "absolute_values": make_button("", sivr + "by absolute values\n(Shift + A)", self.icons.get("numbers")),
 
             "spec_info": make_button("", "Spectrum information", self.icons.get("question")),
-            "spec_locations": make_button("", "View the spectroscopy locations\n(3)", self.icons.get("spec_locations")),
+            "spec_locations": make_toggle_button("", "View the spectroscopy locations\n(3)", self.icons.get("spec_locations"), flip_icon = True),
             "spectrum_viewer": make_button("", "Open Spectrum Viewer\n(O)", self.icons.get("graph")),
 
             "save_png": make_button("", "Save as png file\n(S)", self.icons.get("floppy")),
@@ -113,7 +115,9 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
         }
         
         # Named groups
+        self.file_selection_buttons = [buttons[name] for name in ["previous_file", "select_file", "next_file"]]
         self.scale_buttons = [buttons[name] for name in ["full_data_range", "percentiles", "standard_deviation", "absolute_values"]]
+        self.fcd_widgets = [labels["in_folder"], buttons["folder_name"], labels["number_of_files"], labels["channel_selected"]]
 
         return buttons
 
@@ -132,12 +136,16 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
 
     def make_comboboxes(self) -> dict:
         make_combobox = self.gui_items.make_combobox
+        buttons = self.buttons
         
         comboboxes = {
             "channels": make_combobox("Channels", "Available scan channels\ntoggle with (↑ / ↓)"),
             "projection": make_combobox("Projection", "Select a projection\ntoggle with (Shift + ↑ / ↓)", items = ["re", "im", "abs", "arg (b/w)", "arg (hue)", "complex", "abs^2", "log(abs)"]),
             "spectra": make_combobox("spectra", "Spectra associated with the current scan")
         }
+        
+        # Named groups
+        self.chan_nav_widgets = [buttons["previous_channel"], comboboxes["channels"], buttons["next_channel"], buttons["direction"]]
         
         return comboboxes
 
@@ -217,6 +225,7 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
         make_layout = self.gui_items.make_layout
         
         layouts = {
+            "main": make_layout("h"),
             "toolbar": make_layout("v"),
             "scan_summary": make_layout("v"),
             "file_chan_dir": make_layout("v"),
@@ -234,12 +243,11 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
         return layouts
 
     def make_image_view(self) -> pg.ImageView:
-        pg.setConfigOption("imageAxisOrder", "row-major")
-        im_view = pg.ImageView(view = pg.PlotItem())
+        pg.setConfigOptions(imageAxisOrder = "row-major", antialias = True)
         
-        im_view.setToolTip("gui.image_view")
+        self.im_view = pg.ImageView(view = pg.PlotItem())
         
-        return im_view
+        return self.im_view
 
     def make_widgets(self) -> dict:
         layouts = self.layouts
@@ -253,6 +261,9 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
         }
         
         self.coarse_control_widgets = [widgets[name] for name in ["coarse_actions", "arrows"]]     
+        
+        widgets["central"].setFocusPolicy(QtCore.Qt.FocusPolicy.StrongFocus)
+        widgets["central"].setFocus()
         
         return widgets
 
@@ -313,9 +324,21 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
     def populate_layouts(self) -> None:
         layouts = self.layouts
         
-        # Add items to the layouts        
-        [layouts["connections"].addWidget(button, int(i / 4), i % 4) for i, button in enumerate(self.connection_buttons)]
+        # Add items to the layouts
+        [layouts["scan_summary"].addWidget(self.labels[name]) for name in ["scan_summary", "statistics"]]
         
+        [layouts["file_navigation"].addWidget(widget, 5 * (index % 2) + 1) for index, widget in enumerate(self.file_selection_buttons)]
+        [layouts["channel_navigation"].addWidget(widget) for widget in self.chan_nav_widgets]
+        layouts["channel_navigation"].setStretchFactor(self.comboboxes["channels"], 4)
+                
+        fcd_layout = layouts["file_chan_dir"]
+        fcd_layout.addWidget(self.labels["load_file"])
+        fcd_layout.addLayout(layouts["file_navigation"])
+        [fcd_layout.addWidget(widget) for widget in self.fcd_widgets]
+        fcd_layout.addLayout(layouts["channel_navigation"])
+        
+        
+        """
         ca_layout = layouts["coarse_actions"]
         [ca_layout.addWidget(checkbox, i, 0) for i, checkbox in enumerate(self.action_checkboxes)]
         [ca_layout.addWidget(button, i + int(i / 2), 1) for i, button in enumerate(self.action_buttons)]
@@ -368,6 +391,7 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
         
         #layouts["input"].addWidget(self.buttons["input"], 1)
         layouts["input"].addWidget(self.consoles["input"])
+        """
         
         return
 
@@ -379,20 +403,18 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
         layouts = self.layouts
         
         groupboxes = {
-            "connections": make_groupbox("Connections", "Connections to hardware (push to check/refresh)"),
-            "parameters": make_groupbox("Scan parameters", "Scan parameters"),
-            "coarse_control": make_groupbox("Coarse control", "Control the tip (use ctrl key to access these functions)"),
-            "image_processing": make_groupbox("Image processing", "Select the background subtraction, matrix operations and set the image range limits (use shift key to access these functions)"),
-            "experiment": make_groupbox("Experiment", "Perform experiment"),
-            
-            "dummy": make_groupbox("Dummy", "Invisible groupbox to swap out layouts to make other groupboxes collapse")
+            "scan_summary": make_groupbox("Scan summary", "Information about the currently selected scan"),
+            "file_chan_dir": make_groupbox("File / Channel / Direction", "Select and toggle through scan files and channels"),
+            "image_processing": make_groupbox("Image processing", "Select the background subtraction, matrix operations and set the image range limits"),
+            "spectra": make_groupbox("Spectra", "Associated spectra (those recorded after the acquisition of the selected scan) are shown with an asterisk"),
+            "i/o": make_groupbox("Output", "Save or find the processed image, or exit the app")
         }
 
         # Set layouts for the groupboxes
-        [groupboxes[name].setLayout(layouts[name]) for name in ["connections", "coarse_control", "parameters", "experiment", "image_processing"]]
+        #[groupboxes[name].setLayout(layouts[name]) for name in ["connections", "coarse_control", "parameters", "experiment", "image_processing"]]
         
         # Draw experiments group: to be absorbed in gui_scantelligent.py        
-        [self.layouts["toolbar"].addWidget(groupboxes[name]) for name in ["connections", "coarse_control", "parameters", "experiment", "image_processing"]]
+        #[self.layouts["toolbar"].addWidget(groupboxes[name]) for name in ["connections", "coarse_control", "parameters", "experiment", "image_processing"]]
         
         return groupboxes
 
@@ -404,6 +426,8 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
         widgets = self.widgets
 
         # Aesthetics
+        
+        """
         layouts["left_side"].setContentsMargins(0, 0, 0, 0)
         layouts["toolbar"].setContentsMargins(4, 4, 4, 4)
         layouts["toolbar"].addStretch(1)
@@ -431,6 +455,7 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
         self.setFocusPolicy(QtCore.Qt.FocusPolicy.StrongFocus)
         self.setFocus()
         self.activateWindow()
+        """
         
         return
 
