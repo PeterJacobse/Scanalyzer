@@ -1,11 +1,9 @@
-import os, sys, yaml, pint
+import os, sys, re, yaml, pint
 import numpy as np
 from PyQt6 import QtCore, QtGui, QtWidgets
 import pyqtgraph as pg
 import pyqtgraph.exporters as expts
-from lib.image_functions import apply_gaussian, apply_fft, image_gradient, compute_normal, apply_laplace, complex_image_to_colors, background_subtract, get_image_statistics
-from lib.file_functions import get_scan, get_spectrum, create_files_dict, get_basic_header
-from lib import GUIFunctions, HoverTargetItem, DataProcessing
+from lib import GUIFunctions, GUIItems, ScanalyzerGUI, HoverTargetItem, DataProcessing, FileFunctions
 
 
 
@@ -41,12 +39,14 @@ class SpectrumViewer(QtWidgets.QMainWindow):
                 if extension == ".png": self.icons.update({icon_name: QtGui.QIcon(os.path.join(self.paths["icon_folder"], icon_file))})
             except:
                 pass
+        
         self.setWindowIcon(self.icons.get("graph"))
         self.focus_row = 0
-        self.processing_flags = {
+        self.data.processing_flags = {
             "line_width": 2,
             "opacity": 1
         }
+        self.file_functions = FileFunctions()
 
     def gui_items_init(self) -> None:
         gui_functions = GUIFunctions()
@@ -209,7 +209,7 @@ class SpectrumViewer(QtWidgets.QMainWindow):
 
 
     def read_spectroscopy_files(self) -> tuple:
-        spec_objects = [get_spectrum(spec_file[1]) for spec_file in self.spec_files] # Get a spectroscopy object for each spectroscopy file
+        (spec_objects, error) = [self.file_functions.get_spectrum(spec_file[1]) for spec_file in self.spec_files] # Get a spectroscopy object for each spectroscopy file
         
         # Find all the channels recorded during all the spectroscopies and combine them into a list called all_channels
         all_channels = []
@@ -303,8 +303,8 @@ class SpectrumViewer(QtWidgets.QMainWindow):
 
         # Set the pen
         # Set the pen properties from processing flags
-        line_width = self.processing_flags.get("line_width", 1)
-        opacity = self.processing_flags.get("opacity", 1)
+        line_width = self.data.processing_flags.get("line_width", 1)
+        opacity = self.data.processing_flags.get("opacity", 1)
 
         offset_0 = float(self.line_edits["offset_0"].text())
         offset_1 = float(self.line_edits["offset_1"].text())
@@ -414,8 +414,8 @@ class SpectrumViewer(QtWidgets.QMainWindow):
         return
 
     def change_pen_style(self) -> None:
-        self.processing_flags["line_width"] = float(self.line_edits["line_width"].text())
-        self.processing_flags["opacity"] = float(self.line_edits["opacity"].text())
+        self.data.processing_flags["line_width"] = float(self.line_edits["line_width"].text())
+        self.data.processing_flags["opacity"] = float(self.line_edits["opacity"].text())
         self.redraw_spectra()
         return
 
@@ -533,175 +533,21 @@ class AppWindow(QtWidgets.QMainWindow):
         self.channel_index = 0
         self.max_channel_index = 0
         self.scale_toggle_index = 0
-        self.ureg = pint.UnitRegistry()
         self.spec_targets = []
-
-        # Image processing flags
+        self.ureg = pint.UnitRegistry()
+        self.file_functions = FileFunctions()
         self.data = DataProcessing()
-        
-        self.processing_flags = {
-            "direction": "forward",
-            "background_subtraction": "none",
-            "sobel": False,
-            "gaussian": False,
-            "laplace": False,
-            "fft": False,
-            "normal": False,
-            "min_selection": 0,
-            "max_selection": 0,
-            "spec_locations": False
-        }
-
+        self.gui = ScanalyzerGUI(self.paths["icon_folder"])
         self.gui_functions = GUIFunctions()
+        self.gui_items = GUIItems()
 
     def gui_items_init(self) -> None:
         QKey = QtCore.Qt.Key
         QMod = QtCore.Qt.Modifier
 
-        def make_buttons():
-            make_button = lambda *args, **kwargs: self.gui_functions.make_button(*args, parent = self, **kwargs)
 
-            buttons = {
-                "previous_file": make_button("", self.on_previous_file, "Previous file (←)", self.icons.get("single_arrow"), rotate_degrees = 180, key_shortcut = QKey.Key_Left),
-                "select_file": make_button("", self.on_select_file, "Load scan and corresponding folder (L)", self.icons.get("folder_yellow"), key_shortcut = QKey.Key_L),
-                "next_file": make_button("", self.on_next_file, "Next file (→)", self.icons.get("single_arrow"), key_shortcut = QKey.Key_Right),
-
-                "previous_channel": make_button("", self.on_previous_chan, "Previous channel (↑)", self.icons.get("single_arrow"), rotate_degrees = 270, key_shortcut = QKey.Key_Up),
-                "next_channel": make_button("", self.on_next_chan, "Next channel (↓)", self.icons.get("single_arrow"), rotate_degrees = 90, key_shortcut = QKey.Key_Down),
-                "direction": make_button("", self.on_toggle_direction, "Change scan direction (X)", self.icons.get("triple_arrow"), key_shortcut = QKey.Key_X),
-
-                "folder_name": make_button("Open folder", self.open_data_folder, "Open the data folder (1)", self.icons.get("folder_blue"), key_shortcut = QKey.Key_1),
-
-                "full_data_range": make_button("", self.on_full_scale, "Set the image value range to the full data range (Shift + U)", self.icons.get("100"),
-                                            key_shortcut = QKey.Key_U, modifier = QMod.SHIFT),
-                "percentiles": make_button("", self.on_percentiles, "Set the image value range by percentiles (Shift + R)", self.icons.get("percentiles"),
-                                        key_shortcut = QKey.Key_R, modifier = QMod.SHIFT),
-                "standard_deviation": make_button("", self.on_standard_deviations, "Set the image value range by standard deviations (Shift + D)", self.icons.get("deviation"),
-                                                key_shortcut = QKey.Key_D, modifier = QMod.SHIFT),
-                "absolute_values": make_button("", self.on_absolute_values, "Set the image value range by absolute values (Shift + A)", self.icons.get("numbers"),
-                                            key_shortcut = QKey.Key_A, modifier = QMod.SHIFT),
-
-                "spec_info": make_button("", self.load_process_display, "Spectrum information", self.icons.get("question")),
-                "spec_locations": make_button("", self.on_toggle_spec_locations, "View the spectroscopy locations (3)", self.icons.get("spec_locations"), key_shortcut = QKey.Key_3),
-                "spectrum_viewer": make_button("", self.open_spectrum_viewer, "Open Spectrum Viewer (O)", self.icons.get("graph"), key_shortcut = QKey.Key_O),
-
-                "save_png": make_button("", self.on_save_png, "Save as png file (S)", self.icons.get("floppy"), key_shortcut = QKey.Key_S),
-                "save_hdf5": make_button("", self.on_save_png, "Save as hdf5 file (5)", self.icons.get("h5"), key_shortcut = QKey.Key_5),
-                "output_folder": make_button("Output folder", self.open_output_folder, "Open output folder (T)", self.icons.get("folder_blue"), key_shortcut = QKey.Key_T),
-                "exit": make_button("", self.on_exit, "Exit scanalyzer (Esc/X/E)", self.icons.get("escape")),
-                "info": make_button("", self.on_info, "Info", self.icons.get("i"))
-            }
-            
-            return buttons
-        
-        def make_labels():
-            make_label = self.gui_functions.make_label
-                
-            labels = {
-                "scan_summary": make_label("Scanalyzer by Peter H. Jacobse"),
-                "statistics": make_label("Statistics"),
-                "load_file": make_label("Load file:"),
-                "in_folder": make_label("in folder:"),
-                "number_of_files": make_label("which contains 1 sxm file"),
-                "channel_selected": make_label("Channel selected:"),
-
-                "background_subtraction": make_label("Background subtraction"),
-                "width": make_label("Width (nm):"),
-                "show": make_label("Show", "Select a projection or toggle with (H)"),
-                "limits": make_label("Set limits", "Toggle the min and max limits with (-) and (=), respectively"),
-                "matrix_operations": make_label("Matrix operations"),
-
-                "in_output_folder": make_label("In output folder")
-            }
-            
-            return labels
-
-        def make_radio_buttons():
-            make_radio_button = self.gui_functions.make_radio_button
-            
-            radio_buttons = {
-                "bg_none": make_radio_button("", "None (Shift + 0)", self.icons.get("0")),
-                "bg_plane": make_radio_button("", "Plane (Shift + P)", self.icons.get("plane_subtract")),
-                "bg_linewise": make_radio_button("", "Linewise (Shift + L)", self.icons.get("lines")),
-                "bg_inferred": make_radio_button("", "None (Shift + 0)", self.icons.get("0")),
-
-                "min_full": make_radio_button("", "set to minimum value of scan data range; (-) to toggle"),
-                "max_full": make_radio_button("", "set to maximum value of scan data range; (=) to toggle"),
-                "min_percentiles": make_radio_button("", "set to minimum percentile of data range; (-) to toggle"),
-                "max_percentiles": make_radio_button("", "set to maximum percentile of data range; (=) to toggle"),
-                "min_deviations": make_radio_button("", "set to minimum = mean - n * standard deviation; (-) to toggle"),
-                "max_deviations": make_radio_button("", "set to maximum = mean + n * standard deviation; (=) to toggle"),
-                "min_absolute": make_radio_button("", "set minimum to an absolute value; (-) to toggle"),
-                "max_absolute": make_radio_button("", "set maximum to an absolute value; (=) to toggle"),
-            }
-            
-            return radio_buttons
-
-        def make_checkboxes():
-            make_checkbox = self.gui_functions.make_checkbox
-            
-            checkboxes = {
-                "sobel": make_checkbox("Sobel", "Compute the complex gradient d/dx + i d/dy; (Shift + S)", self.icons.get("derivative")),
-                "laplace": make_checkbox("Laplace", "Compute the Laplacian (d/dx)^2 + (d/dy)^2; (Shift + L)", self.icons.get("laplacian")),
-                "fft": make_checkbox("Fft", "Compute the 2D Fourier transform; (Shift + F)", self.icons.get("fourier")),
-                "normal": make_checkbox("Normal", "Compute the z component of the surface normal (Shift + N)", self.icons.get("surface_normal")),
-                "gaussian": make_checkbox("Gauss", "Apply a Gaussian blur (Shift + G)", self.icons.get("gaussian")),
-            }
-            
-            return checkboxes
-        
-        def make_line_edits():
-            make_line_edit = self.gui_functions.make_line_edit
-            
-            line_edits = {
-                "min_full": make_line_edit("", "minimum value of scan data range"),
-                "max_full": make_line_edit("", "maximum value of scan data range"),
-                "min_percentiles": make_line_edit("2", "minimum percentile of data range"),
-                "max_percentiles": make_line_edit("98", "maximum percentile of data range"),
-                "min_deviations": make_line_edit("2", "minimum = mean - n * standard deviation"),
-                "max_deviations": make_line_edit("2", "maximum = mean + n * standard deviation"),
-                "min_absolute": make_line_edit("0", "minimum absolute value"),
-                "max_absolute": make_line_edit("1", "maximum absolute value"),
-
-                "gaussian_width": make_line_edit("0", "Width in nm for Gaussian blur application"),
-                "file_name": make_line_edit("", "Base name of the file when saved to png or hdf5")
-            }
-            
-            return line_edits
-
-        def make_comboboxes():
-            make_combobox = self.gui_functions.make_combobox
-             
-            comboboxes = {
-                "channels": make_combobox("Channels", "Available scan channels", self.on_chan_change),
-                "projection": make_combobox("Projection", "Select a projection or toggle with (Shift + ↑)", self.load_process_display, items = ["re", "im", "abs", "arg (b/w)", "arg (hue)", "complex", "abs^2", "log(abs)"]),
-                "spectra": make_combobox("spectra", "Spectra associated with the current scan")
-            }
-            
-            return comboboxes
-
-        def make_layouts():
-            make_layout = self.gui_functions.make_layout
-            
-            layouts = {
-                "toolbar": make_layout("v"),
-                "scan_summary": make_layout("v"),
-                "file_chan_dir": make_layout("v"),
-                "file_navigation": make_layout("h"),
-                "channel_navigation": make_layout("h"),
-                "image_processing": make_layout("v"),
-                "background_buttons": make_layout("h"),
-                "matrix_processing": make_layout("g"),
-                "limits": make_layout("g"),
-                "spectra": make_layout("h"),
-                "i/o": make_layout("g"),
-                "empty": make_layout("v")
-            }
-            
-            return layouts
-        
         def make_groupboxes():
-            make_groupbox = self.gui_functions.make_groupbox
+            make_groupbox = self.gui_items.make_groupbox
             
             groupboxes = {
                 "scan_summary": make_groupbox("Scan summary", "Information about the currently selected scan"),
@@ -713,165 +559,202 @@ class AppWindow(QtWidgets.QMainWindow):
             
             return groupboxes
         
-        self.buttons = make_buttons()
-        self.labels = make_labels()
-        self.radio_buttons = make_radio_buttons()
-        self.checkboxes = make_checkboxes()
-        self.line_edits = make_line_edits()
-        self.comboboxes = make_comboboxes()
-        self.layouts = make_layouts()
+        self.labels = self.gui.labels
+        self.radio_buttons = self.gui.radio_buttons
+        self.checkboxes = self.gui.checkboxes
+        self.layouts = self.gui.layouts
         self.groupboxes = make_groupboxes()
+        self.gui.groupboxes = self.groupboxes
         
-
-
+        self.gui.comboboxes["channels"].currentIndexChanged.connect(self.on_chan_change)
+        self.gui.comboboxes["projection"].currentIndexChanged.connect(self.update_processing_flags)
+        self.gui.line_edits["gaussian_width"].editingFinished.connect(self.toggle_gaussian_width)
         self.radio_buttons["bg_none"].setChecked(True)
-        self.radio_buttons["min_full"].toggled.connect(self.load_process_display)
-        self.buttons["direction"].setCheckable(True)
-        self.buttons["spec_locations"].setCheckable(True)
+        self.radio_buttons["min_full"].toggled.connect(self.update_processing_flags)
+        
+        [self.gui.buttons[name].setCheckable(True) for name in ["direction", "spec_locations"]]
+        
         exit_shortcuts = [QtGui.QShortcut(QtGui.QKeySequence(keystroke), self) for keystroke in [QKey.Key_Q, QKey.Key_E, QKey.Key_Escape]]
         [exit_shortcut.activated.connect(self.on_exit) for exit_shortcut in exit_shortcuts]
-        
-        self.line_edits["gaussian_width"].editingFinished.connect(self.toggle_gaussian_width)
-        projection_toggle_shortcuts = [QtGui.QShortcut(QtGui.QKeySequence(QKey.Key_Up | QMod.SHIFT), self), QtGui.QShortcut(QtGui.QKeySequence(QKey.Key_Down | QMod.SHIFT), self)]
-        [shortcut.activated.connect(self.toggle_projections) for shortcut in projection_toggle_shortcuts]
+                
+        next_projection_shortcut = QtGui.QShortcut(QtGui.QKeySequence(QMod.SHIFT | QKey.Key_Up), self)
+        previous_projection_shortcut = QtGui.QShortcut(QtGui.QKeySequence(QKey.Key_Down | QMod.SHIFT), self)
+        next_projection_shortcut.activated.connect(lambda: self.toggle_projections(1))
+        previous_projection_shortcut.activated.connect(lambda: self.toggle_projections(-11))
 
         return
 
     def draw_toolbar(self) -> QtWidgets.QVBoxLayout:
+        buttons = self.gui.buttons
+        labels = self.gui.labels
+        layouts = self.gui.layouts
+        comboboxes = self.gui.comboboxes
+        radio_buttons = self.gui.radio_buttons
+        checkboxes = self.gui.checkboxes
+        line_edits = self.gui.line_edits
+        groupboxes = self.gui.groupboxes
 
-        def draw_summary_group() -> QtWidgets.QGroupBox: # Scan summary group
-            [self.layouts["scan_summary"].addWidget(self.labels[name]) for name in ["scan_summary", "statistics"]]
         
-        def draw_file_chan_dir_group() -> QtWidgets.QGroupBox: # File/Channel/Direction group
-            fcd_layout = self.layouts["file_chan_dir"]
-            fcd_layout.addWidget(self.labels["load_file"])
-
-            [self.layouts["file_navigation"].addWidget(button, 5 * (index % 2) + 1) for index, button in enumerate([self.buttons["previous_file"], self.buttons["select_file"], self.buttons["next_file"]])]
-            fcd_layout.addLayout(self.layouts["file_navigation"])
-
-            if self.max_file_index == 0: self.labels["number_of_files"].setText("which contains 1 sxm file")
-            else: self.labels["number_of_files"].setText(f"which contains {self.max_file_index + 1} sxm files")
-
-            [fcd_layout.addWidget(widget) for widget in [self.labels["in_folder"], self.buttons["folder_name"], self.labels["number_of_files"], self.labels["channel_selected"]]]
-
-            self.layouts["channel_navigation"].addWidget(self.buttons["previous_channel"], 1)
-            self.layouts["channel_navigation"].addWidget(self.comboboxes["channels"], 4)
-            self.layouts["channel_navigation"].addWidget(self.buttons["next_channel"], 1)
-            self.layouts["channel_navigation"].addWidget(self.buttons["direction"], 1)
-            fcd_layout.addLayout(self.layouts["channel_navigation"])
-
-        def draw_image_processing_group() -> QtWidgets.QGroupBox: # Image processing group
-            self.layouts["image_processing"].addWidget(self.labels["background_subtraction"])
-            
-            # Background subtraction group
-            self.bg_button_group = QtWidgets.QButtonGroup(self)
-            background_buttons = [self.radio_buttons[button_name] for button_name in ["bg_none", "bg_plane", "bg_linewise", "bg_inferred"]]
-            [self.bg_button_group.addButton(button) for button in background_buttons] # Add buttons to the QButtonGroup for exclusive selection
-            [self.layouts["background_buttons"].addWidget(button) for button in background_buttons]
-            self.radio_buttons["bg_none"].setChecked(True)
-            self.layouts["image_processing"].addLayout(self.layouts["background_buttons"])
-            self.layouts["image_processing"].addWidget(self.gui_functions.line_widget("h", 1))
-
-            # Matrix operations
-            self.layouts["image_processing"].addWidget(self.labels["matrix_operations"])
-            matrix_layout = self.layouts["matrix_processing"]
-            [matrix_layout.addWidget(self.checkboxes[checkbox_name], 0, index) for index, checkbox_name in enumerate(["sobel", "normal", "laplace"])]
-            matrix_layout.addWidget(self.checkboxes["gaussian"], 1, 0)
-            matrix_layout.addWidget(self.labels["width"], 1, 1)
-            matrix_layout.addWidget(self.line_edits["gaussian_width"], 1, 2)
-            matrix_layout.addWidget(self.checkboxes["fft"], 2, 0)
-            matrix_layout.addWidget(self.labels["show"], 2, 1)
-            matrix_layout.addWidget(self.comboboxes["projection"], 2, 2)
-            self.layouts["image_processing"].addLayout(matrix_layout)
-            self.layouts["image_processing"].addWidget(self.gui_functions.line_widget("h", 1))
-
-            # Limits control group
-            self.layouts["image_processing"].addWidget(self.labels["limits"])
-            limits_layout = self.layouts["limits"]
-            min_line_edits = [self.line_edits[line_edit_name] for line_edit_name in ["min_full", "min_percentiles", "min_deviations", "min_absolute"]]
-            min_radio_buttons = [self.radio_buttons[button_name] for button_name in ["min_full", "min_percentiles", "min_deviations", "min_absolute"]]
-            scale_buttons = [self.buttons[button_name] for button_name in ["full_data_range", "percentiles", "standard_deviation", "absolute_values"]]            
-            max_radio_buttons = [self.radio_buttons[button_name] for button_name in ["max_full", "max_percentiles", "max_deviations", "max_absolute"]]
-            max_line_edits = [self.line_edits[line_edit_name] for line_edit_name in ["max_full", "max_percentiles", "max_deviations", "max_absolute"]]
-            [self.line_edits[line_edit_name].setEnabled(False) for line_edit_name in ["min_full", "max_full"]]
-            [self.min_button_group, self.max_button_group] = [QtWidgets.QButtonGroup(self), QtWidgets.QButtonGroup(self)]
-            [self.min_button_group.addButton(button) for button in min_radio_buttons] # Min and max buttons are exclusive
-            [self.max_button_group.addButton(button) for button in max_radio_buttons]
-            [limits_layout.addWidget(line_edit, index, 0) for index, line_edit in enumerate(min_line_edits)]
-            [limits_layout.addWidget(line_edit, index, 1) for index, line_edit in enumerate(min_radio_buttons)]
-            [limits_layout.addWidget(line_edit, index, 2) for index, line_edit in enumerate(scale_buttons)]
-            [limits_layout.addWidget(line_edit, index, 3) for index, line_edit in enumerate(max_radio_buttons)]
-            [limits_layout.addWidget(line_edit, index, 4) for index, line_edit in enumerate(max_line_edits)]
-            self.layouts["image_processing"].addLayout(limits_layout)
-
-            # The startup default is 100%; set the buttons accordingly (without triggering the redrawing of the scan image)
-            for button in [self.radio_buttons["min_full"], self.radio_buttons["max_full"]]:
-                button.blockSignals(True)
-                button.setChecked(True)
-                button.blockSignals(False)
+        [layouts["scan_summary"].addWidget(labels[name]) for name in ["scan_summary", "statistics"]]
         
-        def draw_spectra_group() -> QtWidgets.QGroupBox: # Spectra dropdown menu
-            self.layouts["spectra"].addWidget(self.buttons["spec_info"], 1)
-            self.layouts["spectra"].addWidget(self.comboboxes["spectra"], 4)
-            self.layouts["spectra"].addWidget(self.buttons["spec_locations"], 1)
-            self.layouts["spectra"].addWidget(self.buttons["spectrum_viewer"], 1)
-
-        def draw_io_group() -> QtWidgets.QGroupBox: # I/O group
-            io_layout = self.layouts["i/o"]
-            [io_layout.addWidget(self.buttons[name], 0, i + 1) for i, name in enumerate(["save_png", "save_hdf5", "info"])]
-            [io_layout.addWidget(widget, i, 0) for i, widget in enumerate([self.line_edits["file_name"], self.labels["in_output_folder"]])]
-            io_layout.addWidget(self.buttons["output_folder"], 1, 1, 1, 2)
-            io_layout.addWidget(self.buttons["exit"], 1, 3)
-
-        # Make the buttons. Overal layout is a QVBoxLayout
-        draw_summary_group()
-        draw_file_chan_dir_group()
-        draw_image_processing_group()
-        draw_spectra_group()
-        draw_io_group()
         
-        group_names = ["scan_summary", "file_chan_dir", "image_processing", "spectra", "i/o"]
-        [self.groupboxes[name].setLayout(self.layouts[name]) for name in group_names]
         
-        self.layouts["toolbar"].setContentsMargins(4, 4, 4, 4)
-        [self.layouts["toolbar"].addWidget(self.groupboxes[name]) for name in group_names]
-        self.layouts["toolbar"].addStretch(1) # Add a stretch at the end to push buttons up
 
-        self.radio_buttons["bg_inferred"].setEnabled(False)
-        self.buttons["save_hdf5"].setEnabled(False)
+        fcd_layout = layouts["file_chan_dir"]
+        fcd_layout.addWidget(labels["load_file"])
 
-        return self.layouts["toolbar"]
+        [layouts["file_navigation"].addWidget(buttons[name], 5 * (index % 2) + 1) for index, name in enumerate(["previous_file", "select_file", "next_file"])]
+        fcd_layout.addLayout(layouts["file_navigation"])
 
-    def connect_keys(self) -> None:
-        QKey = QtCore.Qt.Key
-        QMod = QtCore.Qt.Modifier
-        seq = QtGui.QKeySequence
+        if self.max_file_index == 0: labels["number_of_files"].setText("which contains 1 sxm file")
+        else: labels["number_of_files"].setText(f"which contains {self.max_file_index + 1} sxm files")
+
+        [fcd_layout.addWidget(widget) for widget in [labels["in_folder"], buttons["folder_name"], labels["number_of_files"], labels["channel_selected"]]]
+
+        layouts["channel_navigation"].addWidget(buttons["previous_channel"], 1)
+        layouts["channel_navigation"].addWidget(comboboxes["channels"], 4)
+        layouts["channel_navigation"].addWidget(buttons["next_channel"], 1)
+        layouts["channel_navigation"].addWidget(buttons["direction"], 1)
+        fcd_layout.addLayout(layouts["channel_navigation"])
+
+
+
+
+        layouts["image_processing"].addWidget(labels["background_subtraction"])
         
-        [self.radio_buttons[name].clicked.connect(self.update_processing_flags) for name in ["bg_none", "bg_plane", "bg_linewise"]]
-        self.radio_buttons["bg_none"].setShortcut(seq(QKey.Key_0 | QMod.SHIFT))
-        self.radio_buttons["bg_plane"].setShortcut(seq(QKey.Key_P | QMod.SHIFT))
-        self.radio_buttons["bg_linewise"].setShortcut(seq(QKey.Key_L | QMod.SHIFT))
+        # Background subtraction group
+        self.bg_button_group = QtWidgets.QButtonGroup(self)
+        background_buttons = [radio_buttons[button_name] for button_name in ["bg_none", "bg_plane", "bg_linewise", "bg_inferred"]]
+        [self.bg_button_group.addButton(button) for button in background_buttons] # Add buttons to the QButtonGroup for exclusive selection
+        [layouts["background_buttons"].addWidget(button) for button in background_buttons]
+        radio_buttons["bg_none"].setChecked(True)
+        layouts["image_processing"].addLayout(layouts["background_buttons"])
+        layouts["image_processing"].addWidget(self.gui_items.line_widget("h", 1))
 
         # Matrix operations
-        # [self.checkboxes[operation].clicked.connect(lambda checked, op = operation: self.toggle_matrix_processing(op)) for operation in ["sobel", "gaussian", "normal", "fft", "laplace"]]
-        [self.checkboxes[operation].clicked.connect(self.update_processing_flags) for operation in ["sobel", "gaussian", "normal", "fft", "laplace"]]
-        self.checkboxes["sobel"].setShortcut(seq(QKey.Key_S | QMod.SHIFT))
-        self.checkboxes["normal"].setShortcut(seq(QKey.Key_N | QMod.SHIFT))
-        self.checkboxes["gaussian"].setShortcut(seq(QKey.Key_G | QMod.SHIFT))
-        self.checkboxes["fft"].setShortcut(seq(QKey.Key_F | QMod.SHIFT))
-        self.checkboxes["laplace"].setShortcut(seq(QKey.Key_C | QMod.SHIFT))
+        layouts["image_processing"].addWidget(labels["matrix_operations"])
+        matrix_layout = layouts["matrix_processing"]
+        [matrix_layout.addWidget(checkboxes[checkbox_name], 0, index) for index, checkbox_name in enumerate(["sobel", "normal", "laplace"])]
+        matrix_layout.addWidget(checkboxes["gaussian"], 1, 1)
+        matrix_layout.addWidget(line_edits["gaussian_width"], 1, 2)
+        matrix_layout.addWidget(checkboxes["fft"], 1, 0)
+        matrix_layout.addWidget(comboboxes["projection"], 2, 1)
+        layouts["image_processing"].addLayout(matrix_layout)
+        layouts["image_processing"].addWidget(self.gui_items.line_widget("h", 1))
 
         # Limits control group
-        toggle_min_shortcut = QtGui.QShortcut(seq(QKey.Key_Minus), self)
+        layouts["image_processing"].addWidget(labels["limits"])
+        limits_layout = layouts["limits"]
+        min_line_edits = [line_edits[line_edit_name] for line_edit_name in ["min_full", "min_percentiles", "min_deviations", "min_absolute"]]
+        min_radio_buttons = [radio_buttons[button_name] for button_name in ["min_full", "min_percentiles", "min_deviations", "min_absolute"]]
+        scale_buttons = [buttons[button_name] for button_name in ["full_data_range", "percentiles", "standard_deviation", "absolute_values"]]            
+        max_radio_buttons = [radio_buttons[button_name] for button_name in ["max_full", "max_percentiles", "max_deviations", "max_absolute"]]
+        max_line_edits = [line_edits[line_edit_name] for line_edit_name in ["max_full", "max_percentiles", "max_deviations", "max_absolute"]]
+        [line_edits[line_edit_name].setEnabled(False) for line_edit_name in ["min_full", "max_full"]]
+        
+        [limits_layout.addWidget(line_edit, index, 0) for index, line_edit in enumerate(min_line_edits)]
+        [limits_layout.addWidget(line_edit, index, 1) for index, line_edit in enumerate(min_radio_buttons)]
+        [limits_layout.addWidget(line_edit, index, 2) for index, line_edit in enumerate(scale_buttons)]
+        [limits_layout.addWidget(line_edit, index, 3) for index, line_edit in enumerate(max_radio_buttons)]
+        [limits_layout.addWidget(line_edit, index, 4) for index, line_edit in enumerate(max_line_edits)]
+        layouts["image_processing"].addLayout(limits_layout)
+
+        # The startup default is 100%; set the buttons accordingly (without triggering the redrawing of the scan image)
+        for button in [radio_buttons["min_full"], radio_buttons["max_full"]]:
+            button.blockSignals(True)
+            button.setChecked(True)
+            button.blockSignals(False)
+
+
+
+        layouts["spectra"].addWidget(buttons["spec_info"], 1)
+        layouts["spectra"].addWidget(comboboxes["spectra"], 4)
+        layouts["spectra"].addWidget(buttons["spec_locations"], 1)
+        layouts["spectra"].addWidget(buttons["spectrum_viewer"], 1)
+
+
+
+
+        io_layout = layouts["i/o"]
+        [io_layout.addWidget(buttons[name], 0, i + 1) for i, name in enumerate(["save_png", "save_hdf5", "info"])]
+        [io_layout.addWidget(widget, i, 0) for i, widget in enumerate([line_edits["file_name"], labels["in_output_folder"]])]
+        io_layout.addWidget(buttons["output_folder"], 1, 1, 1, 2)
+        io_layout.addWidget(buttons["exit"], 1, 3)
+
+
+
+        
+        group_names = ["scan_summary", "file_chan_dir", "image_processing", "spectra", "i/o"]
+        [groupboxes[name].setLayout(layouts[name]) for name in group_names]
+        
+        layouts["toolbar"].setContentsMargins(4, 4, 4, 4)
+        [layouts["toolbar"].addWidget(groupboxes[name]) for name in group_names]
+        layouts["toolbar"].addStretch(1) # Add a stretch at the end to push buttons up
+
+        radio_buttons["bg_inferred"].setEnabled(False)
+        buttons["save_hdf5"].setEnabled(False)
+
+        return layouts["toolbar"]
+
+    def connect_keys(self) -> None:
+        buttons = self.gui.buttons
+        checkboxes = self.gui.checkboxes
+        radio_buttons = self.gui.radio_buttons
+        comboboxes = self.gui.comboboxes
+
+        buttons["previous_file"].clicked.connect(self.on_previous_file)
+        buttons["select_file"].clicked.connect(self.on_select_file)
+        buttons["next_file"].clicked.connect(self.on_next_file)
+        
+        buttons["previous_channel"].clicked.connect(self.on_previous_chan)
+        buttons["next_channel"].clicked.connect(self.on_next_chan)
+        
+        buttons["direction"].clicked.connect(self.on_toggle_direction),
+        buttons["folder_name"].clicked.connect(self.open_data_folder),
+        
+        buttons["full_data_range"].clicked.connect(self.on_full_scale),
+        buttons["percentiles"].clicked.connect(self.on_percentiles),
+        buttons["standard_deviation"].clicked.connect(self.on_standard_deviations),
+        buttons["absolute_values"].clicked.connect(self.on_absolute_values),
+        
+        buttons["spec_info"].clicked.connect(self.load_process_display),
+        buttons["spec_locations"].clicked.connect(self.on_toggle_spec_locations)
+        buttons["spectrum_viewer"].clicked.connect(self.open_spectrum_viewer)
+        
+        buttons["save_png"].clicked.connect(self.on_save_png)
+        buttons["save_hdf5"].clicked.connect(self.on_save_png)
+        buttons["output_folder"].clicked.connect(self.open_output_folder),
+        buttons["exit"].clicked.connect(self.on_exit),
+        buttons["info"].clicked.connect(self.on_info)        
+        
+        QKey = QtCore.Qt.Key
+        QMod = QtCore.Qt.Modifier
+        Qseq = QtGui.QKeySequence
+        
+        [radio_buttons[name].clicked.connect(self.update_processing_flags) for name in ["bg_none", "bg_plane", "bg_linewise"]]
+        radio_buttons["bg_none"].setShortcut(Qseq(QKey.Key_0 | QMod.SHIFT))
+        radio_buttons["bg_plane"].setShortcut(Qseq(QKey.Key_P | QMod.SHIFT))
+        radio_buttons["bg_linewise"].setShortcut(Qseq(QKey.Key_L | QMod.SHIFT))
+
+        # Matrix operations
+        [checkboxes[operation].clicked.connect(self.update_processing_flags) for operation in ["sobel", "gaussian", "normal", "fft", "laplace"]]
+        checkboxes["sobel"].setShortcut(Qseq(QKey.Key_S | QMod.SHIFT))
+        checkboxes["normal"].setShortcut(Qseq(QKey.Key_N | QMod.SHIFT))
+        checkboxes["gaussian"].setShortcut(Qseq(QKey.Key_G | QMod.SHIFT))
+        checkboxes["fft"].setShortcut(Qseq(QKey.Key_F | QMod.SHIFT))
+        checkboxes["laplace"].setShortcut(Qseq(QKey.Key_C | QMod.SHIFT))
+
+        # Limits control group
+        toggle_min_shortcut = QtGui.QShortcut(Qseq(QKey.Key_Minus), self)
         toggle_min_shortcut.activated.connect(lambda: self.toggle_limits("min"))
-        toggle_max_shortcut = QtGui.QShortcut(seq(QKey.Key_Equal), self)
+        toggle_max_shortcut = QtGui.QShortcut(Qseq(QKey.Key_Equal), self)
         toggle_max_shortcut.activated.connect(lambda: self.toggle_limits("max"))
 
         projection_toggle_shortcut = QtGui.QShortcut(QtGui.QKeySequence(QKey.Key_H), self)
         projection_toggle_shortcut.activated.connect(self.toggle_projections)
         
-        self.comboboxes["channels"].currentIndexChanged.connect(self.update_processing_flags)
-        self.comboboxes["projection"].currentIndexChanged.connect(self.update_processing_flags)
+        comboboxes["channels"].currentIndexChanged.connect(self.update_processing_flags)
+        comboboxes["projection"].currentIndexChanged.connect(self.update_processing_flags)
 
         return
 
@@ -930,14 +813,14 @@ class AppWindow(QtWidgets.QMainWindow):
         new_icon = self.icons["triple_arrow"]
         if direction_flag == "forward":
             direction_flag = "backward"
-            new_icon = self.gui_functions.rotate_icon(new_icon, angle = 180)
+            new_icon = self.gui_items.rotate_icon(new_icon, angle = 180)
         else:
             direction_flag = "forward"
 
-        self.buttons["direction"].blockSignals(True)
-        self.buttons["direction"].setChecked(direction_flag == "backward")
-        self.buttons["direction"].setIcon(new_icon)
-        self.buttons["direction"].blockSignals(False)
+        self.gui.buttons["direction"].blockSignals(True)
+        self.gui.buttons["direction"].setChecked(direction_flag == "backward")
+        self.gui.buttons["direction"].setIcon(new_icon)
+        self.gui.buttons["direction"].blockSignals(False)
 
         try:
             if hasattr(self, 'image_files') and len(self.image_files) > 0:
@@ -961,7 +844,6 @@ class AppWindow(QtWidgets.QMainWindow):
         return
 
     # Routines for loading a new image
-
     def load_folder(self, file_path: str = "") -> None:
         try:
             self.paths["data_folder"] = os.path.dirname(file_path) # Set the folder to the directory of the file
@@ -970,7 +852,9 @@ class AppWindow(QtWidgets.QMainWindow):
 
             # Create a bare bones dictionary containing the file names and paths of all the scan files and spectroscopy files in the folder
             
-            self.files_dict = create_files_dict(self.paths["data_folder"])
+            (files_dict, error) = self.file_functions.create_files_dict(self.paths["data_folder"])
+            if error: raise
+            else: self.files_dict = files_dict
             # Update the dictionary by reading the headers from the metadata file or from the individual dat files if necessary
             # self.read_spectroscopy_headers()
             
@@ -986,9 +870,9 @@ class AppWindow(QtWidgets.QMainWindow):
             
             # Update folder/contents labels
             try:
-                self.buttons["folder_name"].setText(self.paths["data_folder"])
+                self.gui.buttons["folder_name"].setText(self.paths["data_folder"])
                 if self.max_file_index == 0: self.labels["number_of_files"].setText("which contains 1 sxm file")
-                else: self.labels["number_of_files"].setText(f"which contains {self.max_file_index + 1} sxm files")
+                else: self.gui.labels["number_of_files"].setText(f"which contains {self.max_file_index + 1} sxm files")
             except Exception as e:
                 print(f"Error: {e}")
 
@@ -999,7 +883,7 @@ class AppWindow(QtWidgets.QMainWindow):
 
         except Exception as e:
             print(f"Error loading folder: {e}")
-            self.buttons["select_file"].setText("Select file")
+            self.gui.buttons["select_file"].setText("Select file")
         
         return
 
@@ -1007,14 +891,16 @@ class AppWindow(QtWidgets.QMainWindow):
         # Load the sxm file from the list of sxm files. Make the select file button display the file name
         scan_dict = self.files_dict.get("scan_files")
         try:
-            self.buttons["select_file"].setText(scan_dict[self.file_index].get("file_name"))
+            self.gui.buttons["select_file"].setText(scan_dict[self.file_index].get("file_name"))
         except:
             print("Error. Could not retrieve scan.")
             return
 
         # Load the scan object using nanonispy2
         try:
-            self.scan_object = get_scan(scan_dict[self.file_index].get("path"), units = {"length": "nm", "current": "pA"})
+            (self.scan_object, error) = self.file_functions.get_scan(scan_dict[self.file_index].get("path"), units = {"length": "nm", "current": "pA"})
+            if error: raise
+            
             scan_tensor = self.scan_object.tensor
             self.channels = self.scan_object.channels # Load which channels have been recorded
             if self.channel not in self.channels: # If the requested channel does not exist in the scan, default the requested channel to be the first channel in the list of channels
@@ -1025,11 +911,8 @@ class AppWindow(QtWidgets.QMainWindow):
             print(f"{e}")
 
         # Update the channel selection box based on the available channels
-        self.comboboxes["channels"].blockSignals(True)
-        self.comboboxes["channels"].clear()
-        self.comboboxes["channels"].addItems(self.channels)
-        self.comboboxes["channels"].setCurrentIndex(self.channel_index)
-        self.comboboxes["channels"].blockSignals(False)
+        self.gui.comboboxes["channels"].renewItems(self.channels)
+        self.gui.comboboxes["channels"].selectItem(self.channels[self.channel_index])
 
         # Read the metadata, the metadata file and update if necessary
         try:
@@ -1060,11 +943,11 @@ class AppWindow(QtWidgets.QMainWindow):
         except:
             self.associated_spectra = []
 
-        # Update the spectra combobox        
-        self.comboboxes["spectra"].blockSignals(True)
-        self.comboboxes["spectra"].clear()
-        self.comboboxes["spectra"].addItems([spectrum[0] for spectrum in self.associated_spectra])
-        self.comboboxes["spectra"].blockSignals(False)
+        # Update the spectra combobox
+        #self.comboboxes["spectra"].blockSignals(True)
+        #self.comboboxes["spectra"].clear()
+        #self.comboboxes["spectra"].addItems([spectrum[0] for spectrum in self.associated_spectra])
+        #self.comboboxes["spectra"].blockSignals(False)
 
         # Remove all spectroscopy targets if there were any
         view_box = self.image_view.getView()
@@ -1102,35 +985,6 @@ class AppWindow(QtWidgets.QMainWindow):
 
     def process_scan(self, image: np.ndarray) -> np.ndarray:
         (processed_scan, error) = self.data.process_scan(image)
-        print(error)
-        """
-        flags = self.data.processing_flags
-        
-        # Background subtraction
-        mode = self.data.processing_flags["background_subtraction"]
-        processed_scan = background_subtract(scan, mode = mode)
-
-        # Apply matrix operations
-        try: gaussian_sigma = float(self.line_edits["gaussian_width"].text())
-        except: gaussian_sigma = 0
-        if flags["sobel"]: processed_scan = image_gradient(processed_scan, self.scan_range_nm)
-        if flags["normal"]: processed_scan = compute_normal(processed_scan, self.scan_range_nm)
-        if flags["laplace"]: processed_scan = apply_laplace(processed_scan, self.scan_range_nm)
-        if flags["gaussian"]: processed_scan = apply_gaussian(processed_scan, sigma = gaussian_sigma, scan_range = self.scan_range_nm)
-        if flags["fft"]: processed_scan, reciprocal_range = apply_fft(processed_scan, self.scan_range_nm)
-
-        # Perform the correct projection
-        match flags["projection"]:
-            case "re": processed_scan = np.real(processed_scan)
-            case "im": processed_scan = np.imag(processed_scan)
-            case "abs": processed_scan = np.abs(processed_scan)
-            case "abs^2": processed_scan = np.abs(processed_scan) ** 2
-            case "arg (b/w)": processed_scan = np.angle(processed_scan)
-            case "arg (hue)": processed_scan = complex_image_to_colors(processed_scan, saturate = True)
-            case "complex": processed_scan = complex_image_to_colors(processed_scan, saturate = False)
-            case "log(abs)": processed_scan = np.log(np.abs(processed_scan))
-            case _: processed_scan = np.real(processed_scan)
-        """
 
         # Calculate the image statistics and display them
         (self.statistics, error) = self.data.get_image_statistics(processed_scan)
@@ -1148,14 +1002,14 @@ class AppWindow(QtWidgets.QMainWindow):
     def update_limits(self) -> None:
         self.hist_levels = list(self.hist_item.getLevels())
         [min, max] = self.hist_levels
-        self.line_edits["min_full"].setText(f"{round(min, 3)}")
-        self.line_edits["max_full"].setText(f"{round(max, 3)}")
+        self.gui.line_edits["min_full"].setText(f"{round(min, 3)}")
+        self.gui.line_edits["max_full"].setText(f"{round(max, 3)}")
 
         # Update the min according to which limit method is selected
         if self.radio_buttons["min_percentiles"].isChecked(): # Percentiles
             if hasattr(self, "statistics"):
                 try:
-                    min_percentile = float(self.line_edits["min_percentiles"].text())
+                    min_percentile = float(self.gui.line_edits["min_percentiles"].text())
                     data_sorted = self.statistics.get("data_sorted")
                     n_data = len(data_sorted)
 
@@ -1164,13 +1018,13 @@ class AppWindow(QtWidgets.QMainWindow):
                     print(f"Error: {e}")
         elif self.radio_buttons["min_absolute"].isChecked(): # Absolute values
             try:
-                min = float(self.line_edits["min_absolute"].text())
+                min = float(self.gui.line_edits["min_absolute"].text())
             except Exception as e:
                 print(f"Error: {e}")
         elif self.radio_buttons["min_deviations"].isChecked(): # Standard deviation
             if hasattr(self, "statistics"):
                 try:
-                    value = float(self.line_edits["min_deviations"].text())
+                    value = float(self.gui.line_edits["min_deviations"].text())
                     min = self.statistics.get("mean") - value * self.statistics.get("standard_deviation")
                 except Exception as e:
                     print(f"Error: {e}")
@@ -1181,7 +1035,7 @@ class AppWindow(QtWidgets.QMainWindow):
         if self.radio_buttons["max_percentiles"].isChecked(): # Percentiles
             if hasattr(self, "statistics"):
                 try:
-                    max_percentile = float(self.line_edits["max_percentiles"].text())
+                    max_percentile = float(self.gui.line_edits["max_percentiles"].text())
                     data_sorted = self.statistics.get("data_sorted")
                     n_data = len(data_sorted)
 
@@ -1190,13 +1044,13 @@ class AppWindow(QtWidgets.QMainWindow):
                     print(f"Error: {e}")
         elif self.radio_buttons["max_absolute"].isChecked(): # Absoulte values
             try:
-                max = float(self.line_edits["max_absolute"].text())
+                max = float(self.gui.line_edits["max_absolute"].text())
             except Exception as e:
                 print(f"Error: {e}")
         elif self.radio_buttons["max_deviations"].isChecked(): # Standard deviation
             if hasattr(self, "statistics"):
                 try:
-                    value = float(self.line_edits["max_deviations"].text())
+                    value = float(self.gui.line_edits["max_deviations"].text())
                     max = self.statistics.get("mean") + value * self.statistics.get("standard_deviation")
                 except Exception as e:
                     print(f"Error: {e}")
@@ -1205,8 +1059,8 @@ class AppWindow(QtWidgets.QMainWindow):
 
         # Set the histogram levels and reconnect the histogram widget to dynamic updating
         self.hist_item.setLevels(min, max)
-        self.line_edits["min_absolute"].setText(f"{round(min, 3)}") # Update the absolute value boxes
-        self.line_edits["max_absolute"].setText(f"{round(max, 3)}")
+        self.gui.line_edits["min_absolute"].setText(f"{round(min, 3)}") # Update the absolute value boxes
+        self.gui.line_edits["max_absolute"].setText(f"{round(max, 3)}")
         try: self.hist_item.sigLevelChangeFinished.connect(self.histogram_scale_changed)
         except: pass
 
@@ -1219,7 +1073,7 @@ class AppWindow(QtWidgets.QMainWindow):
         image_item = self.image_view.getImageItem()
         image_item.setRect(QtCore.QRectF(-self.scan_range_nm[1] / 2, -self.scan_range_nm[1] / 2, self.scan_range_nm[1], self.scan_range_nm[0]))  # Add dimensions to the ImageView object
 
-        if self.processing_flags["spec_locations"]:
+        if self.data.processing_flags["spec_locations"]:
             view_box = self.image_view.getView()        
             for target in self.spec_targets: view_box.addItem(target)
 
@@ -1267,7 +1121,7 @@ class AppWindow(QtWidgets.QMainWindow):
                     pass
                 # date_time and position are not present in the metadata file. Go ahead and read them from the spectroscopy file
                 else:
-                    header = get_basic_header(file_path)
+                    (header, error) = self.file_functions.get_basic_header(file_path)
                     date_time = header.get("date_time")
                     x = header.get("x")
                     y = header.get("y")
@@ -1426,10 +1280,10 @@ class AppWindow(QtWidgets.QMainWindow):
     def on_full_scale(self, side: str = "both") -> None:
         if side == "min" or side == "both":
             self.radio_buttons["min_full"].setChecked(True)
-            self.processing_flags["min_selection"] = 0
+            self.data.processing_flags["min_selection"] = 0
         if side == "max" or side == "both":
             self.radio_buttons["max_full"].setChecked(True)
-            self.processing_flags["max_selection"] = 0
+            self.data.processing_flags["max_selection"] = 0
         self.load_process_display(new_scan = False)
 
         return
@@ -1437,10 +1291,10 @@ class AppWindow(QtWidgets.QMainWindow):
     def on_percentiles(self, side: str = "both") -> None:
         if side == "min" or side == "both":
             self.radio_buttons["min_percentiles"].setChecked(True)
-            self.processing_flags["min_selection"] = 1
+            self.data.processing_flags["min_selection"] = 1
         if side == "max" or side == "both":
             self.radio_buttons["max_percentiles"].setChecked(True)
-            self.processing_flags["max_selection"] = 1
+            self.data.processing_flags["max_selection"] = 1
         self.load_process_display(new_scan = False)
 
         return
@@ -1448,10 +1302,10 @@ class AppWindow(QtWidgets.QMainWindow):
     def on_standard_deviations(self, side: str = "both") -> None:
         if side == "min" or side == "both":
             self.radio_buttons["min_deviations"].setChecked(True)
-            self.processing_flags["min_selection"] = 2
+            self.data.processing_flags["min_selection"] = 2
         if side == "max" or side == "both":
             self.radio_buttons["max_deviations"].setChecked(True)
-            self.processing_flags["max_selection"] = 2
+            self.data.processing_flags["max_selection"] = 2
         self.load_process_display(new_scan = False)
 
         return
@@ -1459,10 +1313,10 @@ class AppWindow(QtWidgets.QMainWindow):
     def on_absolute_values(self, side: str = "both") -> None:
         if side == "min" or side == "both":
             self.radio_buttons["min_absolute"].setChecked(True)
-            self.processing_flags["max_selection"] = 3
+            self.data.processing_flags["max_selection"] = 3
         if side == "max" or side == "both":
             self.radio_buttons["max_absolute"].setChecked(True)
-            self.processing_flags["max_selection"] = 3
+            self.data.processing_flags["max_selection"] = 3
         self.load_process_display(new_scan = False)
 
         return
@@ -1473,14 +1327,14 @@ class AppWindow(QtWidgets.QMainWindow):
             [min_old, max_old] = self.hist_levels
 
             if np.abs(max - max_old) > .0000001 * (max_old - min_old): # If the top level was changed (use a tiny threshold)
-                self.line_edits["max_absolute"].setText(f"{round(max, 3)}")
+                self.gui.line_edits["max_absolute"].setText(f"{round(max, 3)}")
                 self.radio_buttons["max_absolute"].setChecked(True)
-                self.processing_flags["max_selection"] = 3
+                self.data.processing_flags["max_selection"] = 3
 
             if np.abs(min - min_old) > .0000001 * (max_old - min_old): # If the bottom level was changed
-                self.line_edits["min_absolute"].setText(f"{round(min, 3)}")
+                self.gui.line_edits["min_absolute"].setText(f"{round(min, 3)}")
                 self.radio_buttons["min_absolute"].setChecked(True)
-                self.processing_flags["min_selection"] = 3
+                self.data.processing_flags["min_selection"] = 3
 
         self.hist_levels = [min, max]
 
@@ -1492,13 +1346,13 @@ class AppWindow(QtWidgets.QMainWindow):
             return
         
         if side == "min":
-            self.processing_flags["min_selection"] += 1
-            if self.processing_flags["min_selection"] > 3: self.processing_flags["min_selection"] = 0
-            sel = self.processing_flags["min_selection"]
+            self.data.processing_flags["min_selection"] += 1
+            if self.data.processing_flags["min_selection"] > 3: self.data.processing_flags["min_selection"] = 0
+            sel = self.data.processing_flags["min_selection"]
         else:
-            self.processing_flags["max_selection"] += 1
-            if self.processing_flags["max_selection"] > 3: self.processing_flags["max_selection"] = 0
-            sel = self.processing_flags["max_selection"]
+            self.data.processing_flags["max_selection"] += 1
+            if self.data.processing_flags["max_selection"] > 3: self.data.processing_flags["max_selection"] = 0
+            sel = self.data.processing_flags["max_selection"]
         
         match sel:
             case 0: self.on_full_scale(side)
@@ -1510,30 +1364,57 @@ class AppWindow(QtWidgets.QMainWindow):
 
     # Matrix processing functions
     def toggle_gaussian_width(self):
-        
-        self.update_processing_flags()
-        
+        self.checkboxes["gaussian"].setChecked(True)        
+        self.update_processing_flags()        
         return
-    
+
+    def toggle_projections(self, index) -> None:
+        self.gui.comboboxes["projection"].toggleIndex(index)
+        self.update_processing_flags        
+        return
+
     def update_processing_flags(self):
         flags = self.data.processing_flags
-        checkboxes = self.checkboxes
-        buttons = self.buttons
-        comboboxes = self.comboboxes
-        radio_buttons = self.radio_buttons
+        
+        checkboxes = self.gui.checkboxes
+        buttons = self.gui.buttons
+        comboboxes = self.gui.comboboxes
+        radio_buttons = self.gui.radio_buttons
+        line_edits = self.gui.line_edits
         
         try:
-            gaussian_sigma = float(self.line_edits["gaussian_width"].text())
+            entry = line_edits["gaussian_width"].text()
+            
+            # Extract the numeric part
+            number_matches = re.findall(r"-?\d+\.?\d*", entry)
+            numbers = [float(x) for x in number_matches]
+
+            if len(numbers) > 0:
+                number = numbers[0]
+                flags.update({"gaussian_width_nm": number})
+                
+                if number == 0: checkboxes["gaussian"].setChecked(False)
+            else:
+                print(0)
+                number = 0
+                print(1)
+                flags.update({"gaussian_width_nm": number})
+                print(2)
+                line_edits["gaussian_width"].setText("0 nm")
+                print(3)
+                checkboxes["gaussian"].setChecked(False)
+                print(4)
+                    
             direction = "backward" if buttons["direction"].isChecked() else "forward"
-        except: gaussian_sigma = 0
+        except:
+            pass
         if radio_buttons["bg_none"].isChecked(): flags.update({"background": "none"})
         if radio_buttons["bg_plane"].isChecked(): flags.update({"background": "plane"})
         if radio_buttons["bg_linewise"].isChecked(): flags.update({"background": "linewise"})
 
         try:
-            flags.update({"direction": direction,
-                          "projection": self.comboboxes["projection"].currentText(),
-                          "gaussian_width_nm": gaussian_sigma})
+            projection = comboboxes["projection"].currentText()
+            flags.update({"direction": direction, "projection": projection})
             [flags.update({operation: checkboxes[operation].isChecked()}) for operation in ["sobel", "normal", "laplace", "gaussian", "fft"]]
         except:
             print("Error updating the image processing flags.")
@@ -1543,61 +1424,24 @@ class AppWindow(QtWidgets.QMainWindow):
         tagged_name = self.data.add_tags_to_file_name(bare_name)
         self.data.processing_flags["file_name"] = tagged_name
         
+        # Update paths and line_edits
         self.paths["output_file_basename"] = tagged_name
-        self.line_edits["file_name"].setText(os.path.basename(tagged_name))
-        self.buttons["output_folder"].setText(self.paths["output_folder_name"])
+        self.gui.line_edits["file_name"].setText(os.path.basename(tagged_name))
+        self.gui.buttons["output_folder"].setText(self.paths["output_folder_name"])
 
+        # Reload and process the scan with the updated flags
         self.load_process_display()
 
         return
 
-    def toggle_matrix_processing(self, operation: str = "none") -> None:
-        match operation:
-            case "sobel":
-                checked = self.checkboxes["sobel"].isChecked()
-                self.processing_flags["sobel"] = checked
-            case "gauss":
-                checked = self.checkboxes["gaussian"].isChecked()
-                self.processing_flags["gaussian"] = checked
-            case "fft":
-                checked = self.checkboxes["fft"].isChecked()
-                self.processing_flags["fft"] = checked
-            case "laplace":
-                checked = self.checkboxes["laplace"].isChecked()
-                self.processing_flags["laplace"] = checked
-            case "normal":
-                checked = self.checkboxes["normal"].isChecked()
-                self.processing_flags["normal"] = checked
-            case _:
-                pass
 
-        if not hasattr(self, "current_scan"):
-            self.current_scan = self.load_scan()
-        processed_scan = self.process_scan(self.current_scan)
-        self.display(processed_scan)
-
-        return
-
-    def toggle_projections(self) -> None:
-        try:
-            number_of_items = self.comboboxes["projection"].count()
-            current_index = self.comboboxes["projection"].currentIndex()
-            new_index = current_index + 1
-            if new_index > number_of_items - 1: new_index = 0
-            self.comboboxes["projection"].setCurrentIndex(new_index)
-            self.load_process_display()
-
-        except Exception as e:
-            print(f"An error occurred while applying the projection: {e}")
-        
-        return
 
     # Spectroscopy
     def on_toggle_spec_locations(self) -> None:
-        self.processing_flags["spec_locations"] = not self.processing_flags["spec_locations"]
-        self.buttons["spec_locations"].blockSignals(True)
-        self.buttons["spec_locations"].setChecked(self.processing_flags["spec_locations"] == True)
-        self.buttons["spec_locations"].blockSignals(False)
+        self.data.processing_flags["spec_locations"] = not self.data.processing_flags["spec_locations"]
+        self.gui.buttons["spec_locations"].blockSignals(True)
+        self.gui.buttons["spec_locations"].setChecked(self.data.processing_flags["spec_locations"] == True)
+        self.gui.buttons["spec_locations"].blockSignals(False)
 
         self.load_process_display(new_scan = True)
     

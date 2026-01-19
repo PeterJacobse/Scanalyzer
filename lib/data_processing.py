@@ -12,7 +12,7 @@ class DataProcessing():
     def __init__(self):
         self.processing_flags = self.make_processing_flage()
         
-    def make_processing_flage(self):
+    def make_processing_flage(self) -> dict:
         processing_flags = {
             "direction": "forward",
             "up_or_down": "up",
@@ -35,7 +35,7 @@ class DataProcessing():
 
 
 
-    def add_tags_to_file_name(self, bare_name: str = ""):
+    def add_tags_to_file_name(self, bare_name: str = "") -> str:
         flags = self.processing_flags
         
         tagged_name = bare_name
