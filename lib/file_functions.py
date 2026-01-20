@@ -408,6 +408,21 @@ class FileFunctions():
             y_center = self.ureg.Quantity(float(offset[1]), "m").to("nm")
             angle = self.ureg.Quantity(float(angle), "degree")
             center = [x_center, y_center]
+            
+            x_nm = x_center.magnitude
+            y_nm = y_center.magnitude
+            center_nm = [dim.magnitude for dim in center]
+            scan_range_nm = scan_range
+            angle_deg = angle.magnitude
+            
+            frame = {
+                "x_nm": x_nm,
+                "y_nm": y_nm,
+                "center_nm": center_nm,
+                "offset_nm": center_nm,                
+                "scan_range_nm": scan_range_nm,
+                "angle_deg": angle_deg
+            }
 
             # Add new attributes to the scan object
             setattr(scan_object, "default_channel_units", default_channel_units)
@@ -430,6 +445,7 @@ class FileFunctions():
             setattr(scan_object, "y", y_center)
             setattr(scan_object, "center", center)
             setattr(scan_object, "offset", center)
+            setattr(scan_object, "frame", frame)
         
             return (scan_object, error)
 

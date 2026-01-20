@@ -18,6 +18,8 @@ class DataProcessing():
             "up_or_down": "up",
             "channel": "Z (m)",
             "background": "none",
+            "rotation": False,
+            "offset": False,
             "sobel": False,
             "gaussian": False,
             "gaussian_width_nm": 0,
@@ -27,8 +29,10 @@ class DataProcessing():
             "projection": "re",
             "min_method": "full",
             "min_method_value": 0,
+            "min_limit": 0,
             "max_method": "full",
             "max_method_value": 1,
+            "max_limit": 1,
             "spec_locations": False,
             "scan_range_nm": [0, 0],
             "file_name": ""
@@ -54,12 +58,13 @@ class DataProcessing():
         
         return tagged_name
 
-    def pick_image_from_scan_object(self, scan_object) -> tuple[np.ndarray, str, bool | str]:
+    def pick_image_from_scan_object(self, scan_object) -> tuple[np.ndarray, str, dict, bool | str]:
         error = False
 
         try:
             scan_tensor = scan_object.tensor
             channels = scan_object.channels
+            frame = scan_object.frame
             
             requested_channel = self.processing_flags.get("channel")
             
@@ -76,16 +81,39 @@ class DataProcessing():
         except Exception as e:
             error = e
 
-        return (image, selected_channel, error)
+        return (image, selected_channel, frame, error)
 
-    def process_scan(self, image: np.ndarray) -> tuple[np.ndarray, bool | str]:
+    def process_scan(self, image: np.ndarray) -> tuple[np.ndarray, dict, list, bool | str]:
+        error = False
+
+        try:
+            # Apply matrix operations
+            (processed_scan, error) = self.operate_scan(image)
+            if error: raise Exception(error)
+
+            # Calculate the image statistics and display them
+            (statistics, error) = self.get_image_statistics(processed_scan)
+            if error: raise Exception(error)
+        
+            # Calculate the limits
+            (limits, error) = self.calculate_limits(processed_scan)
+            self.processing_flags["min_limit"] = limits[0]
+            self.processing_flags["max_limit"] = limits[1]
+            if error: raise Exception(error)
+        
+        except Exception as e:
+            error = e
+                
+        return (processed_scan, statistics, limits, error)
+
+    def operate_scan(self, image: np.ndarray) -> tuple[np.ndarray, bool | str]:
         error = False
         flags = self.processing_flags
         gaussian_sigma = flags["gaussian_width_nm"]
         scan_range_nm = flags["scan_range_nm"]
         
         # Background subtraction
-        (image, error) = self.background_subtract(image, mode = flags["background"], scan_range_nm = scan_range_nm)
+        (image, error) = self.background_subtract(image, mode = flags["background"])
         if error: return (image, error)
         
         # Matrix operations
@@ -135,8 +163,8 @@ class DataProcessing():
             data_sorted = statistics.get("data_sorted")
             min_method = flags.get("min_method")
             max_method = flags.get("max_method")
-            min_value = flags.get("min_method_value")
-            max_value = flags.get("max_method_value")
+            min_value = float(flags.get("min_method_value"))
+            max_value = float(flags.get("max_method_value"))
             
             match min_method:
                 case "full":
@@ -158,7 +186,7 @@ class DataProcessing():
                 case "percentiles":
                     max_limit = data_sorted[int(.01 * max_value * len(data_sorted))]
                 case "deviations":
-                    max_limit = statistics.get("mean") + min_value * statistics.get("standard_deviation")
+                    max_limit = statistics.get("mean") + max_value * statistics.get("standard_deviation")
                 case _:
                     max_limit = max_value
 
@@ -169,7 +197,7 @@ class DataProcessing():
         return (limits, error)
 
 
-    
+
     def apply_gaussian(self, image: np.ndarray, sigma: float = 2, scan_range = None) -> tuple[np.ndarray, bool | str]:
         error = False
 
@@ -205,7 +233,7 @@ class DataProcessing():
         if not isinstance(image, np.ndarray):
             error = "Error. The provided image is not a numpy array."
             return (image, error)
-        
+                
         sobel_x = .125 * np.array([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], dtype = float)
         sobel_y = .125 * np.array([[-1, -2, -1], [0, 0, 0], [1, 2, 1]], dtype = float)
         ddx = convolve2d(image, sobel_x, mode = "valid") # These are the gradients computed using normalized sobel kernels
@@ -227,11 +255,10 @@ class DataProcessing():
                 dy_per_px = y_range / grid_size[1]
                 ddx /= dx_per_px
                 ddy /= dy_per_px
-                
-                gradient_image = ddx + 1j * ddy
-
             except:
                 error = "Error. Calculating gradient failed."
+        
+        gradient_image = ddx + 1j * ddy
 
         return (gradient_image, error)
 
@@ -406,7 +433,7 @@ class DataProcessing():
 
         try:
             avg_image = np.mean(image.flatten()) # The average value of the image, or the offset
-            (gradient_image, error) = self.image_gradient(image, scan_range_nm) # The (complex) gradient of the image
+            (gradient_image, error) = self.image_gradient(image) # The (complex) gradient of the image
             avg_gradient = np.mean(gradient_image.flatten()) # The average value of the gradient
 
             pix_y, pix_x = np.shape(image)

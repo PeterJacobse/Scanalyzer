@@ -6,6 +6,8 @@ from . import GUIItems
 
 
 class ScanalyzerGUI(QtWidgets.QMainWindow):
+    dataDropped = QtCore.pyqtSignal(str)
+    
     def __init__(self, icons_path):
         super().__init__()
         
@@ -37,6 +39,22 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
         # 5: Set up the main window layout
         self.setup_main_window()
 
+    # Drag and drop
+    def dragEnterEvent(self, event) -> None:
+        # 2. Accept the drag if it contains URLs (files)
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+        else:
+            super().dragEnterEvent(event)
+
+    def dropEvent(self, event) -> None:
+        # 3. Process the dropped files
+        for url in event.mimeData().urls():
+            file_name = url.toLocalFile()
+        event.acceptProposedAction()
+        if file_name:
+            self.dataDropped.emit(file_name)
+
 
 
     # 1: Read icons from file.
@@ -66,7 +84,7 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
             "number_of_files": make_label("which contains 1 sxm file"),
             "channel_selected": make_label("Channel selected:"),
 
-            "background_subtraction": make_label("Background subtraction"),
+            "background_subtraction": make_label("Background / frame subtraction"),
             "width": make_label("Width (nm):"),
             "show": make_label("Show", "Select a projection or toggle with (H)"),
             "limits": make_label("Set limits", "Toggle the min and max limits with (-) and (=), respectively"),
@@ -131,6 +149,9 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
             "fft": make_checkbox("Fft", "Compute the 2D Fourier transform\n(Shift + F)", self.icons.get("fourier")),
             "normal": make_checkbox("Normal", "Compute the z component of the surface normal\n(Shift + N)", self.icons.get("surface_normal")),
             "gaussian": make_checkbox("Gauss", "Gaussian blur applied\n(Provide a width to toggle)", self.icons.get("gaussian")),
+            
+            "rotation": make_checkbox("", "Show the scan frame rotation", self.icons.get("rotation")),
+            "offset": make_checkbox("", "Show the scan frame offset", self.icons.get("offset"))
         }
 
         return checkboxes
@@ -181,10 +202,10 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
         QGroup = QtWidgets.QButtonGroup
         
         radio_buttons = {
-            "bg_none": make_radio_button("", "None\n(Shift + 0)", self.icons.get("0")),
-            "bg_plane": make_radio_button("", "Plane\n(Shift + P)", self.icons.get("plane_subtract")),
-            "bg_linewise": make_radio_button("", "Linewise\n(Shift + L)", self.icons.get("lines")),
-            "bg_inferred": make_radio_button("", "None\n(Shift + 0)", self.icons.get("0")),
+            "bg_none": make_radio_button("", "None\n(0)", self.icons.get("0")),
+            "bg_plane": make_radio_button("", "Plane\n(P)", self.icons.get("plane_subtract")),
+            "bg_linewise": make_radio_button("", "Linewise\n(L)", self.icons.get("lines")),
+            "bg_inferred": make_radio_button("", "None\n(0)", self.icons.get("0")),
 
             "min_full": make_radio_button("", "set to minimum value of scan data range\n(-) to toggle"),
             "max_full": make_radio_button("", "set to maximum value of scan data range\n(=) to toggle"),
@@ -197,7 +218,7 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
         }
         
         # Named groups
-        self.background_buttons = [radio_buttons[name] for name in ["bg_none", "bg_plane", "bg_linewise", "bg_inferred"]]
+        self.background_buttons = [radio_buttons[name] for name in ["bg_none", "bg_plane", "bg_linewise"]]
         self.min_radio_buttons = [radio_buttons[name] for name in self.min_names]
         self.max_radio_buttons = [radio_buttons[name] for name in self.max_names]
                 
@@ -297,17 +318,16 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
         
         shortcuts = {
             "previous_file": QSeq(QKey.Key_Left),
-            "select_file": QSeq(QMod.CTRL | QKey.Key_Enter),
+            "select_file": QSeq(QMod.CTRL | QKey.Key_L),
             "next_file": QSeq(QKey.Key_Right),
             
             "previous_channel": QSeq(QKey.Key_Up),
             "next_channel": QSeq(QKey.Key_Down),
-            "direction": QSeq(QKey.Key_X),
             
             "folder_name": QSeq(QKey.Key_1),
 
-            "full_data_range": QSeq(QMod.SHIFT | QKey.Key_F),
-            "percentiles": QSeq(QMod.SHIFT | QKey.Key_P),
+            "full_data_range": QSeq(QMod.SHIFT | QKey.Key_U),
+            "percentiles": QSeq(QMod.SHIFT | QKey.Key_5),
             "standard_deviation": QSeq(QMod.SHIFT | QKey.Key_D),
             "absolute_values": QSeq(QMod.SHIFT | QKey.Key_A),
             
@@ -346,6 +366,7 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
         fcd_layout.addLayout(layouts["channel_navigation"])
         
         [layouts["background_buttons"].addWidget(button) for button in self.background_buttons]
+        [layouts["background_buttons"].addWidget(checkboxes[name]) for name in ["rotation", "offset"]]
         p_layout = layouts["matrix_processing"]
         [p_layout.addWidget(checkboxes[checkbox_name], 0, index) for index, checkbox_name in enumerate(["sobel", "normal", "laplace"])]
         p_layout.addWidget(checkboxes["gaussian"], 1, 1)
