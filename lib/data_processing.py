@@ -16,6 +16,7 @@ class DataProcessing():
         processing_flags = {
             "direction": "forward",
             "up_or_down": "up",
+            "channel": "Z (m)",
             "background": "none",
             "sobel": False,
             "gaussian": False,
@@ -24,8 +25,10 @@ class DataProcessing():
             "fft": False,
             "normal": False,
             "projection": "re",
-            "min_selection": 0,
-            "max_selection": 0,
+            "min_method": "full",
+            "min_method_value": 0,
+            "max_method": "full",
+            "max_method_value": 1,
             "spec_locations": False,
             "scan_range_nm": [0, 0],
             "file_name": ""
@@ -50,6 +53,30 @@ class DataProcessing():
         if projection_tag != "_re": tagged_name += projection_tag
         
         return tagged_name
+
+    def pick_image_from_scan_object(self, scan_object) -> tuple[np.ndarray, str, bool | str]:
+        error = False
+
+        try:
+            scan_tensor = scan_object.tensor
+            channels = scan_object.channels
+            
+            requested_channel = self.processing_flags.get("channel")
+            
+            # Initialize to fail and update to success if the requested channel is found
+            selected_channel = channels[0]
+            tensor_slice = scan_tensor[0]
+            for index in range(len(channels)):
+                if channels[index] == requested_channel:
+                    selected_channel = requested_channel
+                    tensor_slice = scan_tensor[index]
+                    break
+            image = tensor_slice[int(self.processing_flags.get("direction") == "backward")]
+            
+        except Exception as e:
+            error = e
+
+        return (image, selected_channel, error)
 
     def process_scan(self, image: np.ndarray) -> tuple[np.ndarray, bool | str]:
         error = False
@@ -89,8 +116,61 @@ class DataProcessing():
             case _: image = np.real(image)
         
         return (image, error)
+ 
+    def calculate_limits(self, image: np.ndarray) -> tuple[list, bool | str]:
+        error = False
+        limits = [0, 1]
+        min_value = 0
+        max_value = 0
+        min_limit = 0
+        max_limit = 0
+        
+        flags = self.processing_flags
+        
+        try:
+            (statistics, error) = self.get_image_statistics(image)
+            if error:
+                print(f"Something went awry: {error}")
+                raise
+            data_sorted = statistics.get("data_sorted")
+            min_method = flags.get("min_method")
+            max_method = flags.get("max_method")
+            min_value = flags.get("min_method_value")
+            max_value = flags.get("max_method_value")
+            
+            match min_method:
+                case "full":
+                    min_limit = statistics.get("min")
+                case "absolute":
+                    min_limit = min_value
+                case "percentiles":
+                    min_limit = data_sorted[int(.01 * min_value * len(data_sorted))]
+                case "deviations":
+                    min_limit = statistics.get("mean") - min_value * statistics.get("standard_deviation")
+                case _:
+                    min_limit = min_value
+
+            match max_method:
+                case "full":
+                    max_limit = statistics.get("max")
+                case "absolute":
+                    max_limit = max_value
+                case "percentiles":
+                    max_limit = data_sorted[int(.01 * max_value * len(data_sorted))]
+                case "deviations":
+                    max_limit = statistics.get("mean") + min_value * statistics.get("standard_deviation")
+                case _:
+                    max_limit = max_value
+
+            limits = [min_limit, max_limit]
+        except Exception as e:
+            error = e
+
+        return (limits, error)
+
+
     
-    def apply_gaussian(self, image, sigma = 2, scan_range = None) -> tuple[np.ndarray, bool | str]:
+    def apply_gaussian(self, image: np.ndarray, sigma: float = 2, scan_range = None) -> tuple[np.ndarray, bool | str]:
         error = False
 
         if not isinstance(image, np.ndarray):
@@ -119,7 +199,7 @@ class DataProcessing():
 
         return (filtered_image, error)
 
-    def image_gradient(self, image, scan_range = None) -> tuple[np.ndarray, bool | str]:
+    def image_gradient(self, image: np.ndarray, scan_range = None) -> tuple[np.ndarray, bool | str]:
         error = False
 
         if not isinstance(image, np.ndarray):
@@ -155,7 +235,7 @@ class DataProcessing():
 
         return (gradient_image, error)
 
-    def compute_normal(self, image, scan_range = None) -> tuple[np.ndarray, bool | str]:
+    def compute_normal(self, image: np.ndarray, scan_range = None) -> tuple[np.ndarray, bool | str]:
         error = False
 
         if not isinstance(image, np.ndarray):
@@ -194,7 +274,7 @@ class DataProcessing():
 
         return (normals_image, error)
 
-    def apply_laplace(self, image, scan_range = None) -> tuple[np.ndarray, bool | str]:
+    def apply_laplace(self, image: np.ndarray, scan_range = None) -> tuple[np.ndarray, bool | str]:
         error = False
 
         if not isinstance(image, np.ndarray):
@@ -223,7 +303,7 @@ class DataProcessing():
         
         return (laplacian, error)
 
-    def apply_fft(self, image, scan_range = None) -> tuple[np.ndarray, bool | str]:
+    def apply_fft(self, image: np.ndarray, scan_range = None) -> tuple[np.ndarray, bool | str]:
         error = False
         
         if not isinstance(image, np.ndarray):
@@ -261,7 +341,7 @@ class DataProcessing():
 
         return (fft_image, error)
 
-    def line_subtract(self, image) -> tuple[np.ndarray, bool | str]:
+    def line_subtract(self, image: np.ndarray) -> tuple[np.ndarray, bool | str]:
         error = False
 
         if not isinstance(image, np.ndarray):
@@ -291,7 +371,7 @@ class DataProcessing():
 
         return (image_subtracted, error)
 
-    def complex_image_to_colors(self, image, saturate: bool = False) -> tuple[np.ndarray, bool | str]:
+    def complex_image_to_colors(self, image: np.ndarray, saturate: bool = False) -> tuple[np.ndarray, bool | str]:
         error = False
 
         if not isinstance(image, np.ndarray):
@@ -317,7 +397,7 @@ class DataProcessing():
         
         return (rgb_array, error)
 
-    def background_subtract(self, image, mode: str = "plane", scan_range_nm = None) -> tuple[np.ndarray, bool | str]:
+    def background_subtract(self, image: np.ndarray, mode: str = "plane", scan_range_nm = None) -> tuple[np.ndarray, bool | str]:
         error = False
 
         if not isinstance(image, np.ndarray):
@@ -351,7 +431,7 @@ class DataProcessing():
         
         return (processed_image, error)
 
-    def get_image_statistics(self, image, pixels_per_bin: int = 200) -> tuple[dict, bool | str]:
+    def get_image_statistics(self, image: np.ndarray, pixels_per_bin: int = 200) -> tuple[dict, bool | str]:
         error = False
 
         try:

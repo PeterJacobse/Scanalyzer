@@ -35,7 +35,7 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
         self.groupboxes = self.make_groupboxes()
         
         # 5: Set up the main window layout
-        #self.setup_main_window()
+        self.setup_main_window()
 
 
 
@@ -116,7 +116,8 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
         
         # Named groups
         self.file_selection_buttons = [buttons[name] for name in ["previous_file", "select_file", "next_file"]]
-        self.scale_buttons = [buttons[name] for name in ["full_data_range", "percentiles", "standard_deviation", "absolute_values"]]
+        self.limits_names = ["full_data_range", "percentiles", "standard_deviation", "absolute_values"]
+        self.scale_buttons = [buttons[name] for name in self.limits_names]
         self.fcd_widgets = [labels["in_folder"], buttons["folder_name"], labels["number_of_files"], labels["channel_selected"]]
 
         return buttons
@@ -146,6 +147,7 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
         
         # Named groups
         self.chan_nav_widgets = [buttons["previous_channel"], comboboxes["channels"], buttons["next_channel"], buttons["direction"]]
+        self.spectra_widgets = [buttons["spec_info"], comboboxes["spectra"], buttons["spec_locations"], buttons["spectrum_viewer"]]
         
         return comboboxes
 
@@ -167,6 +169,10 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
         }
         
         # Named groups
+        self.min_names = ["min_full", "min_percentiles", "min_deviations", "min_absolute"]
+        self.max_names = ["max_full", "max_percentiles", "max_deviations", "max_absolute"]
+        self.min_line_edits = [line_edits[name] for name in self.min_names]
+        self.max_line_edits = [line_edits[name] for name in self.max_names]
         
         return line_edits
 
@@ -192,8 +198,8 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
         
         # Named groups
         self.background_buttons = [radio_buttons[name] for name in ["bg_none", "bg_plane", "bg_linewise", "bg_inferred"]]
-        self.min_radio_buttons = [radio_buttons[name] for name in ["min_full", "min_percentiles", "min_deviations", "min_absolute"]]
-        self.max_radio_buttons = [radio_buttons[name] for name in ["max_full", "max_percentiles", "max_deviations", "max_absolute"]]
+        self.min_radio_buttons = [radio_buttons[name] for name in self.min_names]
+        self.max_radio_buttons = [radio_buttons[name] for name in self.max_names]
                 
         # Add buttons to QButtonGroups for exclusive selection and check the defaults
         self.background_button_group = QGroup()
@@ -261,9 +267,8 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
         }
         
         self.coarse_control_widgets = [widgets[name] for name in ["coarse_actions", "arrows"]]     
-        
-        widgets["central"].setFocusPolicy(QtCore.Qt.FocusPolicy.StrongFocus)
-        widgets["central"].setFocus()
+
+        layouts.update({"main": QtWidgets.QHBoxLayout(widgets["central"])})
         
         return widgets
 
@@ -292,7 +297,7 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
         
         shortcuts = {
             "previous_file": QSeq(QKey.Key_Left),
-            "select_file": QSeq(QKey.Key_L),
+            "select_file": QSeq(QMod.CTRL | QKey.Key_Enter),
             "next_file": QSeq(QKey.Key_Right),
             
             "previous_channel": QSeq(QKey.Key_Up),
@@ -300,16 +305,14 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
             "direction": QSeq(QKey.Key_X),
             
             "folder_name": QSeq(QKey.Key_1),
-            "full_data_range": QSeq(QMod.SHIFT | QKey.Key_U),
-            
-            "direction": QSeq(QKey.Key_X),
-            "full_data_range": QSeq(QMod.SHIFT | QKey.Key_U),
-            "percentiles": QSeq(QMod.SHIFT | QKey.Key_R),
+
+            "full_data_range": QSeq(QMod.SHIFT | QKey.Key_F),
+            "percentiles": QSeq(QMod.SHIFT | QKey.Key_P),
             "standard_deviation": QSeq(QMod.SHIFT | QKey.Key_D),
             "absolute_values": QSeq(QMod.SHIFT | QKey.Key_A),
             
-            "spec_locations": QSeq(QKey.Key_3),
-            "spectrum_viewer": QSeq(QKey.Key_O),
+            "spec_locations": QSeq(QKey.Key_Space),
+            "spectrum_viewer": QSeq(QMod.CTRL | QKey.Key_S),
 
             "save_png": QSeq(QKey.Key_S),
             "save_hdf5": QSeq(QKey.Key_5),
@@ -323,6 +326,11 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
     # 3: Populate layouts with GUI items. Requires GUI items.
     def populate_layouts(self) -> None:
         layouts = self.layouts
+        buttons = self.buttons
+        checkboxes = self.checkboxes
+        comboboxes = self.comboboxes
+        line_edits = self.line_edits
+        labels = self.labels
         
         # Add items to the layouts
         [layouts["scan_summary"].addWidget(self.labels[name]) for name in ["scan_summary", "statistics"]]
@@ -337,62 +345,37 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
         [fcd_layout.addWidget(widget) for widget in self.fcd_widgets]
         fcd_layout.addLayout(layouts["channel_navigation"])
         
-        
-        """
-        ca_layout = layouts["coarse_actions"]
-        [ca_layout.addWidget(checkbox, i, 0) for i, checkbox in enumerate(self.action_checkboxes)]
-        [ca_layout.addWidget(button, i + int(i / 2), 1) for i, button in enumerate(self.action_buttons)]
-        [ca_layout.addWidget(line_edit, i + 1, 2) for i, line_edit in enumerate(self.action_line_edits)]
-        [ca_layout.addWidget(label, i + 1, 3) for i, label in enumerate(self.steps_labels)]
-        
-        [layouts["arrows"].addWidget(button, int(i / 3), i % 3) for i, button in enumerate(self.arrow_buttons)]
-        [layouts["scan_parameter_sets"].addWidget(button) for button in self.scan_parameter_sets]
-        [layouts["parameters"].addWidget(box, 0, i) for i, box in enumerate(self.parameter_line_0)]
-        layouts["parameters"].addLayout(layouts["scan_parameter_sets"], 1, 0, 1, 3)        
-        [layouts["parameters"].addWidget(box, 1, i + 3) for i, box in enumerate(self.parameter_line_1)]
-        
-        [layouts["experiment_controls"].addWidget(widget) for widget in self.experiment_controls]
-        e_layout = layouts["experiment"]
-        [e_layout.addWidget(self.comboboxes[name], 0, i) for i, name in enumerate(["experiment", "direction"])]
-        e_layout.addLayout(layouts["experiment_controls"], 1, 0, 2, 1)
-        
-        layouts["scan_control"].addWidget(self.comboboxes["channels"], 5)
-        layouts["scan_control"].addWidget(self.buttons["direction"], 1)
         [layouts["background_buttons"].addWidget(button) for button in self.background_buttons]
         p_layout = layouts["matrix_processing"]
-        [p_layout.addWidget(self.checkboxes[name], 0, i) for i, name in enumerate(["sobel", "normal", "laplace"])]
-        [p_layout.addWidget(self.checkboxes[name], i + 1, 0) for i, name in enumerate(["gauss", "fft"])]
-        [p_layout.addWidget(self.labels[name], i + 1, 1) for i, name in enumerate(["width", "show"])]
-        p_layout.addWidget(self.line_edits["gaussian_width"], 1, 2)
-        p_layout.addWidget(self.comboboxes["projection"], 2, 2)        
+        [p_layout.addWidget(checkboxes[checkbox_name], 0, index) for index, checkbox_name in enumerate(["sobel", "normal", "laplace"])]
+        p_layout.addWidget(checkboxes["gaussian"], 1, 1)
+        p_layout.addWidget(line_edits["gaussian_width"], 1, 2)
+        p_layout.addWidget(checkboxes["fft"], 1, 0)
+        p_layout.addWidget(comboboxes["projection"], 2, 1)
         
         l_layout = layouts["limits"]
-        [l_layout.addWidget(item, i, 0) for i, item in enumerate(self.min_line_edits)]
-        [l_layout.addWidget(item, i, 1) for i, item in enumerate(self.min_radio_buttons)]
-        [l_layout.addWidget(item, i, 2) for i, item in enumerate(self.scale_buttons)]
-        [l_layout.addWidget(item, i, 3) for i, item in enumerate(self.max_radio_buttons)]
-        [l_layout.addWidget(item, i, 4) for i, item in enumerate(self.max_line_edits)]
-        
+        self.limits_columns = [self.min_line_edits, self.min_radio_buttons, self.scale_buttons, self.max_radio_buttons, self.max_line_edits]
+        for j, group in enumerate(self.limits_columns): [l_layout.addWidget(item, i, j) for i, item in enumerate(group)]
+
         ip_layout = layouts["image_processing"]
-        ip_layout.addWidget(self.labels["scan_control"])
-        ip_layout.addLayout(layouts["scan_control"])
-        ip_layout.addWidget(self.lines["scan_control"])
-        ip_layout.addWidget(self.labels["background_subtraction"])
+        ip_layout.addWidget(labels["background_subtraction"])
         ip_layout.addLayout(layouts["background_buttons"])
-        ip_layout.addWidget(self.lines["background"])
-        ip_layout.addWidget(self.labels["matrix_operations"])
-        ip_layout.addLayout(layouts["matrix_processing"])
-        ip_layout.addWidget(self.lines["matrix_operations"])
-        ip_layout.addWidget(self.labels["limits"])            
-        ip_layout.addLayout(layouts["limits"])
+        ip_layout.addWidget(self.gui_items.line_widget("h", 1))
+        ip_layout.addWidget(labels["matrix_operations"])
+        ip_layout.addLayout(p_layout)
+        ip_layout.addWidget(self.gui_items.line_widget("h", 1))
+        ip_layout.addWidget(labels["limits"])         
+        ip_layout.addLayout(l_layout)
         
-        layouts["coarse_control"].addLayout(ca_layout)
-        layouts["coarse_control"].addLayout(layouts["arrows"])
+        [layouts["spectra"].addWidget(widget) for widget in self.spectra_widgets]
+        layouts["spectra"].setStretchFactor(comboboxes["spectra"], 4)
         
-        #layouts["input"].addWidget(self.buttons["input"], 1)
-        layouts["input"].addWidget(self.consoles["input"])
-        """
-        
+        io_layout = layouts["i/o"]
+        [io_layout.addWidget(buttons[name], 0, i + 1) for i, name in enumerate(["save_png", "save_hdf5", "info"])]
+        [io_layout.addWidget(widget, i, 0) for i, widget in enumerate([line_edits["file_name"], labels["in_output_folder"]])]
+        io_layout.addWidget(buttons["output_folder"], 1, 1, 1, 2)
+        io_layout.addWidget(buttons["exit"], 1, 3)
+                
         return
 
 
@@ -411,10 +394,10 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
         }
 
         # Set layouts for the groupboxes
-        #[groupboxes[name].setLayout(layouts[name]) for name in ["connections", "coarse_control", "parameters", "experiment", "image_processing"]]
+        group_names = ["scan_summary", "file_chan_dir", "image_processing", "spectra", "i/o"]
+        [groupboxes[name].setLayout(layouts[name]) for name in group_names]
         
-        # Draw experiments group: to be absorbed in gui_scantelligent.py        
-        #[self.layouts["toolbar"].addWidget(groupboxes[name]) for name in ["connections", "coarse_control", "parameters", "experiment", "image_processing"]]
+        [self.layouts["toolbar"].addWidget(groupboxes[name]) for name in group_names]        
         
         return groupboxes
 
@@ -426,20 +409,11 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
         widgets = self.widgets
 
         # Aesthetics
-        
-        """
-        layouts["left_side"].setContentsMargins(0, 0, 0, 0)
         layouts["toolbar"].setContentsMargins(4, 4, 4, 4)
         layouts["toolbar"].addStretch(1)
         
-        # Compose the image_view plus consoles layout
-        layouts["left_side"].addWidget(self.image_view, stretch = 4)
-        layouts["left_side"].addWidget(self.consoles["output"], stretch = 1)
-        layouts["left_side"].addWidget(self.line_edits["input"])
-        self.widgets["left_side"].setLayout(layouts["left_side"])
-        
-        # Attach the toolbar        
-        layouts["main"].addWidget(self.widgets["left_side"], stretch = 4)
+        # Set the layout as the image_view plus toolbar
+        layouts["main"].addWidget(self.image_view, 3)
         layouts["main"].addLayout(layouts["toolbar"], 1)
         
         # Set the central widget of the QMainWindow
@@ -449,13 +423,12 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
         
         # Finish the setup
         self.setCentralWidget(widgets["central"])
-        self.setWindowTitle("Scantelligent by Peter H. Jacobse")
-        self.setGeometry(100, 50, 1400, 800) # x, y, width, height
+        self.setWindowTitle("Scanalyzer")
+        self.setGeometry(100, 100, 1400, 800) # x, y, width, height
         self.setWindowIcon(self.icons.get("scanalyzer"))
         self.setFocusPolicy(QtCore.Qt.FocusPolicy.StrongFocus)
         self.setFocus()
-        self.activateWindow()
-        """
+        #self.activateWindow()
         
         return
 

@@ -1,36 +1,19 @@
-import os, sys, re, yaml, pint
+import os, sys, re, yaml
 import numpy as np
 from PyQt6 import QtCore, QtGui, QtWidgets
 import pyqtgraph as pg
-import pyqtgraph.exporters as expts
-from lib import GUIFunctions, GUIItems, ScanalyzerGUI, HoverTargetItem, DataProcessing, FileFunctions, SpectrumViewer
+from lib import ScanalyzerGUI, HoverTargetItem, DataProcessing, FileFunctions, SpectrumViewer
 
 
 
-class AppWindow(QtWidgets.QMainWindow):
+class AppWindow:
     def __init__(self):
         super().__init__()
         self.parameters_init()
-        self.gui_items_init()
-        
-        self.setWindowTitle("Scanalyzer") # Make the app window
-        self.setGeometry(100, 100, 1400, 800) # x, y, width, height
+        self.gui = ScanalyzerGUI(self.paths["icon_folder"])
+        self.connect_buttons()
 
-        # Set the central widget of the QMainWindow, then draw a toolbar next to it
-        self.setCentralWidget(self.gui.widgets["central"])
-        
-        main_layout = QtWidgets.QHBoxLayout(self.gui.widgets["central"])
-        
-        main_layout.addWidget(self.gui.image_view, 3)
-        main_layout.addLayout(self.gui.layouts["toolbar"], 1)
-        
-        # Ensure the central widget and QMainWindow can both receive keyboard focus
-        
-        self.setFocusPolicy(QtCore.Qt.FocusPolicy.StrongFocus)
-        self.setFocus()
-        self.activateWindow()
-
-        # Initialize the ImageView
+        # Initialize the ImageView from the last session
         try: # Read the last scan file from the config yaml file
             with open(self.paths["config_path"], "r") as file:
                 yaml_data = yaml.safe_load(file)
@@ -39,6 +22,8 @@ class AppWindow(QtWidgets.QMainWindow):
                 #self.on_full_scale("both")
         except:
             pass
+        
+        self.gui.show()
 
 
 
@@ -77,7 +62,6 @@ class AppWindow(QtWidgets.QMainWindow):
                 if extension == ".png": self.icons.update({icon_name: QtGui.QIcon(os.path.join(self.paths["icon_folder"], icon_file))})
             except:
                 pass
-        self.setWindowIcon(self.icons.get("scanalyzer"))
         
         # Some attributes
         self.files_dict = {}
@@ -92,99 +76,10 @@ class AppWindow(QtWidgets.QMainWindow):
         self.max_channel_index = 0
         self.scale_toggle_index = 0
         self.spec_targets = []
-        self.ureg = pint.UnitRegistry()
         self.file_functions = FileFunctions()
         self.data = DataProcessing()
-        self.gui = ScanalyzerGUI(self.paths["icon_folder"])
-        self.gui_functions = GUIFunctions()
-        self.gui_items = GUIItems()
 
-    def gui_items_init(self) -> None:
-        self.populate_layouts()
-        self.connect_keys()
-
-    def populate_layouts(self) -> QtWidgets.QVBoxLayout:
-        buttons = self.gui.buttons
-        labels = self.gui.labels
-        layouts = self.gui.layouts
-        comboboxes = self.gui.comboboxes
-        radio_buttons = self.gui.radio_buttons
-        checkboxes = self.gui.checkboxes
-        line_edits = self.gui.line_edits
-        groupboxes = self.gui.groupboxes
-
-
-
-        layouts["image_processing"].addWidget(labels["background_subtraction"])
-        
-        # Background subtraction group
-        self.bg_button_group = QtWidgets.QButtonGroup(self)
-        background_buttons = [radio_buttons[button_name] for button_name in ["bg_none", "bg_plane", "bg_linewise", "bg_inferred"]]
-        [self.bg_button_group.addButton(button) for button in self.gui.background_buttons] # Add buttons to the QButtonGroup for exclusive selection
-        [layouts["background_buttons"].addWidget(button) for button in background_buttons]
-        radio_buttons["bg_none"].setChecked(True)
-        layouts["image_processing"].addLayout(layouts["background_buttons"])
-        layouts["image_processing"].addWidget(self.gui_items.line_widget("h", 1))
-
-        # Matrix operations
-        layouts["image_processing"].addWidget(labels["matrix_operations"])
-        matrix_layout = layouts["matrix_processing"]
-        [matrix_layout.addWidget(checkboxes[checkbox_name], 0, index) for index, checkbox_name in enumerate(["sobel", "normal", "laplace"])]
-        matrix_layout.addWidget(checkboxes["gaussian"], 1, 1)
-        matrix_layout.addWidget(line_edits["gaussian_width"], 1, 2)
-        matrix_layout.addWidget(checkboxes["fft"], 1, 0)
-        matrix_layout.addWidget(comboboxes["projection"], 2, 1)
-        layouts["image_processing"].addLayout(matrix_layout)
-        layouts["image_processing"].addWidget(self.gui_items.line_widget("h", 1))
-
-        # Limits control group
-        layouts["image_processing"].addWidget(labels["limits"])
-        limits_layout = layouts["limits"]
-        min_line_edits = [line_edits[line_edit_name] for line_edit_name in ["min_full", "min_percentiles", "min_deviations", "min_absolute"]]
-        min_radio_buttons = [radio_buttons[button_name] for button_name in ["min_full", "min_percentiles", "min_deviations", "min_absolute"]]
-        scale_buttons = [buttons[button_name] for button_name in ["full_data_range", "percentiles", "standard_deviation", "absolute_values"]]            
-        max_radio_buttons = [radio_buttons[button_name] for button_name in ["max_full", "max_percentiles", "max_deviations", "max_absolute"]]
-        max_line_edits = [line_edits[line_edit_name] for line_edit_name in ["max_full", "max_percentiles", "max_deviations", "max_absolute"]]
-        [line_edits[line_edit_name].setEnabled(False) for line_edit_name in ["min_full", "max_full"]]
-        
-        [limits_layout.addWidget(line_edit, index, 0) for index, line_edit in enumerate(min_line_edits)]
-        [limits_layout.addWidget(line_edit, index, 1) for index, line_edit in enumerate(min_radio_buttons)]
-        [limits_layout.addWidget(line_edit, index, 2) for index, line_edit in enumerate(scale_buttons)]
-        [limits_layout.addWidget(line_edit, index, 3) for index, line_edit in enumerate(max_radio_buttons)]
-        [limits_layout.addWidget(line_edit, index, 4) for index, line_edit in enumerate(max_line_edits)]
-        layouts["image_processing"].addLayout(limits_layout)
-
-        # The startup default is 100%; set the buttons accordingly (without triggering the redrawing of the scan image)
-        [radio_buttons[name].setSilentCheck(True) for name in ["min_full", "max_full", "bg_none"]]
-        
-        spectra_widgets = [buttons["spec_info"], comboboxes["spectra"], buttons["spec_locations"], buttons["spectrum_viewer"]]
-        [layouts["spectra"].addWidget(widget) for widget in spectra_widgets]
-        layouts["spectra"].setStretchFactor(comboboxes["spectra"], 4)
-
-
-
-
-        io_layout = layouts["i/o"]
-        [io_layout.addWidget(buttons[name], 0, i + 1) for i, name in enumerate(["save_png", "save_hdf5", "info"])]
-        [io_layout.addWidget(widget, i, 0) for i, widget in enumerate([line_edits["file_name"], labels["in_output_folder"]])]
-        io_layout.addWidget(buttons["output_folder"], 1, 1, 1, 2)
-        io_layout.addWidget(buttons["exit"], 1, 3)
-
-
-
-        
-        group_names = ["scan_summary", "file_chan_dir", "image_processing", "spectra", "i/o"]
-        [groupboxes[name].setLayout(layouts[name]) for name in group_names]
-        
-        
-        
-        layouts["toolbar"].setContentsMargins(4, 4, 4, 4)
-        [layouts["toolbar"].addWidget(groupboxes[name]) for name in group_names]
-        layouts["toolbar"].addStretch(1) # Add a stretch at the end to push buttons up
-
-        return
-
-    def connect_keys(self) -> None:
+    def connect_buttons(self) -> None:
         buttons = self.gui.buttons
         checkboxes = self.gui.checkboxes
         radio_buttons = self.gui.radio_buttons
@@ -210,67 +105,51 @@ class AppWindow(QtWidgets.QMainWindow):
             connected_function = connection[1]
             buttons[name].clicked.connect(connected_function)
             
-            #if name in shortcuts.keys():
-            #    shortcut = QtGui.QShortcut(shortcuts[name], self.gui)
-            #    shortcut.activated.connect(connected_function)
+            if name in shortcuts.keys():
+                shortcut = QtGui.QShortcut(shortcuts[name], self.gui)
+                shortcut.activated.connect(connected_function)
         
         QKey = QtCore.Qt.Key
         QMod = QtCore.Qt.Modifier
         QSeq = QtGui.QKeySequence
+        QShc = QtGui.QShortcut
         
         [radio_buttons[name].clicked.connect(self.update_processing_flags) for name in ["bg_none", "bg_plane", "bg_linewise"]]
-        radio_buttons["bg_none"].setShortcut(QSeq(QKey.Key_0 | QMod.SHIFT))
-        radio_buttons["bg_plane"].setShortcut(QSeq(QKey.Key_P | QMod.SHIFT))
-        radio_buttons["bg_linewise"].setShortcut(QSeq(QKey.Key_L | QMod.SHIFT))
+        radio_buttons["bg_none"].setShortcut(QSeq(QKey.Key_0))
+        radio_buttons["bg_plane"].setShortcut(QSeq(QKey.Key_P))
+        radio_buttons["bg_linewise"].setShortcut(QSeq(QKey.Key_L))
 
         # Matrix operations
         [checkboxes[operation].clicked.connect(self.update_processing_flags) for operation in ["sobel", "gaussian", "normal", "fft", "laplace"]]
-        checkboxes["sobel"].setShortcut(QSeq(QKey.Key_S | QMod.SHIFT))
-        checkboxes["normal"].setShortcut(QSeq(QKey.Key_N | QMod.SHIFT))
-        checkboxes["gaussian"].setShortcut(QSeq(QKey.Key_G | QMod.SHIFT))
-        checkboxes["fft"].setShortcut(QSeq(QKey.Key_F | QMod.SHIFT))
-        checkboxes["laplace"].setShortcut(QSeq(QKey.Key_C | QMod.SHIFT))
+        checkboxes["sobel"].setShortcut(QSeq(QMod.SHIFT | QKey.Key_S))
+        checkboxes["normal"].setShortcut(QSeq(QMod.SHIFT | QKey.Key_N))
+        checkboxes["gaussian"].setShortcut(QSeq(QMod.SHIFT | QKey.Key_G))
+        checkboxes["fft"].setShortcut(QSeq(QMod.SHIFT | QKey.Key_F))
+        checkboxes["laplace"].setShortcut(QSeq(QMod.SHIFT | QKey.Key_L))
 
         # Limits control group
-        toggle_min_shortcut = QtGui.QShortcut(QSeq(QKey.Key_Minus), self)
-        toggle_min_shortcut.activated.connect(lambda: self.toggle_limits("min"))
-        toggle_max_shortcut = QtGui.QShortcut(QSeq(QKey.Key_Equal), self)
-        toggle_max_shortcut.activated.connect(lambda: self.toggle_limits("max"))
+        toggle_min_shortcut = QShc(QSeq(QKey.Key_Minus), self.gui)
+        toggle_min_shortcut.activated.connect(lambda: self.on_limits_set("toggle", "min"))
+        toggle_max_shortcut = QShc(QSeq(QKey.Key_Equal), self.gui)
+        toggle_max_shortcut.activated.connect(lambda: self.on_limits_set("toggle", "max"))
 
-        next_projection_shortcut = QtGui.QShortcut(QSeq(QMod.SHIFT | QKey.Key_Down), self)
+        next_projection_shortcut = QShc(QSeq(QMod.SHIFT | QKey.Key_Down), self.gui)
         next_projection_shortcut.activated.connect(lambda: self.toggle_projections(1))
-        next_projection_shortcut = QtGui.QShortcut(QSeq(QMod.SHIFT | QKey.Key_Up), self)
+        next_projection_shortcut = QShc(QSeq(QMod.SHIFT | QKey.Key_Up), self.gui)
         next_projection_shortcut.activated.connect(lambda: self.toggle_projections(-1))
         
-        comboboxes["channels"].currentIndexChanged.connect(self.update_processing_flags)
-        comboboxes["projection"].currentIndexChanged.connect(self.update_processing_flags)
-
-
-
-
+        #comboboxes["channels"].currentIndexChanged.connect(self.update_processing_flags)
         #comboboxes["projection"].currentIndexChanged.connect(self.update_processing_flags)
         #self.gui.line_edits["gaussian_width"].editingFinished.connect(self.update_processing_flags)
-        #radio_buttons["bg_none"].setChecked(True)
-        #radio_buttons["min_full"].toggled.connect(self.update_processing_flags)
         
-        [signal.connect(self.update_processing_flags) for signal in [comboboxes["projection"].currentIndexChanged, line_edits["gaussian_width"].editingFinished]]
+        [signal.connect(self.update_processing_flags) for signal in [comboboxes["channels"].currentIndexChanged, comboboxes["projection"].currentIndexChanged, line_edits["gaussian_width"].editingFinished]]
         
-        exit_shortcuts = [QtGui.QShortcut(QtGui.QKeySequence(keystroke), self) for keystroke in [QKey.Key_Q, QKey.Key_E, QKey.Key_Escape]]
+        exit_shortcuts = [QShc(QSeq(keystroke), self.gui) for keystroke in [QKey.Key_Q, QKey.Key_E, QKey.Key_Escape]]
         [exit_shortcut.activated.connect(self.on_exit) for exit_shortcut in exit_shortcuts]
-                
-        next_projection_shortcut = QtGui.QShortcut(QtGui.QKeySequence(QMod.SHIFT | QKey.Key_Up), self)
-        previous_projection_shortcut = QtGui.QShortcut(QtGui.QKeySequence(QKey.Key_Down | QMod.SHIFT), self)
-        next_projection_shortcut.activated.connect(lambda: self.toggle_projections(1))
-        previous_projection_shortcut.activated.connect(lambda: self.toggle_projections(-11))
-
-
-
 
         self.hist = self.gui.image_view.getHistogramWidget()
         self.hist_item = self.hist.item
         self.hist_item.sigLevelChangeFinished.connect(self.histogram_scale_changed)
-
-
 
         return
 
@@ -370,9 +249,9 @@ class AppWindow(QtWidgets.QMainWindow):
 
     def load_scan(self) -> np.ndarray:
         # Load the sxm file from the list of sxm files. Make the select file button display the file name
-        buttons = self.gui.buttons
         labels = self.gui.labels
         comboboxes = self.gui.comboboxes
+        channel = self.data.processing_flags.get("channel")
         
         scan_dict = self.files_dict.get("scan_files")
         try:
@@ -385,26 +264,20 @@ class AppWindow(QtWidgets.QMainWindow):
         if self.file_index < 0: self.file_index = self.max_file_index
         if self.file_index > self.max_file_index: self.file_index = 0
         try:
-            (self.scan_object, error) = self.file_functions.get_scan(scan_dict[self.file_index].get("path"), units = {"length": "nm", "current": "pA"})
+            (self.scan_object, error) = self.file_functions.get_scan(scan_dict[self.file_index].get("path"))
             if error: raise
-            
-            scan_tensor = self.scan_object.tensor
-            self.channels = self.scan_object.channels # Load which channels have been recorded
-            if self.channel not in self.channels: # If the requested channel does not exist in the scan, default the requested channel to be the first channel in the list of channels
-                self.channel = self.channels[0]
-            self.channel_index = np.where(self.channels == self.channel)[0][0]
-            self.max_channel_index = len(self.channels) - 1
+
+            channels = self.scan_object.channels
+            self.channels = channels
+            comboboxes["channels"].renewItems(channels)
         except Exception as e:
             print(f"{e}")
-
-        # Update the channel selection box based on the available channels
-        comboboxes["channels"].renewItems(self.channels)
-        comboboxes["channels"].selectItem(self.channels[self.channel_index])
 
         # Read the metadata, the metadata file and update if necessary
         try:
             self.read_metadata()
             self.get_end_time()
+            pass
         except Exception as e:
             print(f"{e}")
         
@@ -415,10 +288,14 @@ class AppWindow(QtWidgets.QMainWindow):
 
         # Find the spectra associated with this scan and make them available for viewing as target items and in the combobox
         #self.find_associated_spectra()
+        
+        (image, selected_channel, error) = self.data.pick_image_from_scan_object(self.scan_object)
+        comboboxes["channels"].selectItem(selected_channel)
+        if error:
+            print(f"{error}")
+            return
 
-        # Channel / scan direction selection
-        selected_scan = scan_tensor[self.channel_index, int(self.data.processing_flags["direction"] == "backward")]
-        return selected_scan
+        return image #selected_scan
 
     def find_associated_spectra(self) -> None:
         # From the list of spectra (spec_files), select the ones that are associated with the current scan (associated scan name is column 3 in self.spec_files and column 0 in self.sxm_files)
@@ -429,10 +306,7 @@ class AppWindow(QtWidgets.QMainWindow):
             self.associated_spectra = []
 
         # Update the spectra combobox
-        #self.comboboxes["spectra"].blockSignals(True)
-        #self.comboboxes["spectra"].clear()
-        #self.comboboxes["spectra"].addItems([spectrum[0] for spectrum in self.associated_spectra])
-        #self.comboboxes["spectra"].blockSignals(False)
+        self.comboboxes["spectra"].renewItems([spectrum[0] for spectrum in self.associated_spectra])
 
         # Remove all spectroscopy targets if there were any
         view_box = self.gui.image_view.getView()
@@ -480,6 +354,11 @@ class AppWindow(QtWidgets.QMainWindow):
             print(f"{error}")
             return
         
+        (limits, error) = self.data.calculate_limits(processed_scan)
+        if error:
+            print(f"{error}")
+            return
+        
         range_tot = self.statistics.get("range_total")
         mean = self.statistics.get("mean")
         standard_deviation = self.statistics.get("standard_deviation")
@@ -492,15 +371,16 @@ class AppWindow(QtWidgets.QMainWindow):
         return processed_scan
 
     def update_limits(self) -> None:
-        self.radio_buttons = self.gui.radio_buttons
+        flags = self.data.processing_flags
+        radio_buttons = self.gui.radio_buttons
         
         self.hist_levels = list(self.hist_item.getLevels())
         [min, max] = self.hist_levels
         self.gui.line_edits["min_full"].setText(f"{round(min, 3)}")
         self.gui.line_edits["max_full"].setText(f"{round(max, 3)}")
 
-        # Update the min according to which limit method is selected
-        if self.radio_buttons["min_percentiles"].isChecked(): # Percentiles
+        # Update the min according to which limit method is selected                
+        if radio_buttons["min_percentiles"].isChecked(): # Percentiles
             if hasattr(self, "statistics"):
                 try:
                     min_percentile = float(self.gui.line_edits["min_percentiles"].text())
@@ -510,12 +390,12 @@ class AppWindow(QtWidgets.QMainWindow):
                     min = data_sorted[int(.01 * min_percentile * n_data)]
                 except Exception as e:
                     print(f"Error: {e}")
-        elif self.radio_buttons["min_absolute"].isChecked(): # Absolute values
+        elif radio_buttons["min_absolute"].isChecked(): # Absolute values
             try:
                 min = float(self.gui.line_edits["min_absolute"].text())
             except Exception as e:
                 print(f"Error: {e}")
-        elif self.radio_buttons["min_deviations"].isChecked(): # Standard deviation
+        elif radio_buttons["min_deviations"].isChecked(): # Standard deviation
             if hasattr(self, "statistics"):
                 try:
                     value = float(self.gui.line_edits["min_deviations"].text())
@@ -526,7 +406,7 @@ class AppWindow(QtWidgets.QMainWindow):
             pass
 
         # Update the max according to which limit method is selected
-        if self.radio_buttons["max_percentiles"].isChecked(): # Percentiles
+        if radio_buttons["max_percentiles"].isChecked(): # Percentiles
             if hasattr(self, "statistics"):
                 try:
                     max_percentile = float(self.gui.line_edits["max_percentiles"].text())
@@ -536,12 +416,12 @@ class AppWindow(QtWidgets.QMainWindow):
                     max = data_sorted[int(.01 * max_percentile * n_data)]
                 except Exception as e:
                     print(f"Error: {e}")
-        elif self.radio_buttons["max_absolute"].isChecked(): # Absoulte values
+        elif radio_buttons["max_absolute"].isChecked(): # Absoulte values
             try:
                 max = float(self.gui.line_edits["max_absolute"].text())
             except Exception as e:
                 print(f"Error: {e}")
-        elif self.radio_buttons["max_deviations"].isChecked(): # Standard deviation
+        elif radio_buttons["max_deviations"].isChecked(): # Standard deviation
             if hasattr(self, "statistics"):
                 try:
                     value = float(self.gui.line_edits["max_deviations"].text())
@@ -657,16 +537,22 @@ class AppWindow(QtWidgets.QMainWindow):
 
         bias = self.scan_object.bias
         self.bias_V = bias.to("V").magnitude
+        
         offset = self.scan_object.offset
         self.offset_nm = [range_dim.to("nm").magnitude for range_dim in offset]
+        
         angle = self.scan_object.angle
         self.angle_deg = angle.to("degree").magnitude
+        
         scan_range = self.scan_object.scan_range
         self.scan_range_nm = [range_dim.to("nm").magnitude for range_dim in scan_range]
         self.data.processing_flags.update({"scan_range_nm": self.scan_range_nm})
+        
         setpoint = self.scan_object.setpoint
         self.setpoint_pA = setpoint.to("pA").magnitude        
+        
         self.feedback = self.scan_object.feedback # Read whether the scan was recorded in STM feedback
+        
         self.date_time = self.scan_object.date_time
 
 
@@ -734,10 +620,8 @@ class AppWindow(QtWidgets.QMainWindow):
             next_scan = scan_dict[next_index]
 
             # Iterate over the spectroscopy metadata in the metadata file, and check whether the keys date_time and position exist
-            print(next_scan.keys())
             if "date_time" in next_scan.keys():
                 next_date_time = next_scan.get("date_time")
-                print(next_date_time)
             else:
                 print("No idea")
 
@@ -782,15 +666,18 @@ class AppWindow(QtWidgets.QMainWindow):
         if method in ["full", "percentiles", "deviations", "absolute"]:
             [radio_buttons[f"{min_or_max}_{method}"].setSilentCheck(True) for min_or_max in sides]
         
-        self.update_limits()
+        if method == "toggle":
+            pass
+        
+        self.update_processing_flags()
         return
 
     def on_full_scale(self, side: str = "both") -> None:
         if side == "min" or side == "both":
-            self.radio_buttons["min_full"].setChecked(True)
+            self.gui.radio_buttons["min_full"].setChecked(True)
             self.data.processing_flags["min_selection"] = 0
         if side == "max" or side == "both":
-            self.radio_buttons["max_full"].setChecked(True)
+            self.gui.radio_buttons["max_full"].setChecked(True)
             self.data.processing_flags["max_selection"] = 0
         self.load_process_display(new_scan = False)
 
@@ -848,34 +735,13 @@ class AppWindow(QtWidgets.QMainWindow):
 
         return
 
-    def toggle_limits(self, side: str = "min") -> None:
-        if side not in ["min", "max"]:
-            print("Error. No correct side chosen.")
-            return
-        
-        if side == "min":
-            self.data.processing_flags["min_selection"] += 1
-            if self.data.processing_flags["min_selection"] > 3: self.data.processing_flags["min_selection"] = 0
-            sel = self.data.processing_flags["min_selection"]
-        else:
-            self.data.processing_flags["max_selection"] += 1
-            if self.data.processing_flags["max_selection"] > 3: self.data.processing_flags["max_selection"] = 0
-            sel = self.data.processing_flags["max_selection"]
-        
-        match sel:
-            case 0: self.on_full_scale(side)
-            case 1: self.on_percentiles(side)
-            case 2: self.on_standard_deviations(side)
-            case _: self.on_absolute_values(side)
-        
-        return
-
     # Matrix processing functions
     def toggle_projections(self, index) -> None:
         self.gui.comboboxes["projection"].toggleIndex(index)
         self.update_processing_flags        
         return
 
+    # Update all the processing flags
     def update_processing_flags(self):
         flags = self.data.processing_flags
         
@@ -915,18 +781,24 @@ class AppWindow(QtWidgets.QMainWindow):
         lim_methods = ["full", "percentiles", "deviations", "absolute"]
         for method in lim_methods:
             if radio_buttons[f"min_{method}"].isChecked():
-                min_value = line_edits[f"min_{method}"]
+                min_value = line_edits[f"min_{method}"].text()
                 flags.update({"min_method": f"{method}", "min_method_value": f"{min_value}"})
-                max_value = line_edits[f"max_{method}"]
+            if radio_buttons[f"max_{method}"].isChecked():
+                max_value = line_edits[f"max_{method}"].text()
                 flags.update({"max_method": f"{method}", "max_method_value": f"{max_value}"})
 
+        # Channel, direction, projection
         try:
+            channel = comboboxes["channels"].currentItem()
             direction = "backward" if buttons["direction"].isChecked() else "forward"
             projection = comboboxes["projection"].currentText()
-            flags.update({"direction": direction, "projection": projection})
-            [flags.update({operation: checkboxes[operation].isChecked()}) for operation in ["sobel", "normal", "laplace", "gaussian", "fft"]]
+            flags.update({"channel": channel, "direction": direction, "projection": projection})
         except:
             print("Error updating the image processing flags.")
+        
+        # Operations
+        try: [flags.update({operation: checkboxes[operation].isChecked()}) for operation in ["sobel", "normal", "laplace", "gaussian", "fft"]]
+        except: pass
 
         # File name
         bare_name = f"{self.channel}_{self.file_index + 1:03d}"
@@ -937,6 +809,8 @@ class AppWindow(QtWidgets.QMainWindow):
         self.paths["output_file_basename"] = tagged_name
         self.gui.line_edits["file_name"].setText(os.path.basename(tagged_name))
         self.gui.buttons["output_folder"].setText(self.paths["output_folder_name"])
+        
+        print(flags)
 
         # Reload and process the scan with the updated flags
         self.load_process_display()
@@ -1051,5 +925,5 @@ class AppWindow(QtWidgets.QMainWindow):
 if __name__ == "__main__":
     app = QtWidgets.QApplication(sys.argv)
     window = AppWindow()
-    window.show()
+    #window.show()
     sys.exit(app.exec())

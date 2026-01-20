@@ -1,6 +1,7 @@
 import re
 from PyQt6 import QtGui, QtWidgets, QtCore
 import pyqtgraph as pg
+import numpy as np
 
 
 
@@ -307,14 +308,13 @@ class PJComboBox(QtWidgets.QComboBox):
         return
 
     def renewItems(self, items) -> None:
-        if not isinstance(items, list): return
-        
-        self.blockSignals(True)
-        
-        self.clear()
-        self.addItems(items)
-        
-        self.blockSignals(False)
+        if isinstance(items, list) or isinstance(items, np.ndarray):
+            self.blockSignals(True)
+            
+            self.clear()
+            self.addItems(items)
+            
+            self.blockSignals(False)
         return
 
     def toggleIndex(self, delta_index) -> None:
