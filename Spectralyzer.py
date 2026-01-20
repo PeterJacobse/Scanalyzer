@@ -3,19 +3,18 @@ import numpy as np
 from PyQt6 import QtCore, QtGui, QtWidgets
 import pyqtgraph as pg
 import pyqtgraph.exporters as expts
-from lib import GUIFunctions, GUIItems, ScanalyzerGUI, HoverTargetItem, DataProcessing, FileFunctions
+from lib import GUIItems, HoverTargetItem, DataProcessing, FileFunctions
 
 
 
-class SpectrumViewer(QtWidgets.QMainWindow):
-    def __init__(self, processed_scan, spec_files, associated_spectra, paths):
+class Spectralyzer(QtWidgets.QMainWindow):
+    def __init__(self, spec_files: list = [], associated_spectra: list = [], processed_scan: np.ndarray = np.zeros((2, 2))):
         super().__init__()
         self.setWindowTitle("Spectrum viewer")
         self.setGeometry(200, 200, 1200, 800)
-        self.spec_files = spec_files # Make the spectroscopy file list an attribute of the SpectroscopyWindow class
+        self.spec_files = spec_files
         self.associated_spectra = associated_spectra
         self.processed_scan = processed_scan
-        self.paths = paths
 
         # Spectrum colors
         self.color_list = ["#FFFFFF", "#FFFF00", "#FF90FF", "#00FFFF", "#00FF00", "#A0A0A0", "#FF4040", "#5050FF", "#FFA500", "#9050FF", "#808000", "#008080", "#900090", "#009000", "#B00000", "#0000C0"]
@@ -31,47 +30,46 @@ class SpectrumViewer(QtWidgets.QMainWindow):
 
 
     def parameters_init(self) -> None:
-        icon_files = os.listdir(self.paths["icon_folder"])
+        lib_folder = os.path.dirname()
+        project_folder = os.path.dirname()
+        icon_folder = os.path.join(project_folder, "icons")
+        
+        icon_files = os.listdir(icon_folder)
         self.icons = {}
         for icon_file in icon_files:
             [icon_name, extension] = os.path.splitext(os.path.basename(icon_file))
             try:
-                if extension == ".png": self.icons.update({icon_name: QtGui.QIcon(os.path.join(self.paths["icon_folder"], icon_file))})
+                if extension == ".png": self.icons.update({icon_name: QtGui.QIcon(os.path.join(icon_folder, icon_file))})
             except:
                 pass
         
         self.setWindowIcon(self.icons.get("graph"))
         self.focus_row = 0
-        self.data.processing_flags = {
+        self.processing_flags = {
             "line_width": 2,
             "opacity": 1
         }
         self.file_functions = FileFunctions()
 
     def gui_items_init(self) -> None:
-        gui_functions = GUIFunctions()
-        make_button = lambda *args, **kwargs: gui_functions.make_button(*args, parent = self, **kwargs)
-        make_label = gui_functions.make_label
-        make_radio_button = gui_functions.make_radio_button
-        make_checkbox = gui_functions.make_checkbox
-        make_combobox = gui_functions.make_combobox
-        make_line_edit = gui_functions.make_line_edit
-        make_layout = gui_functions.make_layout
-        make_groupbox = gui_functions.make_groupbox
+        gui_items = GUIItems()
+        make_button = lambda *args, **kwargs: gui_items.make_button(*args, parent = self, **kwargs)
+        make_label = gui_items.make_label
+        make_checkbox = gui_items.make_checkbox
+        make_combobox = gui_items.make_combobox
+        make_line_edit = gui_items.make_line_edit
+        make_layout = gui_items.make_layout
 
         self.buttons = {
-            "save_0": make_button("", lambda: self.on_save_spectrum(0), "Save graph 0 to svg", self.icons.get("floppy")),
-            "save_1": make_button("", lambda: self.on_save_spectrum(1), "Save graph 1 to svg", self.icons.get("floppy")),
-            "exit": make_button("", self.close, "Exit Spectrum Viewer (Q / Esc)", self.icons.get("escape"))
+            "save_0": make_button("", "Save graph 0 to svg", self.icons.get("floppy")),
+            "save_1": make_button("", "Save graph 1 to svg", self.icons.get("floppy")),
+            "exit": make_button("", "Exit Spectrum Viewer (Q / Esc)", self.icons.get("escape"))
         }
         self.channel_selection_comboboxes = {
-            "x_axis": make_combobox("x_axis", "Channel to display on the x axis (X)", lambda: self.redraw_spectra(toggle_checkbox = False)),
-            "y_axis_0": make_combobox("y_axis_0", "Channel to display on the y axis (Y)", lambda: self.redraw_spectra(toggle_checkbox = False)),
-            "y_axis_1": make_combobox("y_axis_1", "Channel to display on the y axis (Z)", lambda: self.redraw_spectra(toggle_checkbox = False)),
+            "x_axis": make_combobox("x_axis", "Channel to display on the x axis (X)"),
+            "y_axis_0": make_combobox("y_axis_0", "Channel to display on the y axis (Y)"),
+            "y_axis_1": make_combobox("y_axis_1", "Channel to display on the y axis (Z)"),
         }
-        for combobox in [self.channel_selection_comboboxes["x_axis"], self.channel_selection_comboboxes["y_axis_0"], self.channel_selection_comboboxes["y_axis_1"]]:
-            combobox.currentIndexChanged.connect(lambda: self.redraw_spectra(toggle_checkbox = False))
-
         self.layouts = {
             "main": make_layout("g"),
             "selector": make_layout("g"),
@@ -178,30 +176,38 @@ class SpectrumViewer(QtWidgets.QMainWindow):
         central_widget.setLayout(self.layouts["main"])
 
     def connect_keys(self) -> None:
-        # Connect the final clicky things before connecting the key-y things
+        self.buttons["save_0"].clicked.connect(lambda: self.on_save_spectrum(0))
+        self.buttons["save_1"].clicked.connect(lambda: self.on_save_spectrum(1))
+        self.buttons["exit"].clicked.connect(self.close)        
+        for combobox in [self.channel_selection_comboboxes["x_axis"], self.channel_selection_comboboxes["y_axis_0"], self.channel_selection_comboboxes["y_axis_1"]]:
+            combobox.currentIndexChanged.connect(lambda: self.redraw_spectra(toggle_checkbox = False))
+
         [self.plot_number_comboboxes[f"{index}"].currentIndexChanged.connect(lambda: self.redraw_spectra(toggle_checkbox = False)) for index in range(len(self.plot_number_comboboxes))]
         [edit.editingFinished.connect(self.change_pen_style) for edit in [self.line_edits["line_width"], self.line_edits["opacity"]]]
         [edit.editingFinished.connect(lambda: self.redraw_spectra(toggle_checkbox = False)) for edit in [self.line_edits["offset_0"], self.line_edits["offset_1"]]]
 
-        QKey = QtCore.Qt.Key
 
-        exit_shortcuts = [QtGui.QShortcut(QtGui.QKeySequence(keystroke), self) for keystroke in [QKey.Key_Q, QKey.Key_Escape]]
+        QKey = QtCore.Qt.Key
+        QSeq = QtGui.QKeySequence
+        QShc = QtGui.QShortcut
+
+        exit_shortcuts = [QShc(QSeq(keystroke), self) for keystroke in [QKey.Key_Q, QKey.Key_Escape]]
         [exit_shortcut.activated.connect(self.close) for exit_shortcut in exit_shortcuts]
 
         focus_shortcuts = []
         for index, keystroke in enumerate([QKey.Key_0, QKey.Key_1, QKey.Key_2, QKey.Key_3, QKey.Key_4, QKey.Key_5, QKey.Key_6, QKey.Key_7,
                                            QKey.Key_8, QKey.Key_9, QKey.Key_A, QKey.Key_B, QKey.Key_C, QKey.Key_D, QKey.Key_E, QKey.Key_F]):
-            focus_shortcut = QtGui.QShortcut(QtGui.QKeySequence(keystroke), self)
+            focus_shortcut = QShc(QSeq(keystroke), self)
             focus_shortcut.activated.connect(lambda i = index: self.set_focus_row(i))
             focus_shortcuts.append(focus_shortcut)
         
-        toggle_shortcuts = [QtGui.QShortcut(QtGui.QKeySequence(keystroke), self) for keystroke in [QKey.Key_Up, QKey.Key_Down, QKey.Key_Left, QKey.Key_Right, QKey.Key_Space]]
+        toggle_shortcuts = [QShc(QSeq(keystroke), self) for keystroke in [QKey.Key_Up, QKey.Key_Down, QKey.Key_Left, QKey.Key_Right, QKey.Key_Space]]
         [self.up_shortcut, self.down_shortcut, self.left_shortcut, self.right_shortcut, self.checkbox_shortcut] = toggle_shortcuts
         
         self.up_shortcut.activated.connect(lambda: self.set_focus_row(-1, increase = False))
         self.down_shortcut.activated.connect(lambda: self.set_focus_row(-1, increase = True))
 
-        [x_axis_shortcut, y_axis_0_shortcut, y_axis_1_shortcut] = [QtGui.QShortcut(QtGui.QKeySequence(keystroke), self) for keystroke in [QKey.Key_X, QKey.Key_Y, QKey.Key_Z]]
+        [x_axis_shortcut, y_axis_0_shortcut, y_axis_1_shortcut] = [QShc(QSeq(keystroke), self) for keystroke in [QKey.Key_X, QKey.Key_Y, QKey.Key_Z]]
         x_axis_shortcut.activated.connect(lambda: self.toggle_axis("x_axis"))
         y_axis_0_shortcut.activated.connect(lambda: self.toggle_axis("y_axis_0"))
         y_axis_1_shortcut.activated.connect(lambda: self.toggle_axis("y_axis_1"))
@@ -249,13 +255,14 @@ class SpectrumViewer(QtWidgets.QMainWindow):
         # Put a star on the spectrum names that are associated with the scan and initialize the comboboxes
         [combobox.blockSignals(True) for combobox in self.plot_number_comboboxes.values()]
         spec_labels = self.spec_files[:, 0]
+        """
         associated_labels = [spectrum[0] for spectrum in self.associated_spectra]
         for i in range(len(spec_labels)):
             if spec_labels[i] in associated_labels:
                 [self.plot_number_comboboxes[f"{number}"].addItem("*" + spec_labels[i]) for number in range(len(self.plot_number_comboboxes))]
             else:
                 [self.plot_number_comboboxes[f"{number}"].addItem(spec_labels[i]) for number in range(len(self.plot_number_comboboxes))]
-
+        
         # Initialize the comboboxes to the associated spectra if possible
         spec_labels = self.spec_files[:, 0]
         for index, combobox in enumerate(self.plot_number_comboboxes.values()):
@@ -271,7 +278,8 @@ class SpectrumViewer(QtWidgets.QMainWindow):
             except Exception as e:
                 print(f"Error initializing some or all plot number comboboxes: {e}")
         [combobox.blockSignals(False) for combobox in self.plot_number_comboboxes.values()]
-
+        """
+        
         # Connect the checkboxes
         [checkbox.toggled.connect(lambda: self.redraw_spectra(False)) for checkbox in self.checkboxes.values()]
 

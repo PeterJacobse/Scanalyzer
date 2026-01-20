@@ -2,7 +2,8 @@ import os, sys, re, yaml
 import numpy as np
 from PyQt6 import QtCore, QtGui, QtWidgets
 import pyqtgraph as pg
-from lib import ScanalyzerGUI, HoverTargetItem, DataProcessing, FileFunctions, SpectrumViewer
+from lib import ScanalyzerGUI, HoverTargetItem, DataProcessing, FileFunctions
+from .Spectralyzer import Spectralyzer
 
 
 
@@ -599,8 +600,8 @@ class AppWindow(QtCore.QObject):
                 else: processed_scan = np.zeros((2, 2))
                 if not hasattr(self, "associated_spectra"): self.associated_spectra = np.array([[]])
                 
-                self.second_window = SpectrumViewer(processed_scan, self.spec_files, self.associated_spectra, self.paths)
-            self.second_window.show()
+                self.spectralyzer = Spectralyzer(processed_scan, self.spec_files, self.associated_spectra, self.paths)
+            self.spectralyzer.show()
         else:
             print("Error. No spectroscopy files found in the data folder.")
         
