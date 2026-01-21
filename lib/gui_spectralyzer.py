@@ -196,8 +196,8 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
         }
         
         plot_items = {
-            plot_widgets["graph_0"].getPlotItem(),
-            plot_widgets["graph_1"].getPlotItem()
+            "graph_0": plot_widgets["graph_0"].getPlotItem(),
+            "graph_1": plot_widgets["graph_1"].getPlotItem()
         }
         
         return (plot_widgets, plot_items)
@@ -215,7 +215,7 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
             "x": QWgt()
         }
         
-        #layouts.update({"main": QtWidgets.QHBoxLayout(widgets["central"])})
+        self.setCentralWidget(widgets["central"])
         
         return widgets
 
@@ -285,18 +285,37 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
         [ss_layout.addWidget(self.plot_number_comboboxes[f"{i}"], i, 2) for i in range(len(self.plot_number_comboboxes))]
         [ss_layout.addWidget(self.rightarrows[f"{i}"], i, 3) for i in range(len(self.rightarrows))]
         
+        # Plots
+        [layouts["plots"].addWidget(widget) for widget in [self.channel_selection_comboboxes["x_axis"], self.plot_widgets["graph_0"], self.plot_widgets["graph_1"]]]
+        widgets["plot"].setLayout(layouts["plots"])
+        self.plot_items["graph_0"].setFixedWidth(500)
+        
+        # Options
+        [layouts["options"].addWidget(widget, index, 0) for index, widget in enumerate(self.option_widgets_col0)]
+        [layouts["options"].addWidget(widget, index, 1) for index, widget in enumerate(self.option_widgets_col1)]
+        widgets["options"].setLayout(layouts["options"])
+        
+        # x axis
+        [layouts["x_axis"].addWidget(widget) for widget in [labels["x_axis"], self.channel_selection_comboboxes["x_axis"]]]
+        widgets["x"].setLayout(layouts["x_axis"])
+        
+        #
+        image_widget = self.image_widget
+        self.view_box = image_widget.addViewBox()
+        self.view_box.setAspectLocked(True)
+        self.view_box.invertY(True)
+        self.image_item = pg.ImageItem()
+        self.view_box.addItem(self.image_item)
+        
         # Main
         main_layout = layouts["main"]
         main_layout.addWidget(widgets["selector"], 1, 0, 2, 1) # Spectrum selector buttons
-        #main_layout.addWidget(x_widget, 0, 1) # x axis channel selection combobox
-        #main_layout.addWidget(plot_widget, 1, 1, 2, 1)
+        main_layout.addWidget(widgets["x"], 0, 1) # x axis channel selection combobox
+        main_layout.addWidget(widgets["plot"], 1, 1, 2, 1)
         main_layout.addWidget(self.buttons["exit"], 0, 2)
-        #main_layout.addWidget(option_widget, 1, 2)
+        main_layout.addWidget(widgets["options"], 1, 2)
         main_layout.addWidget(self.image_widget, 2, 2)
         main_layout.setColumnMinimumWidth(1, 500)
-        
-        #
-        #widgets["central"].setlayout(main_layout)
         
         return
 
@@ -339,7 +358,7 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
         # Set the layout as the image_view plus toolbar
         layouts["main"].addWidget(self.image_view, 3)
         layouts["main"].addLayout(layouts["toolbar"], 1)
-        
+        """
         # Set the central widget of the QMainWindow
         widgets["central"].setLayout(layouts["main"])
         widgets["central"].setFocusPolicy(QtCore.Qt.FocusPolicy.StrongFocus)
@@ -348,12 +367,11 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
         # Finish the setup
         self.setCentralWidget(widgets["central"])
         self.setWindowTitle("Scanalyzer")
-        self.setGeometry(100, 100, 1400, 800) # x, y, width, height
-        self.setWindowIcon(self.icons.get("scanalyzer"))
+        self.setGeometry(200, 200, 1200, 800) # x, y, width, height
+        self.setWindowIcon(self.icons.get("graph"))
         self.setFocusPolicy(QtCore.Qt.FocusPolicy.StrongFocus)
         self.setFocus()
-        #self.activateWindow()
-        """
+        self.activateWindow()
         
         return
 

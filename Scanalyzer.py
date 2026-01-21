@@ -819,5 +819,4 @@ class Scanalyzer(QtCore.QObject):
 if __name__ == "__main__":
     app = QtWidgets.QApplication(sys.argv)
     window = Scanalyzer()
-    #window.show()
     sys.exit(app.exec())
