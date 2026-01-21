@@ -1,0 +1,359 @@
+import os
+from PyQt6 import QtGui, QtWidgets, QtCore
+import pyqtgraph as pg
+from . import GUIItems
+
+
+
+class SpectralyzerGUI(QtWidgets.QMainWindow):
+    dataDropped = QtCore.pyqtSignal(str)
+    
+    def __init__(self):
+        super().__init__()
+        
+        # 1: Read icons from file.
+        self.icons = self.get_icons()
+        
+        # 2: Create the specific GUI items using the items from the GUIItems class. Requires icons.
+        self.gui_items = GUIItems()
+        self.labels = self.make_labels()
+        (self.buttons, self.leftarrows, self.rightarrows) = self.make_buttons()
+        self.checkboxes = self.make_checkboxes()
+        (self.channel_selection_comboboxes, self.plot_number_comboboxes) = self.make_comboboxes()
+        self.line_edits = self.make_line_edits()
+        #self.lines = self.make_lines()
+        self.layouts = self.make_layouts()
+        self.image_widget = self.make_image_widget()
+        (self.plot_widgets, self.plot_items) = self.make_plot_widgets()
+        self.widgets = self.make_widgets()
+        #self.consoles = self.make_consoles()
+        #self.shortcuts = self.make_shortcuts()
+                
+        # 3: Populate layouts with GUI items. Requires GUI items.
+        self.populate_layouts()
+        
+        # 4: Make groupboxes and set their layouts. Requires populated layouts.
+        #self.groupboxes = self.make_groupboxes()
+        
+        # 5: Set up the main window layout
+        self.setup_main_window()
+
+    # Drag and drop
+    def dragEnterEvent(self, event) -> None:
+        # 2. Accept the drag if it contains URLs (files)
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+        else:
+            super().dragEnterEvent(event)
+
+    def dropEvent(self, event) -> None:
+        # 3. Process the dropped files
+        for url in event.mimeData().urls():
+            file_name = url.toLocalFile()
+        event.acceptProposedAction()
+        if file_name:
+            self.dataDropped.emit(file_name)
+
+
+
+    # 1: Read icons from file.
+    def get_icons(self):
+        lib_folder = os.path.dirname(os.path.abspath(__file__))
+        project_folder = os.path.dirname(lib_folder)
+        icon_folder = os.path.join(project_folder, "icons")
+        icon_files = os.listdir(icon_folder)
+        
+        icons = {}
+        for icon_file in icon_files:
+            [icon_name, extension] = os.path.splitext(os.path.basename(icon_file))
+            try:
+                if extension == ".png": icons.update({icon_name: QtGui.QIcon(os.path.join(icon_folder, icon_file))})
+            except:
+                pass
+
+        self.color_list = ["#FFFFFF", "#FFFF00", "#FF90FF", "#00FFFF", "#00FF00", "#A0A0A0", "#FF4040", "#5050FF", "#FFA500", "#9050FF", "#808000", "#008080", "#900090", "#009000", "#B00000", "#0000C0"]
+        return icons
+
+
+
+    # 2: Create the specific GUI items using the items from the GUIItems class. Requires icons.
+    def make_labels(self) -> dict:
+        make_label = self.gui_items.make_label
+        
+        labels = {
+            "save_0": make_label("save (plot 0)", "Save plot 0 to svg (S)"),
+            "save_1": make_label("save (plot 1)", "Save plot 1 to svg (Z)"),
+            "x_axis": make_label("x axis", "Toggle with (X)"),
+            "y_axis_0": make_label("y axis (plot 0)", "Toggle with (Y)"),
+            "y_axis_1": make_label("y axis (plot 1)", "Toggle with (Z)"),
+            "offset_0": make_label("Offset", "Offset between successive spectra"),
+            "offset_1": make_label("Offset", "Offset between successive spectra"),
+            "line_width": make_label("Line width", "Line width"),
+            "opacity": make_label("Opacity", "Opacity")
+        }
+        
+        # Named groups
+        self.option_widgets_col0 = [labels[name] for name in ["y_axis_0", "offset_0", "save_0", "y_axis_1", "offset_1", "save_1", "line_width", "opacity"]]
+        
+        return labels
+    
+    def make_buttons(self) -> dict:
+        make_button = self.gui_items.make_button
+
+        buttons = {
+            "save_0": make_button("", "Save graph 0 to svg", self.icons.get("floppy")),
+            "save_1": make_button("", "Save graph 1 to svg", self.icons.get("floppy")),
+            "open_folder": make_button("", "Open folder", self.icons.get("folder_blue")),
+            "exit": make_button("", "Exit Spectrum Viewer (Q / Esc)", self.icons.get("escape"))
+        }
+        
+        # Named groups
+        leftarrows = {}
+        rightarrows = {}
+        for number in range(16):
+            leftarrows.update({f"{number}": make_button("", f"decrease plot number {number} (left arrow when row is highlighted)", self.icons.get("single_arrow"), rotate_icon = 180)})
+            rightarrows.update({f"{number}": make_button("", f"increase plot number {number} (right arrow when row is highlighted)", self.icons.get("single_arrow"))})
+
+        return (buttons, leftarrows, rightarrows)
+
+    def make_checkboxes(self) -> dict:
+        make_checkbox = self.gui_items.make_checkbox
+        
+        checkboxes = {}
+        for number in range(16):
+            checkboxes.update({f"{number}": make_checkbox(f"{number}", f"toggle visibility of plot {number} (space when row is highlighted)")})
+            checkboxes[f"{number}"].setStyleSheet(f"color: {self.color_list[number]};")
+        
+        return checkboxes
+    
+    def make_comboboxes(self) -> dict:
+        make_combobox = self.gui_items.make_combobox
+        
+        channel_selection_comboboxes = {
+            "x_axis": make_combobox("x_axis", "Channel to display on the x axis (X)"),
+            "y_axis_0": make_combobox("y_axis_0", "Channel to display on the y axis (Y)"),
+            "y_axis_1": make_combobox("y_axis_1", "Channel to display on the y axis (Z)"),
+        }
+                
+        plot_number_comboboxes = {}
+        for number in range(16):
+            plot_number_comboboxes.update({f"{number}": make_combobox(f"{number}", f"data for plot {number}")})
+        # Named groups
+        
+        return (channel_selection_comboboxes, plot_number_comboboxes)
+
+    def make_line_edits(self) -> dict:
+        make_line_edit = self.gui_items.make_line_edit
+        
+        line_edits = {
+            "offset_0": make_line_edit("0", "Offset between successive spectra"),
+            "offset_1": make_line_edit("0", "Offset between successive spectra"),
+            "line_width": make_line_edit("2", "Line width"),
+            "opacity": make_line_edit("1", "Opacity")
+        }
+        
+        # Named groups
+        self.option_widgets_col1 = [self.channel_selection_comboboxes["y_axis_0"], line_edits["offset_0"], self.buttons["save_0"], self.channel_selection_comboboxes["y_axis_1"],
+                                    line_edits["offset_1"], self.buttons["save_1"], line_edits["line_width"], line_edits["opacity"]]
+
+        return line_edits
+
+    def make_lines(self) -> dict:
+        make_line = self.gui_items.line_widget
+        
+        lines = {
+            "scan_control": make_line("h"),
+            "background": make_line("h"),
+            "matrix_operations": make_line("h")
+        }
+        
+        return lines
+
+    def make_layouts(self) -> dict:
+        make_layout = self.gui_items.make_layout
+        
+        layouts = {
+            "main": make_layout("g"),
+            "selector": make_layout("g"),
+            "x_axis": make_layout("h"),
+            "plots": make_layout("v"),
+            "options": make_layout("g")
+        }
+        
+        return layouts
+
+    def make_image_widget(self) -> pg.ImageView:
+        #pg.setConfigOptions(imageAxisOrder = "row-major", antialias = True)
+        
+        image_widget = pg.GraphicsLayoutWidget()
+        
+        return image_widget
+
+    def make_plot_widgets(self) -> dict:
+        plot_widgets = {
+            "graph_0": pg.PlotWidget(),
+            "graph_1": pg.PlotWidget()
+        }
+        
+        plot_items = {
+            plot_widgets["graph_0"].getPlotItem(),
+            plot_widgets["graph_1"].getPlotItem()
+        }
+        
+        return (plot_widgets, plot_items)
+
+    def make_widgets(self) -> dict:
+        layouts = self.layouts
+        QWgt = QtWidgets.QWidget
+        
+        widgets = {
+            "central": QWgt(),
+            "selector": QWgt(),
+            "plot": QWgt(),
+            "options": QWgt(),
+            "left_side": QWgt(),
+            "x": QWgt()
+        }
+        
+        #layouts.update({"main": QtWidgets.QHBoxLayout(widgets["central"])})
+        
+        return widgets
+
+    def make_consoles(self) -> dict:
+        make_console = self.gui_items.make_console
+        
+        consoles = {
+            "output": make_console("", "Output console"),
+            "input": make_console("", "Input console")
+        }
+        
+        consoles["output"].setReadOnly(True)
+        consoles["input"].setReadOnly(False)
+        consoles["input"].setMaximumHeight(30)
+        [consoles[name].setStyleSheet("QTextEdit{ background-color: #101010; }") for name in ["output", "input"]]
+        
+        # Add the handles to the tooltips
+        [consoles[name].changeToolTip(f"gui.consoles[\"{name}\"]", line = 10) for name in consoles.keys()]
+        
+        return consoles
+
+    def make_shortcuts(self) -> dict:
+        QKey = QtCore.Qt.Key
+        QMod = QtCore.Qt.Modifier
+        QSeq = QtGui.QKeySequence
+        
+        shortcuts = {
+            "previous_file": QSeq(QKey.Key_Left),
+            "select_file": QSeq(QMod.CTRL | QKey.Key_L),
+            "next_file": QSeq(QKey.Key_Right),
+            
+            "previous_channel": QSeq(QKey.Key_Up),
+            "next_channel": QSeq(QKey.Key_Down),
+            
+            "folder_name": QSeq(QKey.Key_1),
+
+            "full_data_range": QSeq(QMod.SHIFT | QKey.Key_U),
+            "percentiles": QSeq(QMod.SHIFT | QKey.Key_5),
+            "standard_deviation": QSeq(QMod.SHIFT | QKey.Key_D),
+            "absolute_values": QSeq(QMod.SHIFT | QKey.Key_A),
+            
+            "spec_locations": QSeq(QKey.Key_Space),
+            "spectrum_viewer": QSeq(QMod.CTRL | QKey.Key_S),
+
+            "save_png": QSeq(QKey.Key_S),
+            "save_hdf5": QSeq(QKey.Key_5),
+            "output_folder": QSeq(QKey.Key_T),
+        }
+
+        return shortcuts
+
+
+
+    # 3: Populate layouts with GUI items. Requires GUI items.
+    def populate_layouts(self) -> None:
+        layouts = self.layouts
+        buttons = self.buttons
+        checkboxes = self.checkboxes
+        line_edits = self.line_edits
+        labels = self.labels
+        widgets = self.widgets
+        
+        # Add items to the layouts
+        ss_layout = self.layouts["selector"]
+        [ss_layout.addWidget(self.checkboxes[f"{i}"], i, 0) for i in range(len(self.checkboxes))]
+        [ss_layout.addWidget(self.leftarrows[f"{i}"], i, 1) for i in range(len(self.leftarrows))]
+        [ss_layout.addWidget(self.plot_number_comboboxes[f"{i}"], i, 2) for i in range(len(self.plot_number_comboboxes))]
+        [ss_layout.addWidget(self.rightarrows[f"{i}"], i, 3) for i in range(len(self.rightarrows))]
+        
+        # Main
+        main_layout = layouts["main"]
+        main_layout.addWidget(widgets["selector"], 1, 0, 2, 1) # Spectrum selector buttons
+        #main_layout.addWidget(x_widget, 0, 1) # x axis channel selection combobox
+        #main_layout.addWidget(plot_widget, 1, 1, 2, 1)
+        main_layout.addWidget(self.buttons["exit"], 0, 2)
+        #main_layout.addWidget(option_widget, 1, 2)
+        main_layout.addWidget(self.image_widget, 2, 2)
+        main_layout.setColumnMinimumWidth(1, 500)
+        
+        #
+        #widgets["central"].setlayout(main_layout)
+        
+        return
+
+
+
+    # 4: Make widgets and groupboxes and set their layouts. Requires layouts.
+    def make_groupboxes(self) -> dict:
+        make_groupbox = self.gui_items.make_groupbox
+        layouts = self.layouts
+        
+        groupboxes = {
+            "scan_summary": make_groupbox("Scan summary", "Information about the currently selected scan"),
+            "file_chan_dir": make_groupbox("File / Channel / Direction", "Select and toggle through scan files and channels"),
+            "image_processing": make_groupbox("Image processing", "Select the background subtraction, matrix operations and set the image range limits"),
+            "spectra": make_groupbox("Spectra", "Associated spectra (those recorded after the acquisition of the selected scan) are shown with an asterisk"),
+            "i/o": make_groupbox("Output", "Save or find the processed image, or exit the app")
+        }
+
+        # Set layouts for the groupboxes
+        group_names = ["scan_summary", "file_chan_dir", "image_processing", "spectra", "i/o"]
+        [groupboxes[name].setLayout(layouts[name]) for name in group_names]
+        
+        [self.layouts["toolbar"].addWidget(groupboxes[name]) for name in group_names]        
+        
+        return groupboxes
+
+
+
+    # 5: Set up the main window layout
+    def setup_main_window(self) -> None:
+        layouts = self.layouts
+        widgets = self.widgets
+
+        # Aesthetics
+        widgets["selector"].setLayout(layouts["selector"])
+        """
+        layouts["toolbar"].setContentsMargins(4, 4, 4, 4)
+        layouts["toolbar"].addStretch(1)
+        
+        # Set the layout as the image_view plus toolbar
+        layouts["main"].addWidget(self.image_view, 3)
+        layouts["main"].addLayout(layouts["toolbar"], 1)
+        
+        # Set the central widget of the QMainWindow
+        widgets["central"].setLayout(layouts["main"])
+        widgets["central"].setFocusPolicy(QtCore.Qt.FocusPolicy.StrongFocus)
+        widgets["central"].setFocus()
+        
+        # Finish the setup
+        self.setCentralWidget(widgets["central"])
+        self.setWindowTitle("Scanalyzer")
+        self.setGeometry(100, 100, 1400, 800) # x, y, width, height
+        self.setWindowIcon(self.icons.get("scanalyzer"))
+        self.setFocusPolicy(QtCore.Qt.FocusPolicy.StrongFocus)
+        self.setFocus()
+        #self.activateWindow()
+        """
+        
+        return
+

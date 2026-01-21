@@ -2,16 +2,15 @@ import os, sys, re, yaml
 import numpy as np
 from PyQt6 import QtCore, QtGui, QtWidgets
 import pyqtgraph as pg
-from lib import ScanalyzerGUI, HoverTargetItem, DataProcessing, FileFunctions
-from .Spectralyzer import Spectralyzer
+from lib import ScanalyzerGUI, HoverTargetItem, DataProcessing, FileFunctions, Spectralyzer
 
 
 
-class AppWindow(QtCore.QObject):
+class Scanalyzer(QtCore.QObject):
     def __init__(self):
         super().__init__()
         self.parameters_init()
-        self.gui = ScanalyzerGUI(self.paths["icon_folder"])
+        self.gui = ScanalyzerGUI()
         self.connect_buttons()
 
         # Initialize the ImageView from the last session
@@ -72,9 +71,6 @@ class AppWindow(QtCore.QObject):
         self.selected_file = ""
         self.channels = []
         self.channel = ""
-        self.channel_index = 0
-        self.max_channel_index = 0
-        self.scale_toggle_index = 0
         self.spec_targets = []
         self.file_functions = FileFunctions()
         self.data = DataProcessing()
@@ -822,6 +818,6 @@ class AppWindow(QtCore.QObject):
 
 if __name__ == "__main__":
     app = QtWidgets.QApplication(sys.argv)
-    window = AppWindow()
+    window = Scanalyzer()
     #window.show()
     sys.exit(app.exec())

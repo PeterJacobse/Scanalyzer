@@ -3,7 +3,7 @@ import numpy as np
 from PyQt6 import QtCore, QtGui, QtWidgets
 import pyqtgraph as pg
 import pyqtgraph.exporters as expts
-from lib import GUIItems, HoverTargetItem, DataProcessing, FileFunctions
+from . import GUIItems, HoverTargetItem, DataProcessing, FileFunctions, ScanalyzerGUI, SpectralyzerGUI
 
 
 
@@ -20,7 +20,7 @@ class Spectralyzer(QtWidgets.QMainWindow):
         self.color_list = ["#FFFFFF", "#FFFF00", "#FF90FF", "#00FFFF", "#00FF00", "#A0A0A0", "#FF4040", "#5050FF", "#FFA500", "#9050FF", "#808000", "#008080", "#900090", "#009000", "#B00000", "#0000C0"]
         
         self.parameters_init()
-        self.gui_items_init()
+        self.gui = SpectralyzerGUI()
         self.draw_layout()
         self.spec_objects, self.channels = self.read_spectroscopy_files()
         self.connect_keys()
@@ -30,8 +30,8 @@ class Spectralyzer(QtWidgets.QMainWindow):
 
 
     def parameters_init(self) -> None:
-        lib_folder = os.path.dirname()
-        project_folder = os.path.dirname()
+        lib_folder = os.path.dirname(os.path.abspath(__file__))
+        project_folder = os.path.dirname(lib_folder)
         icon_folder = os.path.join(project_folder, "icons")
         
         icon_files = os.listdir(icon_folder)
@@ -50,111 +50,49 @@ class Spectralyzer(QtWidgets.QMainWindow):
             "opacity": 1
         }
         self.file_functions = FileFunctions()
-
-    def gui_items_init(self) -> None:
-        gui_items = GUIItems()
-        make_button = lambda *args, **kwargs: gui_items.make_button(*args, parent = self, **kwargs)
-        make_label = gui_items.make_label
-        make_checkbox = gui_items.make_checkbox
-        make_combobox = gui_items.make_combobox
-        make_line_edit = gui_items.make_line_edit
-        make_layout = gui_items.make_layout
-
-        self.buttons = {
-            "save_0": make_button("", "Save graph 0 to svg", self.icons.get("floppy")),
-            "save_1": make_button("", "Save graph 1 to svg", self.icons.get("floppy")),
-            "exit": make_button("", "Exit Spectrum Viewer (Q / Esc)", self.icons.get("escape"))
-        }
-        self.channel_selection_comboboxes = {
-            "x_axis": make_combobox("x_axis", "Channel to display on the x axis (X)"),
-            "y_axis_0": make_combobox("y_axis_0", "Channel to display on the y axis (Y)"),
-            "y_axis_1": make_combobox("y_axis_1", "Channel to display on the y axis (Z)"),
-        }
-        self.layouts = {
-            "main": make_layout("g"),
-            "selector": make_layout("g"),
-            "x_axis": make_layout("h"),
-            "plots": make_layout("v"),
-            "options": make_layout("g")
-        }
-        self.line_edits = {
-            "offset_0": make_line_edit("0", "Offset between successive spectra"),
-            "offset_1": make_line_edit("0", "Offset between successive spectra"),
-            "line_width": make_line_edit("2", "Line width"),
-            "opacity": make_line_edit("1", "Opacity")
-        }
-        self.labels = {
-            "save_0": make_label("save (plot 0)", "Save plot 0 to svg (S)"),
-            "save_1": make_label("save (plot 1)", "Save plot 1 to svg (Z)"),
-            "x_axis": make_label("x axis", "Toggle with (X)"),
-            "y_axis_0": make_label("y axis (plot 0)", "Toggle with (Y)"),
-            "y_axis_1": make_label("y axis (plot 1)", "Toggle with (Z)"),
-            "offset_0": make_label("Offset", "Offset between successive spectra", self.icons.get("offset")),
-            "offset_1": make_label("Offset", "Offset between successive spectra", self.icons.get("offset")),
-            "line_width": make_label("Line width", "Line width"),
-            "opacity": make_label("Opacity", "Opacity")
-        }
-        
-        self.checkboxes = {}
-        self.plot_number_comboboxes = {}
-        self.leftarrows = {}
-        self.rightarrows = {}
-
-        for number in range(16):
-            self.checkboxes.update({f"{number}": make_checkbox(f"{number}", f"toggle visibility of plot {number} (space when row is highlighted)")})
-            self.checkboxes[f"{number}"].setStyleSheet(f"color: {self.color_list[number]};")
-            self.plot_number_comboboxes.update({f"{number}": make_combobox(f"{number}", f"data for plot {number}")})
-            self.leftarrows.update({f"{number}": make_button("", lambda n = number: self.toggle_plot_number(n, increase = False), f"decrease plot number {number} (left arrow when row is highlighted)", self.icons.get("single_arrow"), rotate_degrees = 180)})
-            self.rightarrows.update({f"{number}": make_button("", lambda n = number: self.toggle_plot_number(n, increase = True), f"increase plot number {number} (right arrow when row is highlighted)", self.icons.get("single_arrow"))})
+        self.data = DataProcessing()
 
 
 
     def draw_layout(self) -> None:
+        buttons = self.gui.buttons
+        self.channel_selection_comboboxes = self.gui.channel_selection_comboboxes
+        plot_number_comboboxes = self.gui.plot_number_comboboxes
+        layouts = self.gui.layouts
+        line_edits = self.gui.line_edits
+        self.labels = self.gui.labels
+        self.checkboxes = self.gui.checkboxes
+        self.leftarrows = self.gui.leftarrows
+        self.rightarrows = self.gui.rightarrows
+        plot_widgets = self.gui.plot_widgets
+        
         # Set the central widget of the QMainWindow
-        central_widget = QtWidgets.QWidget()
-        self.setCentralWidget(central_widget)
-
-        # Spectrum selector
-        spectrum_selector_widget = QtWidgets.QWidget()
-        spectrum_selector_layout = self.layouts["selector"]
-
-        [spectrum_selector_layout.addWidget(self.checkboxes[f"{i}"], i, 0) for i in range(len(self.checkboxes))]
-        [spectrum_selector_layout.addWidget(self.leftarrows[f"{i}"], i, 1) for i in range(len(self.leftarrows))]
-        [spectrum_selector_layout.addWidget(self.plot_number_comboboxes[f"{i}"], i, 2) for i in range(len(self.plot_number_comboboxes))]
-        [spectrum_selector_layout.addWidget(self.rightarrows[f"{i}"], i, 3) for i in range(len(self.rightarrows))]
-        spectrum_selector_widget.setLayout(spectrum_selector_layout)
+        #central_widget = QtWidgets.QWidget()
+        
+        self.setCentralWidget(self.gui.widgets["central"])
 
         # Plots
-        plot_widget = QtWidgets.QWidget()
-        self.graph_0_widget = pg.PlotWidget()
-        self.graph_1_widget = pg.PlotWidget()
-        [self.layouts["plots"].addWidget(widget) for widget in [self.channel_selection_comboboxes["x_axis"], self.graph_0_widget, self.graph_1_widget]]
-        plot_widget.setLayout(self.layouts["plots"])
-        self.graph_0 = self.graph_0_widget.getPlotItem() # Get the plotitems corresponding to the plot widgets
-        self.graph_1 = self.graph_1_widget.getPlotItem()
-        self.graph_0.setFixedWidth(500)
+        [self.gui.layouts["plots"].addWidget(widget) for widget in [self.channel_selection_comboboxes["x_axis"], plot_widgets["graph_0"], plot_widgets["graph_1"]]]
+        
+        self.gui.widgets["plot"].setLayout(self.layouts["plots"])
+        
+        #self.graph_0 = plot_widgets["graph_0"].getPlotItem() # Get the plotitems corresponding to the plot widgets
+        #self.graph_1 = plot_widgets["graph_1"].getPlotItem()
+        self.gui.plot_items["graph_0"].setFixedWidth(500)
 
         # Options
-        option_widget = QtWidgets.QWidget()
-        option_widgets_col0 = [self.labels["y_axis_0"], self.labels["offset_0"], self.labels["save_0"],
-                               self.labels["y_axis_1"], self.labels["offset_1"], self.labels["save_1"],
-                               self.labels["line_width"], self.labels["opacity"]]
-        option_widgets_col1 = [self.channel_selection_comboboxes["y_axis_0"], self.line_edits["offset_0"], self.buttons["save_0"],
-                               self.channel_selection_comboboxes["y_axis_1"], self.line_edits["offset_1"], self.buttons["save_1"],
-                               self.line_edits["line_width"], self.line_edits["opacity"]]
-        [self.layouts["options"].addWidget(widget, index, 0) for index, widget in enumerate(option_widgets_col0)]
-        [self.layouts["options"].addWidget(widget, index, 1) for index, widget in enumerate(option_widgets_col1)]
-        option_widget.setLayout(self.layouts["options"])
+        [self.gui.layouts["options"].addWidget(widget, index, 0) for index, widget in enumerate(self.gui.option_widgets_col0)]
+        [self.gui.layouts["options"].addWidget(widget, index, 1) for index, widget in enumerate(self.gui.option_widgets_col1)]
+        self.gui.widgets["options"].setLayout(self.layouts["options"])
         
         #self.layouts["options"].addWidget(self.gui_functions.line_widget("h", 1))
 
         # x axis
-        x_widget = QtWidgets.QWidget()
-        [self.layouts["x_axis"].addWidget(widget) for widget in [self.labels["x_axis"], self.channel_selection_comboboxes["x_axis"]]]
-        x_widget.setLayout(self.layouts["x_axis"])
+        [self.gui.layouts["x_axis"].addWidget(widget) for widget in [self.labels["x_axis"], self.gui.channel_selection_comboboxes["x_axis"]]]
+        self.gui.widgets["x"].setLayout(self.layouts["x_axis"])
 
         # Scan
-        self.image_widget = pg.GraphicsLayoutWidget()
+        self.image_widget = self.gui.image_widget #pg.GraphicsLayoutWidget()
         self.view_box = self.image_widget.addViewBox()
         self.view_box.setAspectLocked(True)
         self.view_box.invertY(True)
@@ -163,29 +101,22 @@ class Spectralyzer(QtWidgets.QMainWindow):
         self.image_item.setImage(self.processed_scan)
 
         # Main widget
-        self.layouts["main"].addWidget(spectrum_selector_widget, 1, 0, 2, 1) # Spectrum selector buttons
-        self.layouts["main"].addWidget(x_widget, 0, 1) # x axis channel selection combobox
-        self.layouts["main"].addWidget(plot_widget, 1, 1, 2, 1)
-        self.layouts["main"].addWidget(self.buttons["exit"], 0, 2)
-        self.layouts["main"].addWidget(option_widget, 1, 2)
-        self.layouts["main"].addWidget(self.image_widget, 2, 2)
-        self.layouts["main"].setColumnMinimumWidth(1, 500)
-
-        #[self.layouts["main"].addWidget(widget, i, 1, alignment = QtCore.Qt.AlignmentFlag.AlignCenter) for i, widget in enumerate(column_1_widgets)]
-        #[self.layouts["main"].addWidget(widget, i, 2, alignment = QtCore.Qt.AlignmentFlag.AlignCenter) for i, widget in enumerate(column_2_widgets)]
-        central_widget.setLayout(self.layouts["main"])
+        self.gui.widgets["central"].setLayout(self.layouts["main"])
 
     def connect_keys(self) -> None:
-        self.buttons["save_0"].clicked.connect(lambda: self.on_save_spectrum(0))
-        self.buttons["save_1"].clicked.connect(lambda: self.on_save_spectrum(1))
-        self.buttons["exit"].clicked.connect(self.close)        
-        for combobox in [self.channel_selection_comboboxes["x_axis"], self.channel_selection_comboboxes["y_axis_0"], self.channel_selection_comboboxes["y_axis_1"]]:
-            combobox.currentIndexChanged.connect(lambda: self.redraw_spectra(toggle_checkbox = False))
+        buttons = self.gui.buttons
+        plot_number_comboboxes = self.gui.plot_number_comboboxes
 
-        [self.plot_number_comboboxes[f"{index}"].currentIndexChanged.connect(lambda: self.redraw_spectra(toggle_checkbox = False)) for index in range(len(self.plot_number_comboboxes))]
-        [edit.editingFinished.connect(self.change_pen_style) for edit in [self.line_edits["line_width"], self.line_edits["opacity"]]]
-        [edit.editingFinished.connect(lambda: self.redraw_spectra(toggle_checkbox = False)) for edit in [self.line_edits["offset_0"], self.line_edits["offset_1"]]]
+        buttons["save_0"].clicked.connect(lambda: self.on_save_spectrum(0))
+        buttons["save_1"].clicked.connect(lambda: self.on_save_spectrum(1))
+        buttons["exit"].clicked.connect(self.close)        
+        
+        chan_sel_boxes = [self.channel_selection_comboboxes[name] for name in ["x_axis", "y_axis_0", "y_axis_1"]]
+        [combobox.currentIndexChanged.connect(lambda: self.redraw_spectra(toggle_checkbox = False)) for combobox in chan_sel_boxes]
+        [plot_number_comboboxes[f"{index}"].currentIndexChanged.connect(lambda: self.redraw_spectra(toggle_checkbox = False)) for index in range(len(plot_number_comboboxes))]
 
+        [self.gui.line_edits[name].editingFinished.connect(self.change_pen_style) for name in ["line_width", "opacity"]]
+        [self.gui.line_edits[name].editingFinished.connect(lambda: self.redraw_spectra(toggle_checkbox = False)) for name in ["offset_0", "offset_1"]]
 
         QKey = QtCore.Qt.Key
         QSeq = QtGui.QKeySequence
@@ -215,7 +146,8 @@ class Spectralyzer(QtWidgets.QMainWindow):
 
 
     def read_spectroscopy_files(self) -> tuple:
-        (spec_objects, error) = [self.file_functions.get_spectrum(spec_file[1]) for spec_file in self.spec_files] # Get a spectroscopy object for each spectroscopy file
+        #(spec_objects, error) = [self.file_functions.get_spectrum(spec_file[1]) for spec_file in self.spec_files] # Get a spectroscopy object for each spectroscopy file
+        spec_objects = {}
         
         # Find all the channels recorded during all the spectroscopies and combine them into a list called all_channels
         all_channels = []
@@ -223,7 +155,8 @@ class Spectralyzer(QtWidgets.QMainWindow):
             all_channels.extend(list(spec_object.channels))
         all_channels = list(set(all_channels))
         all_channels = np.array([str(channel) for channel in all_channels])
-        [combobox.addItems(all_channels) for combobox in [self.channel_selection_comboboxes["x_axis"], self.channel_selection_comboboxes["y_axis_0"], self.channel_selection_comboboxes["y_axis_1"]]]
+        
+        [self.gui.channel_selection_comboboxes[axis].addItems(all_channels) for axis in ["x_axis", "y_axis_0", "y_axis_1"]]
         
         # Attempt to set the channel toggle boxes to logical starting defaults
         [combobox.blockSignals(True) for combobox in self.channel_selection_comboboxes.values()]
@@ -254,7 +187,7 @@ class Spectralyzer(QtWidgets.QMainWindow):
 
         # Put a star on the spectrum names that are associated with the scan and initialize the comboboxes
         [combobox.blockSignals(True) for combobox in self.plot_number_comboboxes.values()]
-        spec_labels = self.spec_files[:, 0]
+        #spec_labels = self.spec_files[:, 0]
         """
         associated_labels = [spectrum[0] for spectrum in self.associated_spectra]
         for i in range(len(spec_labels)):
@@ -286,42 +219,51 @@ class Spectralyzer(QtWidgets.QMainWindow):
         return spec_objects, all_channels
 
     def redraw_spectra(self, toggle_checkbox: bool = False) -> None:
+        plot_items = self.gui.plot_items
+        line_edits = self.gui.line_edits
+        checkboxes = self.gui.checkboxes
+        leftarrows = self.gui.leftarrows
+        rightarrows = self.gui.rightarrows
+        plot_number_comboboxes = self.gui.plot_number_comboboxes
+        graph_0 = self.gui.plot_items["graph_0"]
+        graph_1 = self.gui.plot_items["graph_1"]
+        
         if toggle_checkbox:
-            checked = self.checkboxes[f"{self.focus_row}"].isChecked()
-            [checkbox.blockSignals(True) for checkbox in self.checkboxes.values()]
-            self.checkboxes[f"{self.focus_row}"].setChecked(not checked)
-            [checkbox.blockSignals(False) for checkbox in self.checkboxes.values()]
+            checked = checkboxes[f"{self.focus_row}"].isChecked()
+            [checkbox.blockSignals(True) for checkbox in checkboxes.values()]
+            checkboxes[f"{self.focus_row}"].setChecked(not checked)
+            [checkbox.blockSignals(False) for checkbox in checkboxes.values()]
 
         # Grey out the plot rows that are not enabled (checked using the checkbox)
         for index in range(len(self.checkboxes)):
-            checkbox = self.checkboxes[f"{index}"]
+            checkbox = checkboxes[f"{index}"]
             checked = checkbox.isChecked()
-            if checked: [button.setEnabled(True) for button in [self.leftarrows[f"{index}"], self.plot_number_comboboxes[f"{index}"], self.rightarrows[f"{index}"]]]
-            else: [button.setEnabled(False) for button in [self.leftarrows[f"{index}"], self.plot_number_comboboxes[f"{index}"], self.rightarrows[f"{index}"]]]
+            if checked: [button.setEnabled(True) for button in [leftarrows[f"{index}"], plot_number_comboboxes[f"{index}"], rightarrows[f"{index}"]]]
+            else: [button.setEnabled(False) for button in [leftarrows[f"{index}"], plot_number_comboboxes[f"{index}"], rightarrows[f"{index}"]]]
 
         # Read the QComboboxes and retrieve what channels are requested
         if not hasattr(self, "channels"): return # Return if the channels have not yet been read
-        x_index = self.channel_selection_comboboxes["x_axis"].currentIndex()
-        y_0_index = self.channel_selection_comboboxes["y_axis_0"].currentIndex()
-        y_1_index = self.channel_selection_comboboxes["y_axis_1"].currentIndex()
-        [x_channel, y_0_channel, y_1_channel] = [self.channels[index] for index in [x_index, y_0_index, y_1_index]]
+        #x_index = self.channel_selection_comboboxes["x_axis"].currentIndex()
+        #y_0_index = self.channel_selection_comboboxes["y_axis_0"].currentIndex()
+        #y_1_index = self.channel_selection_comboboxes["y_axis_1"].currentIndex()
+        #[x_channel, y_0_channel, y_1_channel] = [self.channels[index] for index in [x_index, y_0_index, y_1_index]]
 
         x_data = np.linspace(-2, 2, 20)
-        [graph.clear() for graph in [self.graph_0, self.graph_1]]
+        [graph.clear() for graph in [graph_0, graph_1]]
 
         # Set the pen
         # Set the pen properties from processing flags
         line_width = self.data.processing_flags.get("line_width", 1)
         opacity = self.data.processing_flags.get("opacity", 1)
 
-        offset_0 = float(self.line_edits["offset_0"].text())
-        offset_1 = float(self.line_edits["offset_1"].text())
+        offset_0 = float(line_edits["offset_0"].text())
+        offset_1 = float(line_edits["offset_1"].text())
 
-        for i in range(len(self.checkboxes) - 1, -1, -1):
+        for i in range(len(checkboxes) - 1, -1, -1):
             color = self.color_list[i]
 
             if self.checkboxes[f"{i}"].isChecked():
-                spec_index = self.plot_number_comboboxes[f"{i}"].currentIndex()
+                spec_index = plot_number_comboboxes[f"{i}"].currentIndex()
                 spec_object = self.spec_objects[spec_index]
                 spec_signal = spec_object.signals
                 
@@ -335,7 +277,7 @@ class Spectralyzer(QtWidgets.QMainWindow):
                     y_0_data = spec_signal[y_0_channel]
                     y_0_data_shifted = y_0_data + i * offset_0
 
-                    self.graph_0.plot(x_data, y_0_data_shifted, pen = pen)
+                    graph_0.plot(x_data, y_0_data_shifted, pen = pen)
                 except Exception as e:
                     print(f"Error: {e}")
                 try:
@@ -343,13 +285,13 @@ class Spectralyzer(QtWidgets.QMainWindow):
                     y_1_data = spec_signal[y_1_channel]
                     y_1_data_shifted = y_1_data + i * offset_1
                 
-                    self.graph_1.plot(x_data, y_1_data_shifted, pen = pen)
+                    graph_1.plot(x_data, y_1_data_shifted, pen = pen)
                 except Exception as e:
                     print(f"Error: {e}")
 
     def toggle_plot_number(self, plot_index: int = 0, increase: bool = True) -> None:
         try:
-            current_index = self.plot_number_comboboxes[f"{plot_index}"].currentIndex()
+            current_index = self.gui.plot_number_comboboxes[f"{plot_index}"].currentIndex()
 
             if increase: new_index = current_index + 1
             else: new_index = current_index - 1
@@ -358,7 +300,7 @@ class Spectralyzer(QtWidgets.QMainWindow):
             if new_index < 0: new_index = len(self.spec_files) - 1
 
             # Changing the index of the combobox automatically activates self.redraw_spectra() since the currentIndexChanged signal is connected to that method
-            self.plot_number_comboboxes[f"{plot_index}"].setCurrentIndex(new_index)
+            self.gui.plot_number_comboboxes[f"{plot_index}"].setCurrentIndex(new_index)
 
         except Exception as e:
             print(f"Error toggling the plot: {e}")
@@ -366,6 +308,10 @@ class Spectralyzer(QtWidgets.QMainWindow):
         return
 
     def set_focus_row(self, number: int = -1, increase: bool = True) -> None:
+        leftarrows = self.gui.leftarrows
+        plot_number_comboboxes = self.gui.plot_number_comboboxes
+        rightarrows = self.gui.rightarrows
+        
         # Disconnect the key shortcuts
         try:
             self.left_shortcut.disconnect()
@@ -376,15 +322,18 @@ class Spectralyzer(QtWidgets.QMainWindow):
 
         # Change the background color of the buttons
         for index in range(len(self.leftarrows)):
-            [button.setStyleSheet(f"background-color: black;") for button in [self.leftarrows[f"{index}"], self.plot_number_comboboxes[f"{index}"], self.rightarrows[f"{index}"]]]
+            row_buttons = [leftarrows[f"{index}"], plot_number_comboboxes[f"{index}"], rightarrows[f"{index}"]]
+            [button.setStyleSheet(f"background-color: black;") for button in row_buttons]
 
         # Number is set
         if number > -1 and number < len(self.leftarrows):
             try:
                 self.focus_row = number
-                [button.setStyleSheet(f"background-color: #404000;") for button in [self.leftarrows[f"{self.focus_row}"], self.plot_number_comboboxes[f"{self.focus_row}"], self.rightarrows[f"{self.focus_row}"]]]
+                row_buttons = [leftarrows[f"{number}"], plot_number_comboboxes[f"{number}"], rightarrows[f"{number}"]]
+                [button.setStyleSheet(f"background-color: #404000;") for button in row_buttons]
             except Exception as e:
                 print(f"Error changing the focus row: {e}")
+
         # Number is toggled up or down
         else:
             try:
@@ -395,7 +344,8 @@ class Spectralyzer(QtWidgets.QMainWindow):
                 if new_row > len(self.leftarrows) - 1: new_row = 0
 
                 self.focus_row = new_row
-                [button.setStyleSheet(f"background-color: #404000;") for button in [self.leftarrows[f"{self.focus_row}"], self.plot_number_comboboxes[f"{self.focus_row}"], self.rightarrows[f"{self.focus_row}"]]]
+                row_buttons = [leftarrows[f"{new_row}"], plot_number_comboboxes[f"{new_row}"], rightarrows[f"{new_row}"]]
+                [button.setStyleSheet(f"background-color: #404000;") for button in row_buttons]
             except Exception as e:
                 print(f"Error changing the focus row: {e}")
         
@@ -431,11 +381,11 @@ class Spectralyzer(QtWidgets.QMainWindow):
         try:
             export_folder = self.paths["output_folder"]
             if plot_number == 0:
-                scene = self.graph_0_widget.scene()
+                scene = self.gui.plot_widgets["graph_0"].scene()
             else:
-                scene = self.graph_1_widget.scene()
+                scene = self.gui.plot_widgets["graph_0"].scene()
+            
             exporter = expts.SVGExporter(scene)
-
             file_path, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Save file", export_folder, "svg files (*.svg)")
             if file_path:
                 exporter.export(file_path)
@@ -446,3 +396,9 @@ class Spectralyzer(QtWidgets.QMainWindow):
         return
 
 
+
+if __name__ == "__main__":
+    app = QtWidgets.QApplication(sys.argv)
+    window = Spectralyzer()
+    window.show()
+    sys.exit(app.exec())

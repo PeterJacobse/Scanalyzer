@@ -8,12 +8,11 @@ from . import GUIItems
 class ScanalyzerGUI(QtWidgets.QMainWindow):
     dataDropped = QtCore.pyqtSignal(str)
     
-    def __init__(self, icons_path):
+    def __init__(self):
         super().__init__()
         
         # 1: Read icons from file.
-        self.icons_path = icons_path
-        self.get_icons()
+        self.icons = self.get_icons()
         
         # 2: Create the specific GUI items using the items from the GUIItems class. Requires icons.
         self.gui_items = GUIItems()
@@ -59,16 +58,20 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
 
     # 1: Read icons from file.
     def get_icons(self):
-        icons_path = self.icons_path
-        icon_files = os.listdir(icons_path)
+        lib_folder = os.path.dirname(os.path.abspath(__file__))
+        project_folder = os.path.dirname(lib_folder)
+        icon_folder = os.path.join(project_folder, "icons")
+        icon_files = os.listdir(icon_folder)
         
-        self.icons = {}
+        icons = {}
         for icon_file in icon_files:
             [icon_name, extension] = os.path.splitext(os.path.basename(icon_file))
             try:
-                if extension == ".png": self.icons.update({icon_name: QtGui.QIcon(os.path.join(icons_path, icon_file))})
+                if extension == ".png": icons.update({icon_name: QtGui.QIcon(os.path.join(icon_folder, icon_file))})
             except:
                 pass
+        
+        return icons
 
 
 
@@ -272,9 +275,9 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
     def make_image_view(self) -> pg.ImageView:
         pg.setConfigOptions(imageAxisOrder = "row-major", antialias = True)
         
-        self.im_view = pg.ImageView(view = pg.PlotItem())
+        im_view = pg.ImageView(view = pg.PlotItem())
         
-        return self.im_view
+        return im_view
 
     def make_widgets(self) -> dict:
         layouts = self.layouts

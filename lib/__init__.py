@@ -3,4 +3,5 @@ from .gui_items import GUIItems, HoverTargetItem
 from .gui_scanalyzer import ScanalyzerGUI
 from .file_functions import FileFunctions
 from .data_processing import DataProcessing
-from .spectrum_viewer import SpectrumViewer
+#from .Spectralyzer import Spectralyzer
+from .gui_spectralyzer import SpectralyzerGUI
