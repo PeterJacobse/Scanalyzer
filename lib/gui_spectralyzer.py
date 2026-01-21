@@ -21,21 +21,15 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
         self.checkboxes = self.make_checkboxes()
         (self.channel_selection_comboboxes, self.plot_number_comboboxes) = self.make_comboboxes()
         self.line_edits = self.make_line_edits()
-        #self.lines = self.make_lines()
         self.layouts = self.make_layouts()
         self.image_widget = self.make_image_widget()
         (self.plot_widgets, self.plot_items) = self.make_plot_widgets()
         self.widgets = self.make_widgets()
-        #self.consoles = self.make_consoles()
-        #self.shortcuts = self.make_shortcuts()
                 
         # 3: Populate layouts with GUI items. Requires GUI items.
         self.populate_layouts()
         
-        # 4: Make groupboxes and set their layouts. Requires populated layouts.
-        #self.groupboxes = self.make_groupboxes()
-        
-        # 5: Set up the main window layout
+        # 4: Set up the main window layout
         self.setup_main_window()
 
     # Drag and drop
@@ -272,9 +266,6 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
     # 3: Populate layouts with GUI items. Requires GUI items.
     def populate_layouts(self) -> None:
         layouts = self.layouts
-        buttons = self.buttons
-        checkboxes = self.checkboxes
-        line_edits = self.line_edits
         labels = self.labels
         widgets = self.widgets
         
@@ -321,44 +312,14 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
 
 
 
-    # 4: Make widgets and groupboxes and set their layouts. Requires layouts.
-    def make_groupboxes(self) -> dict:
-        make_groupbox = self.gui_items.make_groupbox
-        layouts = self.layouts
-        
-        groupboxes = {
-            "scan_summary": make_groupbox("Scan summary", "Information about the currently selected scan"),
-            "file_chan_dir": make_groupbox("File / Channel / Direction", "Select and toggle through scan files and channels"),
-            "image_processing": make_groupbox("Image processing", "Select the background subtraction, matrix operations and set the image range limits"),
-            "spectra": make_groupbox("Spectra", "Associated spectra (those recorded after the acquisition of the selected scan) are shown with an asterisk"),
-            "i/o": make_groupbox("Output", "Save or find the processed image, or exit the app")
-        }
-
-        # Set layouts for the groupboxes
-        group_names = ["scan_summary", "file_chan_dir", "image_processing", "spectra", "i/o"]
-        [groupboxes[name].setLayout(layouts[name]) for name in group_names]
-        
-        [self.layouts["toolbar"].addWidget(groupboxes[name]) for name in group_names]        
-        
-        return groupboxes
-
-
-
-    # 5: Set up the main window layout
+    # 4: Set up the main window layout
     def setup_main_window(self) -> None:
         layouts = self.layouts
         widgets = self.widgets
 
         # Aesthetics
         widgets["selector"].setLayout(layouts["selector"])
-        """
-        layouts["toolbar"].setContentsMargins(4, 4, 4, 4)
-        layouts["toolbar"].addStretch(1)
         
-        # Set the layout as the image_view plus toolbar
-        layouts["main"].addWidget(self.image_view, 3)
-        layouts["main"].addLayout(layouts["toolbar"], 1)
-        """
         # Set the central widget of the QMainWindow
         widgets["central"].setLayout(layouts["main"])
         widgets["central"].setFocusPolicy(QtCore.Qt.FocusPolicy.StrongFocus)
