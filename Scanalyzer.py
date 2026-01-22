@@ -14,14 +14,9 @@ class Scanalyzer(QtCore.QObject):
         self.connect_buttons()
 
         # Initialize the ImageView from the last session
-        try: # Read the last scan file from the config yaml file
-            with open(self.paths["config_path"], "r") as file:
-                yaml_data = yaml.safe_load(file)
-                last_file = yaml_data.get("last_file")
-                self.load_folder(last_file)
-                #self.on_full_scale("both")
-        except:
-            pass
+        (yaml_data, error) = self.file_functions.load_yaml(self.paths["config_path"])
+        if not error: last_file = yaml_data.get("last_file", None)
+        if last_file: self.load_folder(last_file)
         
         self.gui.show()
 
@@ -29,20 +24,27 @@ class Scanalyzer(QtCore.QObject):
 
     def parameters_init(self) -> None:
         # Paths
-        script_path = os.path.abspath(__file__) # The full path of Scanalyzer.py, including the filename itself
-        script_folder = os.path.dirname(script_path) # The parent directory of Scanalyzer.py
-        sys_folder = os.path.join(script_folder, "sys") # The directory of the config file
-        lib_folder = os.path.join(script_folder, "lib") # The directory of the Scanalyzer package
-        icon_folder = os.path.join(script_folder, "icons") # The directory of the icon files
+        scanalyzer_path = os.path.abspath(__file__) # The full path of Scanalyzer.py, including the filename itself
+        scanalyzer_folder = os.path.dirname(scanalyzer_path) # The parent directory of Scanalyzer.py
+        
+        sys_folder = os.path.join(scanalyzer_folder, "sys") # The directory of the config file
         config_path = os.path.join(sys_folder, "config.yml") # The path to the configuration file
+        
+        lib_folder = os.path.join(scanalyzer_folder, "lib") # The directory of the Scanalyzer package
+        spectralyzer_path = os.path.join(lib_folder, "Spectralyzer.py") # The path to Spectralyzer
+        
+        icon_folder = os.path.join(scanalyzer_folder, "icons") # The directory of the icon files
+        
         data_folder = sys_folder # Set current folder to the config file; read from the config file later to reset it to a data folder
         metadata_file = os.path.join(data_folder, "metadata.yml") # Metadata file that is populated with all the scan and spectroscopy metadata of the files in the data folder
         output_folder_name = "Extracted Files"
 
         self.paths = {
-            "script_path": script_path,
-            "script_folder": script_folder,
-            "scanalyzer_folder": sys_folder,
+            "scanalyzer_path": scanalyzer_path,
+            "scanalyzer_folder": scanalyzer_folder,
+            "spectralyzer_path": spectralyzer_path,
+            "spectralyzer_folder": lib_folder,
+            "sys_folder": sys_folder,
             "lib_folder": lib_folder,
             "icon_folder": icon_folder,
             "config_path": config_path,
@@ -804,13 +806,11 @@ class Scanalyzer(QtCore.QObject):
         self.on_exit
     
     def on_exit(self) -> None:
-        try: # Save the currently opened scan folder to the config yaml file so it opens automatically on startup next time
-            scan_dict = self.files_dict.get("scan_files")
-            with open(self.paths["config_path"], "w") as file:
-                yaml.safe_dump({"last_file": str(scan_dict[self.file_index].get("path"))}, file)
-        except Exception as e:
-            print("Failed to save the scan folder to the config.yml file.")
-            print(e)
+        scan_dict = self.files_dict.get("scan_files")
+        data = {"last_file": str(scan_dict[self.file_index].get("path"))}
+        save_path = self.paths["config_path"], "w"
+        
+        error = self.file_functions.save_yaml(data, save_path)        
         print("Thank you for using Scanalyzer!")
         QtWidgets.QApplication.instance().quit()
 

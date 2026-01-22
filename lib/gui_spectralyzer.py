@@ -171,7 +171,8 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
             "selector": make_layout("g"),
             "x_axis": make_layout("h"),
             "plots": make_layout("v"),
-            "options": make_layout("g")
+            "options": make_layout("g"),
+            "i/o": make_layout("h")
         }
         
         return layouts
@@ -236,11 +237,7 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
         QMod = QtCore.Qt.Modifier
         QSeq = QtGui.QKeySequence
         
-        shortcuts = {
-            "previous_file": QSeq(QKey.Key_Left),
-            "select_file": QSeq(QMod.CTRL | QKey.Key_L),
-            "next_file": QSeq(QKey.Key_Right),
-            
+        shortcuts = {            
             "previous_channel": QSeq(QKey.Key_Up),
             "next_channel": QSeq(QKey.Key_Down),
             
@@ -286,6 +283,9 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
         [layouts["options"].addWidget(widget, index, 1) for index, widget in enumerate(self.option_widgets_col1)]
         widgets["options"].setLayout(layouts["options"])
         
+        layouts["i/o"].addWidget(self.buttons["open_folder"], 5)
+        layouts["i/o"].addWidget(self.buttons["exit"], 1)
+        
         # x axis
         [layouts["x_axis"].addWidget(widget) for widget in [labels["x_axis"], self.channel_selection_comboboxes["x_axis"]]]
         widgets["x"].setLayout(layouts["x_axis"])
@@ -303,7 +303,7 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
         main_layout.addWidget(widgets["selector"], 1, 0, 2, 1) # Spectrum selector buttons
         main_layout.addWidget(widgets["x"], 0, 1) # x axis channel selection combobox
         main_layout.addWidget(widgets["plot"], 1, 1, 2, 1)
-        main_layout.addWidget(self.buttons["exit"], 0, 2)
+        main_layout.addLayout(layouts["i/o"], 0, 2)
         main_layout.addWidget(widgets["options"], 1, 2)
         main_layout.addWidget(self.image_widget, 2, 2)
         main_layout.setColumnMinimumWidth(1, 500)
@@ -327,7 +327,7 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
         
         # Finish the setup
         self.setCentralWidget(widgets["central"])
-        self.setWindowTitle("Scanalyzer")
+        self.setWindowTitle("Spectralyzer")
         self.setGeometry(200, 200, 1200, 800) # x, y, width, height
         self.setWindowIcon(self.icons.get("graph"))
         self.setFocusPolicy(QtCore.Qt.FocusPolicy.StrongFocus)

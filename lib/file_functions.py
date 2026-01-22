@@ -1,5 +1,4 @@
-import re
-import os
+import re, os, yaml
 import numpy as np
 import nanonispy2 as nap
 from datetime import datetime
@@ -12,6 +11,29 @@ class FileFunctions():
         self.ureg = pint.UnitRegistry()
 
 
+
+    def save_yaml(self, data, path) -> bool:        
+        error = False
+
+        try: # Save the currently opened scan folder to the config yaml file so it opens automatically on startup next time
+            with open(path, "w") as file:
+                yaml.safe_dump(data, file)
+        except Exception as e:
+            print("Failed to save the scan folder to the config.yml file.")
+            error = e
+        
+        return error
+
+    def load_yaml(self, path) -> tuple[object, bool | str]:
+        error = False
+        
+        try: # Read the last scan file from the config yaml file
+            with open(path, "r") as file:
+                yaml_data = yaml.safe_load(file)
+        except Exception as e:
+            error = e
+
+        return (yaml_data, error)
 
     def get_scientific_numbers(self, text: str) -> list:
         pattern = r"[-+]?[0-9]*\.?[0-9]+(?:[eE][-+]?[0-9]+)?"
@@ -156,14 +178,25 @@ class FileFunctions():
                 error = f"Error: {e}"
                 return (header, error)
 
-    def create_files_dict(self, directory: str) -> tuple[dict, bool | str]:
+
+
+    def read_spectroscopy_header(self, file_name) -> tuple[dict, bool | str]:
+        
+        return
+
+    def create_empty_files_dict(self, directory_name: str) -> tuple[dict, bool | str]:
         error = False
         files_dict = {}
         
+        if os.path.isfile(directory_name): directory_name = os.path.dirname(directory_name)
+        if not os.path.isdir(directory_name):
+            error = "No valid directory was provided"
+            return (files_dict, error)
+        
         try:
-            all_files = os.listdir(directory)
-            dat_files = [os.path.join(directory, file) for file in all_files if file.endswith(".dat")]
-            sxm_files = [os.path.join(directory, file) for file in all_files if file.endswith(".sxm")]
+            all_files = os.listdir(directory_name)
+            dat_files = [os.path.join(directory_name, file) for file in all_files if file.endswith(".dat")]
+            sxm_files = [os.path.join(directory_name, file) for file in all_files if file.endswith(".sxm")]
 
             # Set up dictionaries
             scans_dict = {}
@@ -190,11 +223,45 @@ class FileFunctions():
         
         # Create and return the dictionary
         files_dict = {
+            "dict_name": "files_dict", # Self reference to facilitate the app recognizing what kind of dictionary this is
             "scan_files": scans_dict,
             "spectroscopy_files": specs_dict
         }
         
         return (files_dict, error)
+
+    def populate_spectroscopy_headers(self, files_dict: dict) -> tuple[dict, bool | str]:
+        error = False
+        
+        scan_dict = files_dict.get("scan_files")
+        spec_dict = files_dict.get("spectroscopy_files")
+        new_spec_dict = {}
+        
+        for key, value in spec_dict.items():
+            file_name = value.get("path")
+            (spec_object, error) = self.get_spectrum(file_name)
+            
+            # If an error is returned, the entry will be deleted from the spec_dict
+            if error:
+                spec_dict[key].update({
+                    "spec_object": "error"
+                    })
+            
+            else:
+                spec_dict[key].update({
+                    "spec_object": spec_object
+                    })
+            
+        # Update the total files_dict
+        files_dict = scan_dict | spec_dict
+        files_dict.update({"dict_name": "files_dict"})
+        
+        print(files_dict)
+        
+        return
+
+
+
 
     def read_files(self, directory: str) -> tuple:
         error = False
@@ -454,14 +521,21 @@ class FileFunctions():
             return (error, error)
 
     def get_spectrum(self, file_name: str) -> tuple[object, bool | str]:
+        error = False
+        spec_object = None
+        
+        if not isinstance(file_name, str):
+            error = "Provided file_name was not a valid string"
+            return (spec_object, error)
+
         if not os.path.exists(file_name):
             error = f"Error: File \"{file_name}\" does not exist."
-            return (error, error)
+            return (spec_object, error)
 
         root, extension = os.path.splitext(file_name)
         if extension != ".dat":
             error = "Error: attempting to open a spectroscopy file that is not a dat file."
-            return (error, error)
+            return (spec_object, error)
 
         try:
             spec_object = nap.read.Spec(file_name)
@@ -494,10 +568,9 @@ class FileFunctions():
             setattr(spec_object, "matrix", spectrum_matrix)
             setattr(spec_object, "date_time", dt_object)
         
-            return spec_object
-        
         except Exception as e:
             error = f"Error: {e}"
-            return (error, error)
+        
+        return (spec_object, error)
 
 

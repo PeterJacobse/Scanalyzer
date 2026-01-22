@@ -3,7 +3,11 @@ import numpy as np
 from PyQt6 import QtCore, QtGui, QtWidgets
 import pyqtgraph as pg
 import pyqtgraph.exporters as expts
-from . import GUIItems, HoverTargetItem, DataProcessing, FileFunctions, ScanalyzerGUI, SpectralyzerGUI
+from . import GUIItems, HoverTargetItem, DataProcessing, FileFunctions, SpectralyzerGUI
+
+
+
+color_list = ["#FFFFFF", "#FFFF20", "#20FFFF", "#FF80FF", "#60FF60", "#FF6060", "#8080FF", "#B0B0B0", "#FFB010", "#A050FF", "#909020", "#00A0A0", "#B030A0", "#40B040", "#B04040", "#5050E0"]
 
 
 
@@ -14,14 +18,13 @@ class Spectralyzer:
         self.spec_files = spec_files
         self.associated_spectra = associated_spectra
 
-        # Spectrum colors
-        self.color_list = ["#FFFFFF", "#FFFF00", "#FF90FF", "#00FFFF", "#00FF00", "#A0A0A0", "#FF4040", "#5050FF", "#FFA500", "#9050FF", "#808000", "#008080", "#900090", "#009000", "#B00000", "#0000C0"]
-        
+        # Spectrum colors        
         self.parameters_init()
         self.gui = SpectralyzerGUI()
         self.gui.image_item.setImage(scan_image)
+        
         self.spec_objects, self.channels = self.read_spectroscopy_files()
-        self.connect_keys()
+        self.connect_buttons()
         self.set_focus_row(0)
         self.redraw_spectra()
         self.gui.show()
@@ -29,10 +32,38 @@ class Spectralyzer:
 
 
     def parameters_init(self) -> None:
-        lib_folder = os.path.dirname(os.path.abspath(__file__))
-        project_folder = os.path.dirname(lib_folder)
-        icon_folder = os.path.join(project_folder, "icons")
+        # Paths
+        spectralyzer_path = os.path.abspath(__file__) # Path of Spectralyzer
+        lib_folder = os.path.dirname(spectralyzer_path) # Path of the lib folder
+        scanalyzer_folder = os.path.dirname(lib_folder) # The parent directory of Scanalyzer.py
+        scanalyzer_path = os.path.join(scanalyzer_folder, "Scanalyzer.py") # The parent directory of Scanalyzer.py
         
+        sys_folder = os.path.join(scanalyzer_folder, "sys") # The directory of the config file
+        config_path = os.path.join(sys_folder, "config.yml") # The path to the configuration file
+        
+        icon_folder = os.path.join(scanalyzer_folder, "icons") # The directory of the icon files
+        
+        data_folder = sys_folder # Set current folder to the config file; read from the config file later to reset it to a data folder
+        metadata_file = os.path.join(data_folder, "metadata.yml") # Metadata file that is populated with all the scan and spectroscopy metadata of the files in the data folder
+        output_folder_name = "Extracted Files"
+
+        self.paths = {
+            "scanalyzer_folder": scanalyzer_folder,
+            "scanalyzer_path": scanalyzer_path,
+            "spectralyzer_path": spectralyzer_path,
+            "spectralyzer_folder": lib_folder,
+            "sys_folder": sys_folder,
+            "lib_folder": lib_folder,
+            "icon_folder": icon_folder,
+            "config_path": config_path,
+            "data_folder": lib_folder,
+            "metadata_file": metadata_file,
+            "output_folder_name": output_folder_name,
+            "output_folder": os.path.join(data_folder, output_folder_name),
+            "output_file_basename": ""
+        }
+
+        # Icons
         icon_files = os.listdir(icon_folder)
         self.icons = {}
         for icon_file in icon_files:
@@ -42,29 +73,27 @@ class Spectralyzer:
             except:
                 pass
 
+        # Some attributes
         self.focus_row = 0
-        self.processing_flags = {
-            "line_width": 2,
-            "opacity": 1
-        }
         self.file_functions = FileFunctions()
         self.data = DataProcessing()
 
 
 
-    def connect_keys(self) -> None:
+    def connect_buttons(self) -> None:
         buttons = self.gui.buttons
         plot_number_comboboxes = self.gui.plot_number_comboboxes
 
         buttons["save_0"].clicked.connect(lambda: self.on_save_spectrum(0))
         buttons["save_1"].clicked.connect(lambda: self.on_save_spectrum(1))
+        buttons["open_folder"].clicked.connect(self.on_select_file)
         buttons["exit"].clicked.connect(self.on_exit)        
         
         chan_sel_boxes = [self.gui.channel_selection_comboboxes[name] for name in ["x_axis", "y_axis_0", "y_axis_1"]]
         [combobox.currentIndexChanged.connect(lambda: self.redraw_spectra(toggle_checkbox = False)) for combobox in chan_sel_boxes]
         [plot_number_comboboxes[f"{index}"].currentIndexChanged.connect(lambda: self.redraw_spectra(toggle_checkbox = False)) for index in range(len(plot_number_comboboxes))]
 
-        [self.gui.line_edits[name].editingFinished.connect(self.change_pen_style) for name in ["line_width", "opacity"]]
+        [self.gui.line_edits[name].editingFinished.connect(self.update_processing) for name in ["line_width", "opacity"]]
         [self.gui.line_edits[name].editingFinished.connect(lambda: self.redraw_spectra(toggle_checkbox = False)) for name in ["offset_0", "offset_1"]]
 
         QKey = QtCore.Qt.Key
@@ -93,6 +122,19 @@ class Spectralyzer:
         y_axis_1_shortcut.activated.connect(lambda: self.toggle_axis("y_axis_1"))
 
 
+
+    def on_select_file(self) -> None:
+        file_path, _ = QtWidgets.QFileDialog.getOpenFileName(None, "Open file", self.paths["data_folder"], "Dat files (*.dat)")
+        if file_path: self.load_folder(file_path)
+        return
+        #self.paths["data_folder"]
+
+    def load_folder(self, file_path) -> None:
+        print(file_path)
+        (files_dict, error) = self.file_functions.create_empty_files_dict(file_path)
+        print(files_dict)
+        self.file_functions.read_spectroscopy_files(files_dict)
+        return
 
     def read_spectroscopy_files(self) -> tuple:
         channel_selection_comboboxes = self.gui.channel_selection_comboboxes
@@ -212,7 +254,7 @@ class Spectralyzer:
         offset_1 = float(line_edits["offset_1"].text())
 
         for i in range(len(checkboxes) - 1, -1, -1):
-            color = self.color_list[i]
+            color = color_list[i]
 
             if checkboxes[f"{i}"].isChecked():
                 spec_index = plot_number_comboboxes[f"{i}"].currentIndex()
@@ -323,9 +365,11 @@ class Spectralyzer:
 
         return
 
-    def change_pen_style(self) -> None:
-        self.data.processing_flags["line_width"] = float(self.line_edits["line_width"].text())
-        self.data.processing_flags["opacity"] = float(self.line_edits["opacity"].text())
+    def update_processing(self) -> None:
+        self.data.spec_processing_flags.update({
+            "line_width": float(self.line_edits["line_width"].text()),
+            "opacity": float(self.line_edits["opacity"].text())
+        })
         self.redraw_spectra()
         return
 
