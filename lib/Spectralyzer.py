@@ -27,6 +27,7 @@ class Spectralyzer:
         self.connect_buttons()
         self.set_focus_row(0)
         self.redraw_spectra()
+        self.load_folder("C:\\Nanonis\\10182025\\unnamed0001.sxm")
         self.gui.show()
 
 
@@ -130,10 +131,43 @@ class Spectralyzer:
         #self.paths["data_folder"]
 
     def load_folder(self, file_path) -> None:
-        print(file_path)
+        # 1: Create an empty files dictionary
         (files_dict, error) = self.file_functions.create_empty_files_dict(file_path)
+        if error:
+            print(f"Error creating the files_dict: {error}")
+            return
+        
+        # 2: Populate it with spectroscopy headers
+        (files_dict, error) = self.file_functions.populate_spectroscopy_headers(files_dict)
+        if error:
+            print(f"Error populating spectroscopy headers: {error}")
+            return
+        
+        # 3: Populate it with scan headers
+        (files_dict, error) = self.file_functions.populate_scan_headers(files_dict)
+        if error:
+            print(f"Error populating scan headers: {error}")
+            return
+        
+        # 4: Use the scan headers and spectroscopy headers to associate spectra with scans, and update the dictionary accordingly
+        (files_dict, error) = self.file_functions.populate_associated_scans(files_dict)
+        if error:
+            print(f"Error associating spectra and scans: {error}")
+            return
+        
+        # 5: Save the fully populated dicts to a metadata.yml file
+        error = self.file_functions.save_files_dict(files_dict, os.path.dirname(file_path))
+        if error:
+            print(f"Error saving the files_dict to the metadata.yml file: {error}")
+            return
+        
+        # 6 Populate the spectroscopy dictionary with spectroscopy objects, from which the spectra can be extracted
+        (files_dict, error) = self.file_functions.populate_spec_objects(files_dict)
+        if error:
+            print(f"Error retrieving spectroscopy objects: {error}")
+            return
+        
         print(files_dict)
-        self.file_functions.read_spectroscopy_files(files_dict)
         return
 
     def read_spectroscopy_files(self) -> tuple:

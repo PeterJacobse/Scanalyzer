@@ -12,19 +12,18 @@ class FileFunctions():
 
 
 
-    def save_yaml(self, data, path) -> bool:        
+    def save_yaml(self, data, path: str) -> bool | str:
         error = False
 
         try: # Save the currently opened scan folder to the config yaml file so it opens automatically on startup next time
             with open(path, "w") as file:
                 yaml.safe_dump(data, file)
         except Exception as e:
-            print("Failed to save the scan folder to the config.yml file.")
-            error = e
+            error = f"Failed to save to yaml: {e}"
         
         return error
 
-    def load_yaml(self, path) -> tuple[object, bool | str]:
+    def load_yaml(self, path: str) -> tuple[object, bool | str]:
         error = False
         
         try: # Read the last scan file from the config yaml file
@@ -35,12 +34,79 @@ class FileFunctions():
 
         return (yaml_data, error)
 
+    def save_files_dict(self, files_dict: dict, folder: str) -> bool:
+        error = False
+        
+        clean_scan_dict = {"dict_name": "scan_files"}
+        clean_spec_dict = {"dict_name": "spectroscopy_files"}
+
+        try:
+            spec_dict = files_dict.get("spectroscopy_files")
+            scan_dict = files_dict.get("scan_files")
+            path = os.path.join(folder, "metadata.yml")
+            
+            # Parse the scan dictionary
+            for key, single_file_dict in scan_dict.items():
+                if not isinstance(single_file_dict, dict): continue # Pass the dict_name entry; only parse single_file dictionaries
+                
+                allowed_entries = ["frame", "date_time_str", "path", "file_name"] # Allowed entries for saving to yaml
+                clean_single_file_dict = {entry: single_file_dict.get(entry) for entry in allowed_entries}
+                clean_single_file_dict.update({"dict_name": "single_file_dict"})
+                
+                clean_scan_dict.update({key: clean_single_file_dict})
+            
+            # Parse the spectroscopy dictionary
+            for key, single_file_dict in spec_dict.items():
+                if not isinstance(single_file_dict, dict): continue # Pass the dict_name entry; only parse single_file dictionaries
+                
+                allowed_entries = ["x_nm", "y_nm", "z_nm", "date_time_str", "path", "file_name", "associated_scan_name", "associated_scan_path"] # Allowed entries for saving to yaml
+                clean_single_file_dict = {entry: single_file_dict.get(entry) for entry in allowed_entries}
+                clean_single_file_dict.update({"dict_name": "single_file_dict"})
+                
+                clean_spec_dict.update({key: clean_single_file_dict})
+            
+            # Compose the new files_dict
+            clean_files_dict = {
+                "dict_name": "files_dict",
+                "scan_files": clean_scan_dict,
+                "spectroscopy_files": clean_spec_dict
+            }
+            
+            error = self.save_yaml(clean_files_dict, path)
+            if error: raise Exception(error)
+        except Exception as e:
+            error = e
+        
+        return error
+
+    def split_physical_quantity(self, text: str):
+        error = False
+        quantity = False
+        unit = False
+
+        pattern = r"(\w+) \((.*?)\)" # Like 'X (m)' or 'current (pA)' ...
+        pattern_with_bwd = r"(\w+) [bwd] \((.*?)\)" # Like 'X (m)' or 'y_0 (nm)' ...
+        
+        try:
+            matches = re.findall(pattern, text)
+
+            # Process results
+            for quantity, unit in matches:
+                quantity = quantity.lower()
+                unit = unit.lower()
+        except:
+            error = True
+        
+        return (quantity, unit, error)
+
     def get_scientific_numbers(self, text: str) -> list:
-        pattern = r"[-+]?[0-9]*\.?[0-9]+(?:[eE][-+]?[0-9]+)?"
+        pattern = r"[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?"
         matches = re.findall(pattern, text)
         numbers = [float(x) for x in matches]
 
         return numbers
+
+
 
     def get_basic_header(self, file_name: str) -> tuple[dict, bool | str]:
         error = False
@@ -180,13 +246,10 @@ class FileFunctions():
 
 
 
-    def read_spectroscopy_header(self, file_name) -> tuple[dict, bool | str]:
-        
-        return
-
+    # Files dict (metadata) logic
     def create_empty_files_dict(self, directory_name: str) -> tuple[dict, bool | str]:
         error = False
-        files_dict = {}
+        files_dict = {"dict_name": "files_dict"} # Self reference to facilitate the app recognizing what kind of dictionary this is
         
         if os.path.isfile(directory_name): directory_name = os.path.dirname(directory_name)
         if not os.path.isdir(directory_name):
@@ -199,67 +262,402 @@ class FileFunctions():
             sxm_files = [os.path.join(directory_name, file) for file in all_files if file.endswith(".sxm")]
 
             # Set up dictionaries
-            scans_dict = {}
-            specs_dict = {}
+            scans_dict = {"dict_name": "scan_files"} # Self reference to facilitate the app recognizing what kind of dictionary this is
+            specs_dict = {"dict_name": "spectroscopy_files"}
 
-            # Read the file names
+            # Iterate over the sxm files (scan files)
             for index, file in enumerate(sxm_files):
                 file_basename = os.path.basename(file)
-                file_dict = {
+                single_file_dict = {
+                    "dict_name": "single_file_dict", # Self reference to facilitate the app recognizing what kind of dictionary this is
                     "file_name": file_basename,
                     "path": file
                 }
-                scans_dict.update({index: file_dict})
+                scans_dict.update({index: single_file_dict})
+            
+            # Iterate over the dat files (potential spectroscopy files)            
             for index, file in enumerate(dat_files):
                 file_basename = os.path.basename(file)
-                file_dict = {
+                single_file_dict = {
+                    "dict_name": "single_file_dict",
                     "file_name": file_basename,
                     "path": file
                 }
-                specs_dict.update({index: file_dict})
+                specs_dict.update({index: single_file_dict})
+    
         except Exception as e:
             error = e
             return (files_dict, error)
         
         # Create and return the dictionary
-        files_dict = {
-            "dict_name": "files_dict", # Self reference to facilitate the app recognizing what kind of dictionary this is
+        files_dict.update({
             "scan_files": scans_dict,
             "spectroscopy_files": specs_dict
-        }
+        })
         
         return (files_dict, error)
 
+    def get_spectroscopy_header(self, file_name: str) -> tuple[dict, bool | str]:
+        error = False
+        header = {}
+        [x, y, z, dt_object] = [False for _ in range(4)]
+        
+        try:
+            # Read the file line by line until the tags are found
+            line_count = 0
+            with open(file_name, "rb") as file:
+                for line in file:
+                    decoded = line.decode()
+                    
+                    (quantity, unit, error) = self.split_physical_quantity(decoded)
+                    if not error:
+                        match quantity:
+                            case "x":
+                                x_magnitude = self.get_scientific_numbers(decoded)[0]
+                                x = self.ureg.Quantity(x_magnitude, unit)
+                            case "y":
+                                y_magnitude = self.get_scientific_numbers(decoded)[0]
+                                y = self.ureg.Quantity(y_magnitude, unit)
+                            case "z":
+                                z_magnitude = self.get_scientific_numbers(decoded)[0]
+                                z = self.ureg.Quantity(z_magnitude, unit)
+
+                    if "Saved Date" in decoded:
+                        try:
+                            format_string = "Saved Date\t%d.%m.%Y %H:%M:%S\t"
+                            dt_object = datetime.strptime(decoded, format_string)
+                        except:
+                            pass
+                        
+                    # Found all tags
+                    if x and y and z and dt_object: break
+                
+                # One of the tags was not found
+                if not x or not y or not z or not dt_object:
+                    error = True
+                    return (header, error)
+            
+            # x_nm, y_nm, z_nm are the (unitless) magnitudes of the pint Quantities when expressed in nm
+            x_nm = x.to("nm").magnitude
+            y_nm = y.to("nm").magnitude
+            z_nm = z.to("nm").magnitude
+            
+            dt_str = dt_object.strftime("%Y-%m-%d %H:%M:%S")
+            
+            header = {
+                "x": x,
+                "y": y,
+                "z": z,
+                
+                "x_nm": x_nm,
+                "y_nm": y_nm,
+                "z_nm": z_nm,
+                
+                "coords": [x, y, z],
+                "location": [x, y, z],
+                "position": [x, y, z],
+                
+                "coords_nm": [x_nm, y_nm, z_nm],
+                "location_nm": [x_nm, y_nm, z_nm],
+                "position_nm": [x_nm, y_nm, z_nm],
+                
+                "date_time": dt_object,
+                "date_time_str": dt_str
+            }
+
+            return (header, error)
+
+        except Exception as e:
+            error = f"Could not read date and time from .dat file: {e}"
+            
+            return (header, error)
+
     def populate_spectroscopy_headers(self, files_dict: dict) -> tuple[dict, bool | str]:
         error = False
+        new_files_dict = {"dict_name": "files_dict"}
+        new_spec_dict = {"dict_name": "spectroscopy_files"}
         
-        scan_dict = files_dict.get("scan_files")
-        spec_dict = files_dict.get("spectroscopy_files")
-        new_spec_dict = {}
-        
-        for key, value in spec_dict.items():
-            file_name = value.get("path")
-            (spec_object, error) = self.get_spectrum(file_name)
+        try:
+            scan_dict = files_dict.get("scan_files")
+            spec_dict = files_dict.get("spectroscopy_files")
             
-            # If an error is returned, the entry will be deleted from the spec_dict
-            if error:
-                spec_dict[key].update({
-                    "spec_object": "error"
-                    })
-            
-            else:
-                spec_dict[key].update({
-                    "spec_object": spec_object
-                    })
-            
-        # Update the total files_dict
-        files_dict = scan_dict | spec_dict
-        files_dict.update({"dict_name": "files_dict"})
-        
-        print(files_dict)
-        
-        return
+            for key, value in spec_dict.items():
+                if not isinstance(value, dict): continue # The dict_name entry is of type str and should be ignored
+                file_name = value.get("path")
+                (header, error) = self.get_spectroscopy_header(file_name)
+                
+                if not error:
+                    value.update(header)
+                    new_spec_dict.update({key: value})
 
+            # Update the total files_dict
+            error = False
+            new_files_dict.update({"scan_files": scan_dict, "spectroscopy_files": new_spec_dict})
+        
+        except Exception as e:
+            error = e
+
+        return (new_files_dict, error)
+
+    def get_raw_sxm_header(self, file_name: str) -> tuple[list, bool | str]:
+        error = False
+        header_end_tag = ":SCANIT_END:"
+        raw_header = []
+        
+        try:
+            with open(file_name, "rb") as file:
+                for line in file:
+                    decoded = line.decode()
+                    
+                    raw_header.append(decoded)
+                    if header_end_tag in decoded: break
+        except Exception as e:
+            error = e
+        
+        return (raw_header, error)
+
+    def parse_scan_header(self, header_list: list) -> tuple[dict, bool | str]:
+        error = False
+        header = {}
+        
+        try:
+            date_tag = ":REC_DATE:"
+            time_tag = ":REC_TIME:"
+            range_tag = ":SCAN_RANGE:"
+            offset_tag = ":SCAN_OFFSET:"
+            angle_tag = ":SCAN_ANGLE:"
+            
+            date_line = ""
+            time_line = ""
+            range_line = ""
+            offset_line = ""
+            angle_line = ""
+
+            # Read the file line by line until the tags are found
+            for index, line in enumerate(header_list):                
+                if date_tag in line: date_line = header_list[index + 1]
+                if time_tag in line: time_line = header_list[index + 1]
+                if range_tag in line: range_line = header_list[index + 1]
+                if offset_tag in line: offset_line = header_list[index + 1]
+                if angle_tag in line: angle_line = header_list[index + 1]
+
+                if date_line and time_line and range_line and offset_line and angle_line: break
+
+            if not (date_line and time_line and range_line and offset_line and angle_line):
+                error = "Could not parse the header data from the sxm file"
+                return (header, error)
+
+            # Construct a datetime object from the found date and time
+            date_list = [int(number) for number in date_line.split(".")]
+            time_list = [int(number) for number in time_line.split(":")]
+            dt_object = datetime(date_list[2], date_list[1], date_list[0], time_list[0], time_list[1], time_list[2])
+
+            scan_range = self.get_scientific_numbers(range_line)
+            offset = self.get_scientific_numbers(offset_line)
+            angle = self.get_scientific_numbers(angle_line)[0]
+
+            x = self.ureg.Quantity(offset[0], "m").to("nm")
+            y = self.ureg.Quantity(offset[1], "m").to("nm")
+            width = self.ureg.Quantity(scan_range[0], "m").to("nm")
+            height = self.ureg.Quantity(scan_range[1], "m").to("nm")
+            scan_range = [width, height]
+            angle = self.ureg.Quantity(angle, "degree")
+            
+            x_nm = x.magnitude
+            y_nm = y.magnitude
+            offset_nm = [x_nm, y_nm]
+            width_nm = width.magnitude
+            height_nm = height.magnitude
+            scan_range_nm = [width_nm, height_nm]
+            angle_deg = angle.magnitude
+            dt_str = dt_object.strftime("%Y-%m-%d %H:%M:%S")
+
+            header = {
+                "dict_name": "single_file_dict",
+                "x": x,
+                "y": y,
+                "center": [x, y],
+                "offset": [x, y],
+                "height": height,
+                "width": width,
+                "size": scan_range,
+                "scan_range": scan_range,
+                "angle": angle,
+                "date_time": dt_object,
+                "date_time_str": dt_str,
+
+                "frame": {
+                    "dict_name": "frame_dict",
+                    "offset_nm": offset_nm,
+                    "scan_range_nm": scan_range_nm,
+                    "angle_deg": angle_deg                    
+                }
+            }
+            return (header, error)
+        
+        except Exception as e:
+            error = e
+        
+        return (header, error)
+
+    def populate_scan_headers(self, files_dict: dict) -> tuple[dict, bool | str]:
+        new_files_dict = {"dict_name": "files_dict"}
+        new_scan_dict = {"dict_name": "scan_files"}
+        
+        try:
+            scan_dict = files_dict.get("scan_files")
+            spec_dict = files_dict.get("spectroscopy_files")
+            
+            for key, value in scan_dict.items():
+                if not isinstance(value, dict): continue # The dict_name entry is of type str and should be ignored
+                file_name = value.get("path")
+                (raw_header, error) = self.get_raw_sxm_header(file_name)
+                if error:
+                    continue
+                else:
+                    (header, error) = self.parse_scan_header(raw_header)
+                    
+                    if not error:
+                        value.update(header)
+                        new_scan_dict.update({key: value})
+
+            # Update the total files_dict
+            error = False
+            new_files_dict.update({"scan_files": new_scan_dict, "spectroscopy_files": spec_dict})
+        
+        except Exception as e:
+            error = e
+
+        return (new_files_dict, error)
+
+    def populate_associated_scans(self, files_dict: dict) -> tuple[dict, bool | str]:
+        error = False
+        new_files_dict = files_dict
+
+        try:
+            scan_dict = files_dict.get("scan_files")
+            spec_dict = files_dict.get("spectroscopy_files")
+
+            for spec_key, spec_file_dict in spec_dict.items():
+                if not isinstance(spec_file_dict, dict): continue
+                
+                # Find the time at which the spectrum was acquired
+                spec_time = spec_file_dict.get("date_time")
+                
+                # Loop over all scans
+                previous_scan = None
+                for scan_key, scan_file_dict in scan_dict.items():
+                    if not isinstance(scan_file_dict, dict): continue
+                    
+                    # Find the time at which the scan was acquired
+                    scan_time = scan_file_dict.get("date_time")
+                    
+                    # If the scan was acquired before the spectrum, it may be associated with it: check at the next iteration
+                    if scan_time < spec_time:
+                        previous_scan = scan_file_dict
+                    # If the scan was acquired after the spectrum, the previous scan was associated with the spectrum
+                    else:
+                        if previous_scan: spec_file_dict.update({
+                            "associated_scan_name": previous_scan.get("file_name"),
+                            "associated_scan_path": previous_scan.get("path"),
+                            })
+                
+                spec_dict.update({spec_key: spec_file_dict})
+            
+            new_files_dict.update({"spectroscopy_files": spec_dict})
+        except Exception as e:
+            error = e
+        
+        return (new_files_dict, error)
+
+    def get_spectroscopy_object(self, file_name: str) -> tuple[object, bool | str]:
+        error = False
+        spec_object = None
+        
+        try:
+            spec_object = nap.read.Spec(file_name)
+            spec_spectra = spec_object.signals
+            spec_header = spec_object.header
+            new_spec_header = spec_header.copy()
+            
+            # Extract physical quantitiies and create copies with the preferred nm, pA, s units
+            for key, value in spec_header.items():
+                (quantity, unit, error) = self.split_physical_quantity(key)
+                if not error:
+                    match unit:
+                        case "m":
+                            try:
+                                number = self.get_scientific_numbers(value)[0]
+                                new_spec_header.update({f"{quantity}_nm": number * 1E9})
+                            except:
+                                pass
+                        case "s":
+                            try:
+                                number = self.get_scientific_numbers(value)[0]
+                                new_spec_header.update({f"{quantity}_s": number})
+                            except:
+                                pass
+                        case "A":
+                            try:
+                                number = self.get_scientific_numbers(value)[0]
+                                new_spec_header.update({f"{quantity}_pA": number * 1E12})
+                            except:
+                                pass
+                        case _:
+                            pass
+
+            spec_coords = np.array([spec_header.get("X (m)", 0), spec_header.get("Y (m)", 0), spec_header.get("Z (m)", 0)], dtype = float)
+            
+            # Unitize the spectrum coordinates and switch to nm by default
+            spec_coords = [self.ureg.Quantity(coordinate, "m").to("nm") for coordinate in spec_coords]
+            [spec_date, spec_time] = spec_header.get("Start time").split()
+        
+            # Extract and convert time parameters and convert to datetime object
+            rec_date = [int(element) for element in spec_date.split(".")]
+            rec_time = [int(element) for element in spec_time.split(":")]
+            dt_object = datetime(rec_date[2], rec_date[1], rec_date[0], rec_time[0], rec_time[1], rec_time[2])
+            
+            channels = np.array(list(spec_spectra.keys()), dtype = str)
+            spectrum_matrix = np.array(list(spec_spectra.values()))
+
+            # Add the new attributes to the scan object
+            # Redundant attribute names for the coordinates are for ease of use
+            setattr(spec_object, "coords", spec_coords)
+            setattr(spec_object, "location", spec_coords)
+            setattr(spec_object, "position", spec_coords)
+            setattr(spec_object, "x", spec_coords[0])
+            setattr(spec_object, "y", spec_coords[1])
+            setattr(spec_object, "z", spec_coords[2])
+            setattr(spec_object, "channels", channels)
+            setattr(spec_object, "matrix", spectrum_matrix)
+            setattr(spec_object, "date_time", dt_object)
+        
+        except Exception as e:
+            error = f"Error: {e}"
+        
+        return (spec_object, error)
+
+    def populate_spec_objects(self, files_dict: dict) -> tuple[dict, bool | str]:
+        error = False
+        new_files_dict = files_dict
+
+        try:
+            scan_dict = files_dict.get("scan_files")
+            spec_dict = files_dict.get("spectroscopy_files")
+
+            for spec_key, spec_file_dict in spec_dict.items():
+                if not isinstance(spec_file_dict, dict): continue
+                
+                spec_path = spec_file_dict.get("path")
+                (spec_object, error) = self.get_spectroscopy_object(spec_path)
+                
+                spec_file_dict.update({"spec_object": spec_object})
+            
+            new_files_dict.update({"spectroscopy_files": spec_dict})
+        except Exception as e:
+            error = e
+        
+        return (new_files_dict, error)
 
 
 
