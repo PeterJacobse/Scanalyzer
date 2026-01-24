@@ -59,7 +59,7 @@ class FileFunctions():
             for key, single_file_dict in spec_dict.items():
                 if not isinstance(single_file_dict, dict): continue # Pass the dict_name entry; only parse single_file dictionaries
                 
-                allowed_entries = ["x_nm", "y_nm", "z_nm", "date_time_str", "path", "file_name", "associated_scan_name", "associated_scan_path"] # Allowed entries for saving to yaml
+                allowed_entries = ["x (nm)", "y (nm)", "z (nm)", "date_time_str", "path", "file_name", "associated_scan_name", "associated_scan_path"] # Allowed entries for saving to yaml
                 clean_single_file_dict = {entry: single_file_dict.get(entry) for entry in allowed_entries}
                 clean_single_file_dict.update({"dict_name": "single_file_dict"})
                 
@@ -349,17 +349,17 @@ class FileFunctions():
                 "y": y,
                 "z": z,
                 
-                "x_nm": x_nm,
-                "y_nm": y_nm,
-                "z_nm": z_nm,
+                "x (nm)": x_nm,
+                "y (nm)": y_nm,
+                "z (nm)": z_nm,
                 
                 "coords": [x, y, z],
                 "location": [x, y, z],
                 "position": [x, y, z],
                 
-                "coords_nm": [x_nm, y_nm, z_nm],
-                "location_nm": [x_nm, y_nm, z_nm],
-                "position_nm": [x_nm, y_nm, z_nm],
+                "coords (nm)": [x_nm, y_nm, z_nm],
+                "location (nm)": [x_nm, y_nm, z_nm],
+                "position (nm)": [x_nm, y_nm, z_nm],
                 
                 "date_time": dt_object,
                 "date_time_str": dt_str
@@ -488,8 +488,8 @@ class FileFunctions():
 
                 "frame": {
                     "dict_name": "frame_dict",
-                    "offset_nm": offset_nm,
-                    "scan_range_nm": scan_range_nm,
+                    "offset (nm)": offset_nm,
+                    "scan_range (nm)": scan_range_nm,
                     "angle_deg": angle_deg                    
                 }
             }
@@ -588,19 +588,19 @@ class FileFunctions():
                         case "m":
                             try:
                                 number = self.get_scientific_numbers(value)[0]
-                                new_spec_header.update({f"{quantity}_nm": number * 1E9})
+                                new_spec_header.update({f"{quantity} (nm)": number * 1E9})
                             except:
                                 pass
                         case "s":
                             try:
                                 number = self.get_scientific_numbers(value)[0]
-                                new_spec_header.update({f"{quantity}_s": number})
+                                new_spec_header.update({f"{quantity} (s)": number})
                             except:
                                 pass
                         case "A":
                             try:
                                 number = self.get_scientific_numbers(value)[0]
-                                new_spec_header.update({f"{quantity}_pA": number * 1E12})
+                                new_spec_header.update({f"{quantity} (pA)": number * 1E12})
                             except:
                                 pass
                         case _:
@@ -864,7 +864,7 @@ class FileFunctions():
             scan_tensor = np.array([[scan_tensor_uncropped[channel, 0, good_rows], scan_tensor_uncropped[channel, 1, good_rows]] for channel in range(len(channels))])
             
             pixels = np.asarray(np.shape(scan_tensor[0, 0])) # The number of pixels is recalculated on the basis of the scans potentially being cropped
-            scan_range = np.array([scan_range_uncropped[0] * pixels[0] / pixels_uncropped[0], scan_range_uncropped[1]]) # Recalculate the size of the slow scan direction after cropping
+            scan_range = np.array([scan_range_uncropped[0], scan_range_uncropped[1] * pixels[1] / pixels_uncropped[1]]) # Recalculate the size of the slow scan direction after cropping
             scan_range_unitized = [self.ureg.Quantity(range_dim, "m").to("nm") for range_dim in scan_range]
             
             # Apply the re-unitization to various attributes in the header
@@ -883,12 +883,12 @@ class FileFunctions():
             angle_deg = angle.magnitude
             
             frame = {
-                "x_nm": x_nm,
-                "y_nm": y_nm,
-                "center_nm": center_nm,
-                "offset_nm": center_nm,                
-                "scan_range_nm": scan_range_nm,
-                "angle_deg": angle_deg
+                "x (nm)": x_nm,
+                "y (nm)": y_nm,
+                "center (nm)": center_nm,
+                "offset (nm)": center_nm,                
+                "scan_range (nm)": scan_range_nm,
+                "angle (deg)": angle_deg
             }
 
             # Add new attributes to the scan object

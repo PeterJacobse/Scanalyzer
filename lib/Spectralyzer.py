@@ -20,14 +20,17 @@ class Spectralyzer:
         self.parameters_init()
         self.gui = SpectralyzerGUI()
         self.gui.image_item.setImage(scan_image)
+        
         self.connect_buttons()
         self.set_focus_row(0)
         
         if os.path.exists(data_folder_path): self.load_folder(data_folder_path)
-        
+
+
+
+    def show(self) -> None:
         self.gui.show()
-
-
+        return
 
     def parameters_init(self) -> None:
         # Paths
@@ -141,8 +144,12 @@ class Spectralyzer:
             print("Error. Invalid file/folder.")
             return
         
-        self.paths["data_folder"] = os.path.dirname(folder_name)
+        self.paths["data_folder"] = folder_name
         self.gui.buttons["open_folder"].setText(folder_name)
+        
+        # 0: Check if the metadata.yml file exists, and load it if it does
+        metadata_file_path = os.path.join(folder_name, "metadata.yml")
+        (files_dict, error) = self.file_functions.load_yaml(metadata_file_path)
         
         # 1: Create an empty files dictionary
         (files_dict, error) = self.file_functions.create_empty_files_dict(folder_name)
@@ -190,13 +197,12 @@ class Spectralyzer:
         channel_selection_comboboxes = self.gui.channel_selection_comboboxes
         plot_number_comboboxes = self.gui.plot_number_comboboxes
         checkboxes = self.gui.checkboxes
+        spec_list = []
+        all_channels = []
         
         # Extract the channels from the spec objects, then remove duplicates. Also, build a list of spec files, with names and associated scan files
         try:
             spec_dict = self.files_dict.get("spectroscopy_files")
-            
-            spec_list = []
-            all_channels = []
             
             for key, single_spec_file in spec_dict.items():
                 if not isinstance(single_spec_file, dict): continue
@@ -221,12 +227,11 @@ class Spectralyzer:
         try:
             x_axis_targets = ["Bias (V)", "Bias [bwd] V", "Bias calc (V)"]
             for label in x_axis_targets:
-                print(f"Label {label} in {all_channels}? {label in all_channels}")
                 if label in all_channels:
                     channel_selection_comboboxes["y_axis_0"].selectItem(label)
                     break
 
-            y_axis_0_targets = ["LI demod X1 (A)", "Current (A)"]
+            y_axis_0_targets = ["LI Demod 1 X (A)", "LI Demod 1 X [bwd] (A)", "LI Demod 1 X [bwd] (A)", "Current (A)"]
             for label in y_axis_0_targets:
                 if label in all_channels:
                     channel_selection_comboboxes["y_axis_0"].selectItem(label)
@@ -239,6 +244,9 @@ class Spectralyzer:
                     break
         except Exception as e:
             print(f"Error while trying to set the comboboxes to default values: {e}")
+        
+        # If there were no scans (and channels) found, return
+        if len(all_channels) < 1: return
 
         # Emphasize spectrum names that are associated with the scan by adding '>>'; then initialize the comboboxes
         associated_scan_indices = []
@@ -262,7 +270,7 @@ class Spectralyzer:
             if index < len(self.spec_list) - 1:
                 plot_number_comboboxes[f"{i}"].selectIndex(index)
         
-        self.update_processing_flags()
+        self.update_processing_flags(toggle_checkbox = False, toggle_channelbox = False)
         return
 
     def update_processing_flags(self, toggle_checkbox: bool = False, toggle_channelbox: bool = False):
@@ -465,11 +473,12 @@ class Spectralyzer:
         return
 
     def on_exit(self) -> None:
-        QtWidgets.QApplication.instance().quit()
+        self.gui.close()
 
 
-
+"""
 if __name__ == "__main__":
     app = QtWidgets.QApplication(sys.argv)
     window = Spectralyzer()
     sys.exit(app.exec())
+"""

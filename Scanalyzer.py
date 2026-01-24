@@ -202,29 +202,66 @@ class Scanalyzer(QtCore.QObject):
     def load_folder(self, file_path: str = "") -> None:
         buttons = self.gui.buttons
         labels = self.gui.labels
+        folder_name = file_path
         
+        # Get the folder from the file name
+        if os.path.isfile(file_path): folder_name = os.path.dirname(file_path)
+        if not os.path.isdir(folder_name):
+            print("Error loading files")
+            return
+
         self.files_dict = {}
 
         try:
-            self.paths["data_folder"] = os.path.dirname(file_path) # Set the folder to the directory of the file
-            self.paths["metadata_file"] = os.path.join(self.paths["data_folder"], "metadata.yml") # Set the metadata yaml file accordingly as well
+            # Set the paths according to what file was selected
+            self.paths["data_folder"] = folder_name
+            self.paths["metadata_file"] = os.path.join(self.paths["data_folder"], "metadata.yml") # Set the metadata.yml file accordingly as well
             self.paths["output_folder"] = os.path.join(self.paths["data_folder"], self.paths["output_folder_name"]) # Set the output folder name
 
-            # Create a bare bones dictionary containing the file names and paths of all the scan files and spectroscopy files in the folder
+
+
+            # 1: Create an empty files dictionary
+            (files_dict, error) = self.file_functions.create_empty_files_dict(folder_name)
+            if error:
+                print(f"Error creating the files_dict: {error}")
+                return
             
+            # 2: Populate it with spectroscopy headers
+            (files_dict, error) = self.file_functions.populate_spectroscopy_headers(files_dict)
+            if error:
+                print(f"Error populating spectroscopy headers: {error}")
+                return
             
+            # 3: Populate it with scan headers
+            (files_dict, error) = self.file_functions.populate_scan_headers(files_dict)
+            if error:
+                print(f"Error populating scan headers: {error}")
+                return
             
-            (files_dict, error) = self.file_functions.create_files_dict(self.paths["data_folder"])
-            if error: raise
-            else: self.files_dict = files_dict
-            # Update the dictionary by reading the headers from the metadata file or from the individual dat files if necessary
-            # self.read_spectroscopy_headers()
+            # 4: Use the scan headers and spectroscopy headers to associate spectra with scans, and update the dictionary accordingly
+            (files_dict, error) = self.file_functions.populate_associated_scans(files_dict)
+            if error:
+                print(f"Error associating spectra and scans: {error}")
+                return
             
-            # Match the requested file (full path) to the entry in the scan_files dict to extract the key. The key is an integer and is called self.file_index
+            # 5: Save the fully populated dicts to a metadata.yml file
+            error = self.file_functions.save_files_dict(files_dict, folder_name)
+            if error:
+                print(f"Error saving the files_dict to the metadata.yml file: {error}")
+                return
+                        
+            # 6: All operations successful. Save the populated files_dict as Scanalyzer attribute.
+            self.files_dict = files_dict
+
+
+            
+            # Match the requested file (full path) to the entry in the scan_files dict to extract the key. The key is an integer and is called self.file_index            
             scan_dict = self.files_dict.get("scan_files")
-            self.file_index = 0
-            for key, value in scan_dict.items():
-                if os.path.samefile(value.get("path"), file_path):
+            self.file_index = 0 # Initialize to zero and update when a matching file name is found
+            for key, single_file_dict in scan_dict.items():
+                if not isinstance(single_file_dict, dict): continue
+                
+                if os.path.samefile(single_file_dict.get("path"), file_path):
                     self.file_index = key
                     break
             if self.file_index > len(scan_dict) - 1: self.file_index = 0 # Roll over if the selected file index is too large
@@ -298,15 +335,9 @@ class Scanalyzer(QtCore.QObject):
         # Read the metadata, the metadata file and update if necessary
         try:
             self.read_metadata(scan_object)
-            self.get_end_time()
             pass
         except Exception as e:
             print(f"{e}")
-
-        # Find the spectra associated with this scan and make them available for viewing as target items and in the combobox
-        #self.find_associated_spectra()
-        
-        
         
         # Extract the image from the scan object using the processing flags available in the data object        
         (image, selected_channel, frame, error) = self.data.pick_image_from_scan_object(scan_object)
@@ -382,14 +413,14 @@ class Scanalyzer(QtCore.QObject):
             
         # Upload the scan image to the pyqtgraph ImageView    
         try:
-            scan_range_nm = frame.get("scan_range_nm")
-            angle_deg = frame.get("angle_deg")
-            offset_nm = frame.get("offset_nm")
+            scan_range_nm = frame.get("scan_range (nm)")
+            angle_deg = frame.get("angle (deg)")
+            offset_nm = frame.get("offset (nm)")
             
             w = scan_range_nm[0]
             h = scan_range_nm[1]
             x = offset_nm[0]
-            y = offset_nm[1]                
+            y = offset_nm[1]
             
             self.gui.image_view.setImage(scan, autoRange = True) # Show the scan in the app
             image_item = self.gui.image_view.getImageItem()
@@ -423,69 +454,6 @@ class Scanalyzer(QtCore.QObject):
         
         self.hist_item.sigLevelChangeFinished.connect(self.histogram_scale_changed)
 
-    def read_spectroscopy_headers(self):
-        # Create a metadata file if it does not yet exist:
-        if not os.path.exists(self.paths["metadata_file"]):
-            try:
-                with open(self.paths["metadata_file"], "w") as file:
-                    yaml.safe_dump(self.files_dict, file)
-            except Exception as e:
-                print(f"Failed to write/parse the metadata file. {e}")
-
-        # Read the scan / spectrum file dictionaries from the metadata file
-        try:
-            with open(self.paths["metadata_file"], "r") as file:
-                metadata_obj = yaml.safe_load(file)
-        except Exception as e:
-            print(f"Failed to write/parse the metadata file. {e}")
-            return
-        
-        try:
-            scan_dict = metadata_obj.get("scan_files")
-            spec_dict = metadata_obj.get("spectroscopy_files")
-
-            # Iterate over the spectroscopy metadata in the metadata file, and check whether the keys date_time and position exist
-            for entry, data in spec_dict.items():
-                file_path = data.get("path")
-
-                if "date_time" in data and "position" in data:
-                    pass
-                # date_time and position are not present in the metadata file. Go ahead and read them from the spectroscopy file
-                else:
-                    (header, error) = self.file_functions.get_basic_header(file_path)
-                    date_time = header.get("date_time")
-                    x = header.get("x")
-                    y = header.get("y")
-                    z = header.get("z")
-
-                    spec_dict[entry].update({
-                        "date_time": date_time.strftime("%Y-%m-%d %H:%M:%S"),
-                            "position": {
-                                "x (nm)": f"{x:.3f}",
-                                "y (nm)": f"{y:.3f}",
-                                "z (nm)": f"{z:.3f}"
-                            }
-                    })
-
-            # Local variable
-            files_dict = {
-                "scan_files": scan_dict,
-                "spectroscopy_files": spec_dict
-            }
-
-            # Save the spectroscopy metadata to the metadata yaml file
-            try:
-                with open(self.paths["metadata_file"], "w") as file:
-                    yaml.safe_dump(files_dict, file)
-            except Exception as e:
-                print(f"Failed to write/parse the metadata file. {e}")
-
-        except Exception as e:
-            print(f"Failed to write/parse the metadata file. {e}")
-            return
-
-        return
-
     def read_metadata(self, scan_object):
         bias = scan_object.bias
         bias_V = bias.to("V").magnitude
@@ -498,7 +466,7 @@ class Scanalyzer(QtCore.QObject):
         
         scan_range = scan_object.scan_range
         scan_range_nm = [range_dim.to("nm").magnitude for range_dim in scan_range]
-        self.data.processing_flags.update({"scan_range_nm": scan_range_nm})
+        self.data.processing_flags.update({"scan_range (nm)": scan_range_nm})
         
         setpoint = scan_object.setpoint
         setpoint_pA = setpoint.to("pA").magnitude        
@@ -563,30 +531,6 @@ class Scanalyzer(QtCore.QObject):
 
         return
 
-    def get_end_time(self):
-        # Read the scan / spectrum file dictionaries from the metadata file
-        try:
-            with open(self.paths["metadata_file"], "r") as file:
-                metadata_obj = yaml.safe_load(file)
-        
-            scan_dict = metadata_obj.get("scan_files")
-            next_index = self.file_index + 1
-            if next_index > len(scan_dict) - 1:
-                return "EOT"
-            next_scan = scan_dict[next_index]
-
-            # Iterate over the spectroscopy metadata in the metadata file, and check whether the keys date_time and position exist
-            if "date_time" in next_scan.keys():
-                next_date_time = next_scan.get("date_time")
-            else:
-                print("No idea")
-
-        except Exception as e:
-            print(f"Failed to write/parse the metadata file. {e}")
-            return
-        
-        return
-
 
 
     # Spectroscopy
@@ -598,6 +542,8 @@ class Scanalyzer(QtCore.QObject):
             print(f"Error. {e}")
         
         return
+
+
 
     # Scale limit functions
     def on_limits_set(self, method: str = "full", side: str = "both") -> None:
@@ -645,25 +591,22 @@ class Scanalyzer(QtCore.QObject):
         # Gaussian line edit / checkbox interconnected behavior
         try:
             entry = g_le.text()
+            numbers = self.data.extract_numbers_from_str(entry)
             
-            # Extract the numeric part
-            number_matches = re.findall(r"-?\d+\.?\d*", entry)
-            numbers = [float(x) for x in number_matches]
-
             if len(numbers) < 1: # Not a number: reset to zero and uncheck the checkbox
                 g_le.setText("0 nm")
                 g_cb.setChecked(False)
-                flags.update({"gaussian_width_nm": 0})
+                flags.update({"gaussian_width (nm)": 0})
 
             else:
                 number = numbers[0]
                 if number < .00001: # The number that was entered was zero
                     g_le.setText("0 nm")
                     g_cb.setChecked(False)
-                    flags.update({"gaussian_width_nm": 0})
+                    flags.update({"gaussian_width (nm)": 0})
                 else: # A non-zero number was entered
                     g_cb.setChecked(True)
-                    flags.update({"gaussian_width_nm": number})
+                    flags.update({"gaussian_width (nm)": number})
         except:
             pass
         self.update_processing_flags()
@@ -689,10 +632,16 @@ class Scanalyzer(QtCore.QObject):
         lim_methods = ["full", "percentiles", "deviations", "absolute"]
         for method in lim_methods:
             if radio_buttons[f"min_{method}"].isChecked():
-                min_value = float(line_edits[f"min_{method}"].text())
+                min_str = line_edits[f"min_{method}"].text()
+                numbers = self.data.extract_numbers_from_str(min_str)
+                if len(numbers) > 0: min_value = numbers[0]
+                else: min_value = 0
                 flags.update({"min_method": f"{method}", "min_method_value": f"{min_value}"})
             if radio_buttons[f"max_{method}"].isChecked():
-                max_value = float(line_edits[f"max_{method}"].text())
+                max_str = line_edits[f"max_{method}"].text()
+                numbers = self.data.extract_numbers_from_str(max_str)
+                if len(numbers) > 0: max_value = numbers[0]
+                else: max_value = 0
                 flags.update({"max_method": f"{method}", "max_method_value": f"{max_value}"})
 
         # Channel, direction, projection
@@ -802,9 +751,9 @@ class Scanalyzer(QtCore.QObject):
     def on_exit(self) -> None:
         scan_dict = self.files_dict.get("scan_files")
         data = {"last_file": str(scan_dict[self.file_index].get("path"))}
-        save_path = self.paths["config_path"], "w"
+        save_path = self.paths["config_path"]
         
-        error = self.file_functions.save_yaml(data, save_path)        
+        error = self.file_functions.save_yaml(data, save_path)
         print("Thank you for using Scanalyzer!")
         QtWidgets.QApplication.instance().quit()
 

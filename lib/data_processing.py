@@ -4,7 +4,7 @@ from scipy.ndimage import gaussian_filter
 from scipy.fft import fft2, fftshift
 from matplotlib import colors
 from scipy.linalg import lstsq
-import pint
+import pint, re
 
 
 
@@ -25,6 +25,7 @@ class DataProcessing():
             "sobel": False,
             "gaussian": False,
             "gaussian_width_nm": 0,
+            "gaussian_width (nm)": 0,
             "laplace": False,
             "fft": False,
             "normal": False,
@@ -41,9 +42,12 @@ class DataProcessing():
             "file_name": "",
             "frame": { # A frame dict is embedded in processing flags so that the location, rotation and scan range parameters can be accessed immediately
                 "dict_name": "frame",
-                "offset_nm": [0, 0],
+                "offset_nm": [0, 0], # Deprecate underscore separations of quantities and units
                 "scan_range_nm": [0, 0],
-                "angle_deg" : 0
+                "angle_deg" : 0,
+                "offset (nm)": [0, 0],
+                "scan_range (nm)": [0, 0],
+                "angle (deg)" : 0
             }
         }
         
@@ -61,6 +65,14 @@ class DataProcessing():
 
 
     # Misc
+    def extract_numbers_from_str(self, text: str) -> list[float] | None:
+        # Extract the numeric part
+        number_matches = re.findall(r"-?\d+\.?\d*", text)
+        numbers = [float(x) for x in number_matches]
+        if len(numbers) < 1: numbers = None
+        
+        return numbers
+    
     def add_tags_to_file_name(self, bare_name: str = "") -> str:
         flags = self.processing_flags
         
@@ -128,8 +140,8 @@ class DataProcessing():
     def operate_scan(self, image: np.ndarray) -> tuple[np.ndarray, bool | str]:
         error = False
         flags = self.processing_flags
-        gaussian_sigma = flags["gaussian_width_nm"]
-        scan_range_nm = flags["scan_range_nm"]
+        gaussian_sigma = flags["gaussian_width (nm)"]
+        scan_range_nm = flags["scan_range (nm)"]
         
         # Background subtraction
         (image, error) = self.subtract_background(image, mode = flags["background"])

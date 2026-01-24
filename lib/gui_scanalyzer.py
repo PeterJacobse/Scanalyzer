@@ -448,7 +448,7 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
         # Finish the setup
         self.setCentralWidget(widgets["central"])
         self.setWindowTitle("Scanalyzer")
-        self.setGeometry(100, 100, 1400, 800) # x, y, width, height
+        self.setGeometry(100, 50, 1400, 800) # x, y, width, height
         self.setWindowIcon(self.icons.get("scanalyzer"))
         self.setFocusPolicy(QtCore.Qt.FocusPolicy.StrongFocus)
         self.setFocus()
