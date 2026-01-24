@@ -126,7 +126,7 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
 
             "spec_info": make_button("", "Spectrum information", self.icons.get("question")),
             "spec_locations": make_toggle_button("", "View the spectroscopy locations\n(3)", self.icons.get("spec_locations"), flip_icon = True),
-            "spectrum_viewer": make_button("", "Open Spectrum Viewer\n(O)", self.icons.get("graph")),
+            "spectralyzer": make_button("", "Open Spectralyzer\n(O)", self.icons.get("graph")),
 
             "save_png": make_button("", "Save as png file\n(S)", self.icons.get("floppy")),
             "save_hdf5": make_button("", "Save as hdf5 file\n(5)", self.icons.get("h5")),
@@ -171,7 +171,7 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
         
         # Named groups
         self.chan_nav_widgets = [buttons["previous_channel"], comboboxes["channels"], buttons["next_channel"], buttons["direction"]]
-        self.spectra_widgets = [buttons["spec_info"], comboboxes["spectra"], buttons["spec_locations"], buttons["spectrum_viewer"]]
+        self.spectra_widgets = [buttons["spec_info"], comboboxes["spectra"], buttons["spec_locations"], buttons["spectralyzer"]]
         
         return comboboxes
 
@@ -335,7 +335,7 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
             "absolute_values": QSeq(QMod.SHIFT | QKey.Key_A),
             
             "spec_locations": QSeq(QKey.Key_Space),
-            "spectrum_viewer": QSeq(QMod.CTRL | QKey.Key_S),
+            "spectralyzer": QSeq(QMod.CTRL | QKey.Key_S),
 
             "save_png": QSeq(QKey.Key_S),
             "save_hdf5": QSeq(QKey.Key_5),

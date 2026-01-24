@@ -3,7 +3,8 @@ import numpy as np
 from PyQt6 import QtCore, QtGui, QtWidgets
 import pyqtgraph as pg
 import pyqtgraph.exporters as expts
-from . import GUIItems, HoverTargetItem, DataProcessing, FileFunctions, SpectralyzerGUI
+from . import GUIItems, HoverTargetItem, DataProcessing, FileFunctions
+from .gui_spectralyzer import SpectralyzerGUI
 
 
 
@@ -12,22 +13,18 @@ color_list = ["#FFFFFF", "#FFFF20", "#20FFFF", "#FF80FF", "#60FF60", "#FF6060", 
 
 
 class Spectralyzer:
-    def __init__(self, spec_files: list = [], associated_spectra: list = [], scan_image: np.ndarray = np.zeros((2, 2))):
+    def __init__(self, data_folder_path: str = "", scan_file_name: str = "", scan_image: np.ndarray = np.zeros((2, 2))):
         super().__init__()
         
-        self.spec_files = spec_files
-        self.associated_spectra = associated_spectra
-
-        # Spectrum colors        
+        self.scan_file_name = scan_file_name
         self.parameters_init()
         self.gui = SpectralyzerGUI()
         self.gui.image_item.setImage(scan_image)
-        
-        self.spec_objects, self.channels = self.read_spectroscopy_files()
         self.connect_buttons()
         self.set_focus_row(0)
-        self.redraw_spectra()
-        self.load_folder("C:\\Nanonis\\10182025\\unnamed0001.sxm")
+        
+        if os.path.exists(data_folder_path): self.load_folder(data_folder_path)
+        
         self.gui.show()
 
 
@@ -63,6 +60,9 @@ class Spectralyzer:
             "output_folder": os.path.join(data_folder, output_folder_name),
             "output_file_basename": ""
         }
+        
+        self.files_dict = {}
+        self.spec_list = np.array((0, 3), dtype = object)
 
         # Icons
         icon_files = os.listdir(icon_folder)
@@ -91,11 +91,11 @@ class Spectralyzer:
         buttons["exit"].clicked.connect(self.on_exit)        
         
         chan_sel_boxes = [self.gui.channel_selection_comboboxes[name] for name in ["x_axis", "y_axis_0", "y_axis_1"]]
-        [combobox.currentIndexChanged.connect(lambda: self.redraw_spectra(toggle_checkbox = False)) for combobox in chan_sel_boxes]
-        [plot_number_comboboxes[f"{index}"].currentIndexChanged.connect(lambda: self.redraw_spectra(toggle_checkbox = False)) for index in range(len(plot_number_comboboxes))]
+        [combobox.currentIndexChanged.connect(lambda: self.update_processing_flags(toggle_checkbox = False, toggle_channelbox = False)) for combobox in chan_sel_boxes]
+        [plot_number_comboboxes[f"{index}"].currentIndexChanged.connect(lambda: self.update_processing_flags(toggle_checkbox = False, toggle_channelbox = False)) for index in range(len(plot_number_comboboxes))]
 
-        [self.gui.line_edits[name].editingFinished.connect(self.update_processing) for name in ["line_width", "opacity"]]
-        [self.gui.line_edits[name].editingFinished.connect(lambda: self.redraw_spectra(toggle_checkbox = False)) for name in ["offset_0", "offset_1"]]
+        [self.gui.line_edits[name].editingFinished.connect(lambda: self.update_processing_flags(toggle_checkbox = False, toggle_channelbox = False)) for name in ["line_width", "opacity"]]
+        [self.gui.line_edits[name].editingFinished.connect(lambda: self.update_processing_flags(toggle_checkbox = False, toggle_channelbox = False)) for name in ["offset_0", "offset_1"]]
 
         QKey = QtCore.Qt.Key
         QSeq = QtGui.QKeySequence
@@ -118,21 +118,34 @@ class Spectralyzer:
         self.down_shortcut.activated.connect(lambda: self.set_focus_row(-1, increase = True))
 
         [x_axis_shortcut, y_axis_0_shortcut, y_axis_1_shortcut] = [QShc(QSeq(keystroke), self.gui) for keystroke in [QKey.Key_X, QKey.Key_Y, QKey.Key_Z]]
-        x_axis_shortcut.activated.connect(lambda: self.toggle_axis("x_axis"))
-        y_axis_0_shortcut.activated.connect(lambda: self.toggle_axis("y_axis_0"))
-        y_axis_1_shortcut.activated.connect(lambda: self.toggle_axis("y_axis_1"))
-
-
+        x_axis_shortcut.activated.connect(lambda: self.update_processing_flags(toggle_channelbox = "x_axis"))
+        y_axis_0_shortcut.activated.connect(lambda: self.update_processing_flags(toggle_channelbox = "y_axis_0"))
+        y_axis_1_shortcut.activated.connect(lambda: self.update_processing_flags(toggle_channelbox = "y_axis_1"))
+                
+        # Connect the checkboxes
+        [checkbox.toggled.connect(lambda: self.update_processing_flags(toggle_checkbox = False, toggle_channelbox = False)) for checkbox in self.gui.checkboxes.values()]
+        
+        self.gui.dataDropped.connect(self.load_folder)
+        
+        return
 
     def on_select_file(self) -> None:
         file_path, _ = QtWidgets.QFileDialog.getOpenFileName(None, "Open file", self.paths["data_folder"], "Dat files (*.dat)")
         if file_path: self.load_folder(file_path)
         return
-        #self.paths["data_folder"]
 
-    def load_folder(self, file_path) -> None:
+    def load_folder(self, path) -> None:
+        if os.path.isfile(path): folder_name = os.path.dirname(path)
+        elif os.path.isdir(path): folder_name = path
+        else:
+            print("Error. Invalid file/folder.")
+            return
+        
+        self.paths["data_folder"] = os.path.dirname(folder_name)
+        self.gui.buttons["open_folder"].setText(folder_name)
+        
         # 1: Create an empty files dictionary
-        (files_dict, error) = self.file_functions.create_empty_files_dict(file_path)
+        (files_dict, error) = self.file_functions.create_empty_files_dict(folder_name)
         if error:
             print(f"Error creating the files_dict: {error}")
             return
@@ -156,97 +169,151 @@ class Spectralyzer:
             return
         
         # 5: Save the fully populated dicts to a metadata.yml file
-        error = self.file_functions.save_files_dict(files_dict, os.path.dirname(file_path))
+        error = self.file_functions.save_files_dict(files_dict, folder_name)
         if error:
             print(f"Error saving the files_dict to the metadata.yml file: {error}")
             return
         
-        # 6 Populate the spectroscopy dictionary with spectroscopy objects, from which the spectra can be extracted
+        # 6: Populate the spectroscopy dictionary with spectroscopy objects, from which the spectra can be extracted
         (files_dict, error) = self.file_functions.populate_spec_objects(files_dict)
         if error:
             print(f"Error retrieving spectroscopy objects: {error}")
             return
         
-        print(files_dict)
+        # 7: All operations successful. Save the populated files_dict as Spectralyzer attribute. Then move on with reading the spectroscopy files/objects
+        self.files_dict = files_dict
+        self.read_spectroscopy_files()
+        
         return
 
     def read_spectroscopy_files(self) -> tuple:
         channel_selection_comboboxes = self.gui.channel_selection_comboboxes
         plot_number_comboboxes = self.gui.plot_number_comboboxes
+        checkboxes = self.gui.checkboxes
         
-        #(spec_objects, error) = [self.file_functions.get_spectrum(spec_file[1]) for spec_file in self.spec_files] # Get a spectroscopy object for each spectroscopy file
-        spec_objects = {}
-        
-        # Find all the channels recorded during all the spectroscopies and combine them into a list called all_channels
-        all_channels = []
-        for spec_object in spec_objects:
-            all_channels.extend(list(spec_object.channels))
-        all_channels = list(set(all_channels))
-        all_channels = np.array([str(channel) for channel in all_channels])
-        
-        [channel_selection_comboboxes[axis].addItems(all_channels) for axis in ["x_axis", "y_axis_0", "y_axis_1"]]
+        # Extract the channels from the spec objects, then remove duplicates. Also, build a list of spec files, with names and associated scan files
+        try:
+            spec_dict = self.files_dict.get("spectroscopy_files")
+            
+            spec_list = []
+            all_channels = []
+            
+            for key, single_spec_file in spec_dict.items():
+                if not isinstance(single_spec_file, dict): continue
+                
+                spec_object = single_spec_file.get("spec_object")
+                channels = single_spec_file.get("channels")
+                spec_file_name = single_spec_file.get("file_name")
+                associated_scan_name = single_spec_file.get("associated_scan_name")
+                
+                [all_channels.append(str(channel)) for channel in channels]
+                spec_list.append([spec_file_name, associated_scan_name, spec_object])
+            
+            all_channels_set = set(all_channels) # Duplicate entries are automatically removed from sets
+            all_channels = list(all_channels_set)
+            self.spec_list = np.array(spec_list)
+            [channel_selection_comboboxes[axis].renewItems(all_channels) for axis in ["x_axis", "y_axis_0", "y_axis_1"]]
+            
+        except:
+            pass
         
         # Attempt to set the channel toggle boxes to logical starting defaults
-        [combobox.blockSignals(True) for combobox in channel_selection_comboboxes.values()]
         try:
             x_axis_targets = ["Bias (V)", "Bias [bwd] V", "Bias calc (V)"]
             for label in x_axis_targets:
+                print(f"Label {label} in {all_channels}? {label in all_channels}")
                 if label in all_channels:
-                    channel_index = np.where(all_channels == label)[0][0]
-                    channel_selection_comboboxes["x_axis"].setCurrentIndex(channel_index)
+                    channel_selection_comboboxes["y_axis_0"].selectItem(label)
                     break
 
             y_axis_0_targets = ["LI demod X1 (A)", "Current (A)"]
             for label in y_axis_0_targets:
                 if label in all_channels:
-                    channel_index = np.where(all_channels == label)[0][0]
-                    channel_selection_comboboxes["y_axis_0"].setCurrentIndex(channel_index)
+                    channel_selection_comboboxes["y_axis_0"].selectItem(label)
                     break
 
             y_axis_1_targets = ["Current (A)", "Current [bwd] (A)", "Current calc (A)"]
             for label in y_axis_1_targets:
                 if label in all_channels:
-                    channel_index = np.where(all_channels == label)[0][0]
-                    channel_selection_comboboxes["y_axis_1"].setCurrentIndex(channel_index)
+                    channel_selection_comboboxes["y_axis_0"].selectItem(label)
                     break
         except Exception as e:
             print(f"Error while trying to set the comboboxes to default values: {e}")
-        [combobox.blockSignals(False) for combobox in channel_selection_comboboxes.values()]
 
-        # Put a star on the spectrum names that are associated with the scan and initialize the comboboxes
-        [combobox.blockSignals(True) for combobox in plot_number_comboboxes.values()]
-        #spec_labels = self.spec_files[:, 0]
-        """
-        associated_labels = [spectrum[0] for spectrum in self.associated_spectra]
-        for i in range(len(spec_labels)):
-            if spec_labels[i] in associated_labels:
-                [self.plot_number_comboboxes[f"{number}"].addItem("*" + spec_labels[i]) for number in range(len(self.plot_number_comboboxes))]
-            else:
-                [self.plot_number_comboboxes[f"{number}"].addItem(spec_labels[i]) for number in range(len(self.plot_number_comboboxes))]
+        # Emphasize spectrum names that are associated with the scan by adding '>>'; then initialize the comboboxes
+        associated_scan_indices = []
+        for index, item in enumerate(self.spec_list):
+            associated_scan_name = item[1]
+            if associated_scan_name == self.scan_file_name:
+                item[0] = f">>{item[0]}"
+                associated_scan_indices.append(index)
+        [plot_number_comboboxes[f"{i}"].renewItems(self.spec_list[:, 0]) for i, item in enumerate(plot_number_comboboxes)]
         
-        # Initialize the comboboxes to the associated spectra if possible
-        spec_labels = self.spec_files[:, 0]
-        for index, combobox in enumerate(self.plot_number_comboboxes.values()):
-            try:
-                if index < len(self.associated_spectra):
-                    associated_index = np.where(spec_labels == associated_labels[index])[0][0]
-                    combobox.setCurrentIndex(associated_index)
-                    self.checkboxes[f"{index}"].setChecked(True)
-                elif index < len(spec_labels):
-                    combobox.setCurrentIndex(index)
-                else:
-                    pass
-            except Exception as e:
-                print(f"Error initializing some or all plot number comboboxes: {e}")
-        [combobox.blockSignals(False) for combobox in self.plot_number_comboboxes.values()]
-        """
+        # Initialize spectra to the indices of the spectra associated with the scan file
+        i_max = len(associated_scan_indices)
+        for i, index in enumerate(associated_scan_indices):
+            if i > len(plot_number_comboboxes) - 1: break
+            plot_number_comboboxes[f"{i}"].selectIndex(index)
+            checkboxes[f"{i}"].setSilentCheck(True)
         
-        # Connect the checkboxes
-        [checkbox.toggled.connect(lambda: self.redraw_spectra(False)) for checkbox in self.gui.checkboxes.values()]
+        # Initialize the rest of the comboboxes with successive spectra after the last one associated with the scan file
+        index += 1
+        for i in range(i_max, len(plot_number_comboboxes)):
+            if index < len(self.spec_list) - 1:
+                plot_number_comboboxes[f"{i}"].selectIndex(index)
+        
+        self.update_processing_flags()
+        return
 
-        return spec_objects, all_channels
+    def update_processing_flags(self, toggle_checkbox: bool = False, toggle_channelbox: bool = False):
+        checkboxes = self.gui.checkboxes
+        leftarrows = self.gui.leftarrows
+        rightarrows = self.gui.rightarrows
+        plot_number_comboboxes = self.gui.plot_number_comboboxes
+        channel_selection_comboboxes = self.gui.channel_selection_comboboxes
+        line_edits = self.gui.line_edits
+        flags = self.data.spec_processing_flags
 
-    def redraw_spectra(self, toggle_checkbox: bool = False) -> None:
+        # Toggle the state of the checkbox in the focus row if that is desired
+        if toggle_checkbox:
+            checked = checkboxes[f"{self.focus_row}"].isChecked()            
+            checkboxes[f"{self.focus_row}"].setSilentCheck(not checked)
+        
+        # Toggle the state of the checkbox in the focus row if that is desired
+        if toggle_channelbox:
+            try: channel_selection_comboboxes[toggle_channelbox].toggleIndex(1)
+            except: pass
+        
+        # Grey out the plot rows that are not enabled (checked using the checkbox)
+        for index in range(len(checkboxes)):
+            row_enabled = checkboxes[f"{index}"].isChecked()
+            if row_enabled: [button.setEnabled(True) for button in [leftarrows[f"{index}"], plot_number_comboboxes[f"{index}"], rightarrows[f"{index}"]]]
+            else: [button.setEnabled(False) for button in [leftarrows[f"{index}"], plot_number_comboboxes[f"{index}"], rightarrows[f"{index}"]]]
+        
+        # Read the QComboboxes and retrieve what channels are requested
+        x_channel = channel_selection_comboboxes["x_axis"].currentText()
+        y_0_channel = channel_selection_comboboxes["y_axis_0"].currentText()
+        y_1_channel = channel_selection_comboboxes["y_axis_1"].currentText()
+        
+        flags.update({
+            "x_channel": x_channel,
+            "y_0_channel": y_0_channel,
+            "y_1_channel": y_1_channel
+        })
+        
+        # Add the offsets
+        offset_0 = float(line_edits["offset_0"].text())
+        offset_1 = float(line_edits["offset_1"].text())
+        
+        flags.update({
+            "offset_0": offset_0,
+            "offset_1": offset_1
+        })
+        
+        self.redraw_spectra()
+        return
+
+    def redraw_spectra(self) -> None:
         plot_items = self.gui.plot_items
         line_edits = self.gui.line_edits
         checkboxes = self.gui.checkboxes
@@ -255,84 +322,64 @@ class Spectralyzer:
         plot_number_comboboxes = self.gui.plot_number_comboboxes
         graph_0 = self.gui.plot_items["graph_0"]
         graph_1 = self.gui.plot_items["graph_1"]
+        flags = self.data.spec_processing_flags
         
-        if toggle_checkbox:
-            checked = checkboxes[f"{self.focus_row}"].isChecked()
-            [checkbox.blockSignals(True) for checkbox in checkboxes.values()]
-            checkboxes[f"{self.focus_row}"].setChecked(not checked)
-            [checkbox.blockSignals(False) for checkbox in checkboxes.values()]
-
-        # Grey out the plot rows that are not enabled (checked using the checkbox)
-        for index in range(len(checkboxes)):
-            checkbox = checkboxes[f"{index}"]
-            checked = checkbox.isChecked()
-            if checked: [button.setEnabled(True) for button in [leftarrows[f"{index}"], plot_number_comboboxes[f"{index}"], rightarrows[f"{index}"]]]
-            else: [button.setEnabled(False) for button in [leftarrows[f"{index}"], plot_number_comboboxes[f"{index}"], rightarrows[f"{index}"]]]
-
-        # Read the QComboboxes and retrieve what channels are requested
-        if not hasattr(self, "channels"): return # Return if the channels have not yet been read
-        #x_index = self.channel_selection_comboboxes["x_axis"].currentIndex()
-        #y_0_index = self.channel_selection_comboboxes["y_axis_0"].currentIndex()
-        #y_1_index = self.channel_selection_comboboxes["y_axis_1"].currentIndex()
-        #[x_channel, y_0_channel, y_1_channel] = [self.channels[index] for index in [x_index, y_0_index, y_1_index]]
-
-        x_data = np.linspace(-2, 2, 20)
+        # Extract the channels from the processing flags
+        x_channel = flags.get("x_channel", None)
+        y_0_channel = flags.get("y_0_channel", None)
+        y_1_channel = flags.get("y_1_channel", None)
+        if not x_channel or not y_0_channel or not y_1_channel: return
+        
+        # Set the pen and successive spectrum offset properties from processing flags
+        line_width = flags.get("line_width", 1)
+        opacity = flags.get("opacity", 1)
+        offset_0 = flags.get("offset_0", 0)
+        offset_1 = flags.get("offset_1", 0)
+        
+        # Redraw the spectra
         [graph.clear() for graph in [graph_0, graph_1]]
-
-        # Set the pen
-        # Set the pen properties from processing flags
-        line_width = self.data.processing_flags.get("line_width", 1)
-        opacity = self.data.processing_flags.get("opacity", 1)
-
-        offset_0 = float(line_edits["offset_0"].text())
-        offset_1 = float(line_edits["offset_1"].text())
-
-        for i in range(len(checkboxes) - 1, -1, -1):
+        for i in range(len(checkboxes)):
             color = color_list[i]
 
-            if checkboxes[f"{i}"].isChecked():
+            if not checkboxes[f"{i}"].isChecked(): continue
+            
+            try:
+                # Create pen with color, width, and opacity
+                pen = pg.mkPen(color = color, width = line_width, alphaF = opacity)
+                pen.setCapStyle(QtCore.Qt.PenCapStyle.RoundCap)
+                pen.setJoinStyle(QtCore.Qt.PenJoinStyle.RoundJoin)
+                
+                # Retrieve the spec object
                 spec_index = plot_number_comboboxes[f"{i}"].currentIndex()
-                spec_object = self.spec_objects[spec_index]
+                spec_object = self.spec_list[spec_index, 2]
                 spec_signal = spec_object.signals
                 
-                try:
-                    # Create pen with color, width, and opacity
-                    pen = pg.mkPen(color = color, width = line_width, alphaF = opacity)
-                    pen.setCapStyle(QtCore.Qt.PenCapStyle.RoundCap)
-                    pen.setJoinStyle(QtCore.Qt.PenJoinStyle.RoundJoin)
+                x_data = spec_signal.get(x_channel, None)
+                y_0_data = spec_signal.get(y_0_channel, None)
+                if not isinstance(x_data, np.ndarray) or not isinstance(y_0_data, np.ndarray): continue
 
-                    x_data = spec_signal[x_channel]
-                    y_0_data = spec_signal[y_0_channel]
-                    y_0_data_shifted = y_0_data + i * offset_0
-
-                    graph_0.plot(x_data, y_0_data_shifted, pen = pen)
-                except Exception as e:
-                    print(f"Error: {e}")
-                try:
-                    x_data = spec_signal[x_channel]
-                    y_1_data = spec_signal[y_1_channel]
-                    y_1_data_shifted = y_1_data + i * offset_1
+                # Plot number 0
+                y_0_data_shifted = y_0_data + i * offset_0
+                graph_0.plot(x_data, y_0_data_shifted, pen = pen)
                 
-                    graph_1.plot(x_data, y_1_data_shifted, pen = pen)
-                except Exception as e:
-                    print(f"Error: {e}")
+            except Exception as e:
+                print(f"Error: {e}")
+            
+            try:
+                y_1_data = spec_signal.get(y_1_channel, None)
+                if not isinstance(y_1_data, np.ndarray): continue
+                
+                # Plot number 1
+                y_1_data_shifted = y_1_data + i * offset_1
+                graph_1.plot(x_data, y_1_data_shifted, pen = pen)
+            
+            except Exception as e:
+                print(f"Error: {e}")
 
     def toggle_plot_number(self, plot_index: int = 0, increase: bool = True) -> None:
-        try:
-            current_index = self.gui.plot_number_comboboxes[f"{plot_index}"].currentIndex()
-
-            if increase: new_index = current_index + 1
-            else: new_index = current_index - 1
-            
-            if new_index > len(self.spec_files) - 1: new_index = 0
-            if new_index < 0: new_index = len(self.spec_files) - 1
-
-            # Changing the index of the combobox automatically activates self.redraw_spectra() since the currentIndexChanged signal is connected to that method
-            self.gui.plot_number_comboboxes[f"{plot_index}"].setCurrentIndex(new_index)
-
-        except Exception as e:
-            print(f"Error toggling the plot: {e}")
-        
+        if increase: self.gui.plot_number_comboboxes[f"{plot_index}"].toggleIndex(1)
+        else: self.gui.plot_number_comboboxes[f"{plot_index}"].toggleIndex(-1)
+        self.redraw_spectra()
         return
 
     def set_focus_row(self, number: int = -1, increase: bool = True) -> None:
@@ -381,7 +428,7 @@ class Spectralyzer:
         try:
             self.left_shortcut.activated.connect(lambda plot_index = self.focus_row: self.toggle_plot_number(plot_index, increase = False))
             self.right_shortcut.activated.connect(lambda plot_index = self.focus_row: self.toggle_plot_number(plot_index))
-            self.checkbox_shortcut.activated.connect(lambda: self.redraw_spectra(toggle_checkbox = True))
+            self.checkbox_shortcut.activated.connect(lambda: self.update_processing_flags(toggle_checkbox = True))
         except Exception as e:
             print(f"Error connecting the key shortcuts: {e}")
 
@@ -397,14 +444,6 @@ class Spectralyzer:
         except Exception as e:
             print(f"Error toggling the combobox: {e}")
 
-        return
-
-    def update_processing(self) -> None:
-        self.data.spec_processing_flags.update({
-            "line_width": float(self.line_edits["line_width"].text()),
-            "opacity": float(self.line_edits["opacity"].text())
-        })
-        self.redraw_spectra()
         return
 
     def on_save_spectrum(self, plot_number: int = 0) -> None:

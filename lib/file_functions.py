@@ -651,7 +651,9 @@ class FileFunctions():
                 spec_path = spec_file_dict.get("path")
                 (spec_object, error) = self.get_spectroscopy_object(spec_path)
                 
-                spec_file_dict.update({"spec_object": spec_object})
+                if not error:
+                    channels = spec_object.channels
+                    spec_file_dict.update({"spec_object": spec_object, "channels": channels})
             
             new_files_dict.update({"spectroscopy_files": spec_dict})
         except Exception as e:

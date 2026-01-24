@@ -346,6 +346,16 @@ class PJComboBox(QtWidgets.QComboBox):
         self.blockSignals(False)
         return
 
+    def selectIndex(self, desired_item) -> None:
+        if not isinstance(desired_item, int): return
+
+        self.blockSignals(True)
+
+        self.setCurrentIndex(desired_item)
+        
+        self.blockSignals(False)
+        return
+
 
 
 class PJCheckBox(QtWidgets.QCheckBox):

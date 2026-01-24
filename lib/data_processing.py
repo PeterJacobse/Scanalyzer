@@ -60,6 +60,7 @@ class DataProcessing():
 
 
 
+    # Misc
     def add_tags_to_file_name(self, bare_name: str = "") -> str:
         flags = self.processing_flags
         
@@ -216,6 +217,9 @@ class DataProcessing():
 
 
 
+    # Spectrum operations
+    
+    
     # Image operations
     def apply_gaussian(self, image: np.ndarray, sigma: float = 2, scan_range = None) -> tuple[np.ndarray, bool | str]:
         error = False
@@ -476,6 +480,8 @@ class DataProcessing():
             return (image, error)
         
         return (processed_image, error)
+
+
 
     # Statistics
     def get_image_statistics(self, image: np.ndarray, pixels_per_bin: int = 200) -> tuple[dict, bool | str]:

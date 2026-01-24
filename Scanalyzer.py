@@ -93,7 +93,7 @@ class Scanalyzer(QtCore.QObject):
                        ["full_data_range", lambda: self.on_limits_set("full", "both")], ["percentiles", lambda: self.on_limits_set("percentiles", "both")],
                        ["standard_deviation", lambda: self.on_limits_set("deviations", "both")], ["absolute_values", lambda: self.on_limits_set("absolute", "both")],
                        
-                       ["spec_info", self.load_process_display], ["spec_locations", self.on_toggle_spec_locations], ["spectrum_viewer", self.open_spectrum_viewer],
+                       ["spec_info", self.load_process_display], ["spec_locations", self.on_toggle_spec_locations], ["spectralyzer", self.open_spectralyzer],
                        
                        ["save_png", self.on_save_png], ["save_hdf5", self.on_save_png], ["output_folder", lambda: self.open_folder("output_folder")], ["info", self.on_info], ["exit", self.on_exit]
                     ]
@@ -211,6 +211,9 @@ class Scanalyzer(QtCore.QObject):
             self.paths["output_folder"] = os.path.join(self.paths["data_folder"], self.paths["output_folder_name"]) # Set the output folder name
 
             # Create a bare bones dictionary containing the file names and paths of all the scan files and spectroscopy files in the folder
+            
+            
+            
             (files_dict, error) = self.file_functions.create_files_dict(self.paths["data_folder"])
             if error: raise
             else: self.files_dict = files_dict
@@ -278,6 +281,7 @@ class Scanalyzer(QtCore.QObject):
         if self.file_index < 0: self.file_index = len(scan_dict) - 1
         if self.file_index > len(scan_dict) - 1: self.file_index = 0
         scan_file_path = scan_file_entry.get("path")
+        self.scan_file_name = scan_file_entry.get("file_name")
 
 
 
@@ -360,6 +364,7 @@ class Scanalyzer(QtCore.QObject):
 
     def process_scan(self, image: np.ndarray) -> tuple[np.ndarray, dict, list, bool | str]:
         (processed_scan, statistics, limits, error) = self.data.process_scan(image)
+        self.processed_scan = processed_scan
         
         channel = self.data.processing_flags["channel"]
         
@@ -585,23 +590,12 @@ class Scanalyzer(QtCore.QObject):
 
 
     # Spectroscopy
-    def open_spectrum_viewer(self) -> None:
-        spec_shape = self.spec_files.shape
-        if len(spec_shape) < 2:
-            print("Error. No spectroscopy files found in the data folder.")
-            return
-        
-        if spec_shape[0] * spec_shape[1] > 0:
-            if not hasattr(self, "second_window") or self.second_window is None: # Create only if not already created:
-                self.current_scan = self.load_scan_file()
-                if isinstance(self.current_scan, np.ndarray): processed_scan = self.process_scan(self.current_scan)
-                else: processed_scan = np.zeros((2, 2))
-                if not hasattr(self, "associated_spectra"): self.associated_spectra = np.array([[]])
-                
-                self.spectralyzer = Spectralyzer(processed_scan, self.spec_files, self.associated_spectra, self.paths)
+    def open_spectralyzer(self) -> None:
+        try:
+            self.spectralyzer = Spectralyzer(self.paths["data_folder"], self.scan_file_name, self.processed_scan)
             self.spectralyzer.show()
-        else:
-            print("Error. No spectroscopy files found in the data folder.")
+        except Exception as e:
+            print(f"Error. {e}")
         
         return
 

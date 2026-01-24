@@ -328,7 +328,7 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
         # Finish the setup
         self.setCentralWidget(widgets["central"])
         self.setWindowTitle("Spectralyzer")
-        self.setGeometry(200, 200, 1200, 800) # x, y, width, height
+        self.setGeometry(200, 50, 1200, 800) # x, y, width, height
         self.setWindowIcon(self.icons.get("graph"))
         self.setFocusPolicy(QtCore.Qt.FocusPolicy.StrongFocus)
         self.setFocus()
