@@ -416,7 +416,69 @@ class PJConsole(QtWidgets.QTextEdit):
         except:
             pass
 
-   
+
+
+class SliderLineEdit(QtWidgets.QWidget):
+    """
+    A custom widget combining a QSlider and a QLineEdit, linked together.
+    """
+    valueChanged = QtCore.pyqtSignal(int)
+
+    def __init__(self, parent = None, min_val = -180, max_val = 180, initial_val = 0):
+        super().__init__(parent)
+        
+        # 1: Create the widgets
+        self.slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
+        self.line_edit = QtWidgets.QLineEdit()
+
+        # 2: Configure widgets
+        self.slider.setRange(min_val, max_val)
+        self.slider.setValue(initial_val)
+        
+        # Ensure only integer values within range can be typed in the line edit
+        self.line_edit.setValidator(QtGui.QIntValidator(min_val, max_val))
+        self.line_edit.setText(str(initial_val))
+
+        # 3: Set up the layout
+        layout = QtWidgets.QHBoxLayout()
+        layout.addWidget(self.slider)
+        layout.addWidget(self.line_edit)
+        # Remove extra margins from the layout
+        layout.setContentsMargins(0, 0, 0, 0) 
+        self.setLayout(layout)
+
+        # 4: Connect signals and slots
+        self.slider.valueChanged.connect(self._update_line_edit)
+        self.line_edit.editingFinished.connect(self._update_slider)
+        
+        # Connect to the custom signal
+        self.slider.valueChanged.connect(lambda: self.valueChanged.emit(self.value()))
+        self.line_edit.editingFinished.connect(lambda: self.valueChanged.emit(self.value()))
+
+    def _update_line_edit(self, value):
+        self.line_edit.blockSignals(True) 
+        self.line_edit.setText(str(value))
+        self.line_edit.blockSignals(False)
+
+    def _update_slider(self):
+        try:
+            value = int(self.line_edit.text())
+            self.slider.blockSignals(True)
+            self.slider.setValue(value)
+            self.slider.blockSignals(False)
+        except ValueError:
+            # Handle empty or invalid input by resetting to the current slider value
+            self.line_edit.setText(str(self.slider.value()))
+
+    def value(self):
+        """Returns the current integer value of the combined widget."""
+        return self.slider.value()
+    
+    def setValue(self, value):
+        """Sets the value of the combined widget programmatically."""
+        self.slider.setValue(value)
+
+
 
 class StreamRedirector(QtCore.QObject):
     output_written = QtCore.pyqtSignal(str)
@@ -570,6 +632,13 @@ class GUIItems:
         console.setToolTip(tooltip)
         
         return console
+
+    def make_slider_line_edit(self, name, tooltip) -> SliderLineEdit:
+        slider_line_edit = SliderLineEdit()
+        slider_line_edit.setObjectName(name)
+        slider_line_edit.setToolTip(tooltip)
+        
+        return slider_line_edit
     
     def line_widget(self, orientation: str = "v", thickness: int = 1) -> QtWidgets.QFrame:
         line = QtWidgets.QFrame()

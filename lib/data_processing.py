@@ -120,6 +120,8 @@ class DataProcessing():
 
     def process_scan(self, image: np.ndarray) -> tuple[np.ndarray, dict, list, bool | str]:
         error = False
+        statistics = False
+        limits = [0, 1]
 
         try:
             # Apply matrix operations
@@ -138,7 +140,7 @@ class DataProcessing():
         
         except Exception as e:
             error = e
-                
+        
         return (processed_scan, statistics, limits, error)
 
     def operate_scan(self, image: np.ndarray) -> tuple[np.ndarray, bool | str]:
@@ -166,18 +168,25 @@ class DataProcessing():
         
         if flags["fft"]: (image, error) = self.apply_fft(image, scan_range_nm)
         if error: return (image, error)
+        
+        # Set phase
+        (image, error) = self.apply_phase(image)
+        if error:
+            return (image, error)
 
         # Perform the correct projection
-        match flags["projection"]:
-            case "im": image = np.imag(image)
-            case "abs": image = np.abs(image)
-            case "abs^2": image = np.abs(image) ** 2
-            case "arg (b/w)": image = np.angle(image)
-            case "arg (hue)": (image, error) = self.complex_image_to_colors(image, saturate = True)
-            case "complex": (image, error) = self.complex_image_to_colors(image, saturate = False)
-            case "log(abs)": image = np.log(np.abs(image))
-            case _: image = np.real(image)
-        
+        try:
+            match flags["projection"]:
+                case "im": image = np.imag(image)
+                case "abs": image = np.abs(image)
+                case "abs^2": image = np.abs(image) ** 2
+                case "arg (b/w)": image = np.angle(image)
+                case "arg (hue)": (image, error) = self.complex_image_to_colors(image, saturate = True)
+                case "complex": (image, error) = self.complex_image_to_colors(image, saturate = False)
+                case "log(abs)": image = np.log(np.abs(image))
+                case _: image = np.real(image)
+        except:
+            pass    
         return (image, error)
  
     def calculate_limits(self, image: np.ndarray) -> tuple[list, bool | str]:
@@ -237,6 +246,25 @@ class DataProcessing():
     
     
     # Image operations
+    def apply_phase(self, image: np.ndarray) -> tuple[np.ndarray, bool | str]:
+        error = False
+        phase_shifted_image = image
+        
+        if not isinstance(image, np.ndarray):
+            error = "Error. The provided image is not a numpy array."
+            return (image, error)
+
+        try:
+            phase = self.processing_flags.get("phase", 0)
+            phase_factor = np.exp(1j * phase * np.pi / 180)
+            phase_shifted_image = phase_factor * image
+            
+            return(phase_shifted_image, error)
+
+        except Exception as e:
+            error = e
+            return(image, error)
+    
     def apply_gaussian(self, image: np.ndarray, sigma: float = 2, scan_range = None) -> tuple[np.ndarray, bool | str]:
         error = False
 
@@ -516,6 +544,7 @@ class DataProcessing():
             range_min, range_max = (data_sorted[0], data_sorted[-1]) # Calculate the total range
             range_total = range_max - range_min
             standard_deviation = np.sum(np.sqrt((data_sorted - range_mean) ** 2) / n_pixels) # Calculate the standard deviation
+            print(7)
 
             image_statistics = {
                 "data_sorted": data_sorted,
@@ -535,7 +564,7 @@ class DataProcessing():
             error = "Error. Image statistics could not be calculated."
             return ({}, error)
         
-        try:    
+        try:
             n_bins = int(np.floor(n_pixels / pixels_per_bin))
             counts, bounds = np.histogram(data_sorted, bins = n_bins)
             binsize = bounds[1] - bounds[0]
@@ -547,7 +576,7 @@ class DataProcessing():
         except:
             error = "Error. Histogram could not be calculated."
             return (image_statistics, error)
-        
+
         return (image_statistics, error)
 
 

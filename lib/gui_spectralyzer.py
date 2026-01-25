@@ -18,8 +18,8 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
         self.gui_items = GUIItems()
         self.labels = self.make_labels()
         (self.buttons, self.leftarrows, self.rightarrows) = self.make_buttons()
-        self.checkboxes = self.make_checkboxes()
-        (self.channel_selection_comboboxes, self.plot_number_comboboxes) = self.make_comboboxes()
+        (self.checkboxes, self.all_checkbox) = self.make_checkboxes()
+        (self.channel_selection_comboboxes, self.plot_number_comboboxes, self.focus_row_combobox) = self.make_comboboxes()
         self.line_edits = self.make_line_edits()
         self.layouts = self.make_layouts()
         self.image_widget = self.make_image_widget()
@@ -103,10 +103,13 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
             "offset_1": make_button("", "Set the offset between successive spectra in plot 1", self.icons.get("line_offset")),
             "save_0": make_button("", "Save graph 0 to svg", self.icons.get("save_0")),
             "save_1": make_button("", "Save graph 1 to svg", self.icons.get("save_1")),
-            "line_width": make_button("", "Set the line width >>", self.icons.get("line_width")),
+            "line_width": make_button("", "Set the line width\n(L)", self.icons.get("line_width")),
+            "opacity": make_button("", "Set the line opacity\n(O)", self.icons.get("opacity")),
             "open_folder": make_button("", "Open folder", self.icons.get("folder_yellow")),
             "view_folder": make_button("", "Open folder", self.icons.get("view_folder")),
-            "exit": make_button("", "Exit Spectrum Viewer (Q / Esc)", self.icons.get("escape"))
+            "exit": make_button("", "Exit Spectrum Viewer\n(Q / Esc)", self.icons.get("escape")),
+            "dec_focus_row": make_button("", "Decrease the focus row index\n(↑)", self.icons.get("dec_focus_row")),
+            "inc_focus_row": make_button("", "Increase the focus row index\n(↓)", self.icons.get("inc_focus_row")),
         }
         
         # Named groups
@@ -123,10 +126,12 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
         
         checkboxes = {}
         for number in range(16):
-            checkboxes.update({f"{number}": make_checkbox(f"{number}", f"toggle visibility of plot {number} (space when row is highlighted)")})
+            checkboxes.update({f"{number}": make_checkbox(f"{number}", f"toggle visibility of plot {number} (space when row is in focus)")})
             checkboxes[f"{number}"].setStyleSheet(f"color: {self.color_list[number]};")
         
-        return checkboxes
+        all_checkbox = make_checkbox("all", f"toggle visibility of all plots")
+        
+        return (checkboxes, all_checkbox)
     
     def make_comboboxes(self) -> dict:
         make_combobox = self.gui_items.make_combobox
@@ -136,13 +141,20 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
             "y_axis_0": make_combobox("y_axis_0", "Channel to display on the y axis (Y)"),
             "y_axis_1": make_combobox("y_axis_1", "Channel to display on the y axis (Z)"),
         }
-                
+        
+        focus_row_combobox = make_combobox("Focus row", "Set the focus row\n(↑ / ↓)")
+                        
         plot_number_comboboxes = {}
         for number in range(16):
             plot_number_comboboxes.update({f"{number}": make_combobox(f"{number}", f"data for plot {number}")})
-        # Named groups
         
-        return (channel_selection_comboboxes, plot_number_comboboxes)
+        row_items = [f"Row {i} ({hex(i)[2]})" for i in range(len(plot_number_comboboxes))]
+        focus_row_combobox.renewItems(row_items)
+        
+        # Named groups
+        self.focus_row_buttons = [self.all_checkbox, self.buttons["dec_focus_row"], focus_row_combobox, self.buttons["inc_focus_row"]]
+        
+        return (channel_selection_comboboxes, plot_number_comboboxes, focus_row_combobox)
 
     def make_line_edits(self) -> dict:
         make_line_edit = self.gui_items.make_line_edit
@@ -158,7 +170,7 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
         labels = self.labels
         buttons = self.buttons
 
-        self.option_widgets_col0 = [buttons["y_axis_0"], buttons["offset_0"], labels["empty_0"], buttons["y_axis_1"], buttons["offset_1"], labels["empty_1"], buttons["line_width"], labels["opacity"]]
+        self.option_widgets_col0 = [buttons["y_axis_0"], buttons["offset_0"], labels["empty_0"], buttons["y_axis_1"], buttons["offset_1"], labels["empty_1"], buttons["line_width"], buttons["opacity"]]
         self.option_widgets_col1 = [self.channel_selection_comboboxes["y_axis_0"], line_edits["offset_0"], self.buttons["save_0"], self.channel_selection_comboboxes["y_axis_1"],
                                     line_edits["offset_1"], self.buttons["save_1"], line_edits["line_width"], line_edits["opacity"]]
 
@@ -250,8 +262,8 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
         QSeq = QtGui.QKeySequence
         
         shortcuts = {            
-            "previous_channel": QSeq(QKey.Key_Up),
-            "next_channel": QSeq(QKey.Key_Down),
+            "dec_focus_row": QSeq(QKey.Key_Up),
+            "inc_focus_row": QSeq(QKey.Key_Down),
             
             "folder_name": QSeq(QKey.Key_1),
 
@@ -280,10 +292,11 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
         
         # Add items to the layouts
         ss_layout = self.layouts["selector"]
-        [ss_layout.addWidget(self.checkboxes[f"{i}"], i, 0) for i in range(len(self.checkboxes))]
-        [ss_layout.addWidget(self.leftarrows[f"{i}"], i, 1) for i in range(len(self.leftarrows))]
-        [ss_layout.addWidget(self.plot_number_comboboxes[f"{i}"], i, 2) for i in range(len(self.plot_number_comboboxes))]
-        [ss_layout.addWidget(self.rightarrows[f"{i}"], i, 3) for i in range(len(self.rightarrows))]
+        [ss_layout.addWidget(widget, 0, i) for i, widget in enumerate(self.focus_row_buttons)]
+        [ss_layout.addWidget(self.checkboxes[f"{i}"], i + 1, 0) for i in range(len(self.checkboxes))]
+        [ss_layout.addWidget(self.leftarrows[f"{i}"], i + 1, 1) for i in range(len(self.leftarrows))]
+        [ss_layout.addWidget(self.plot_number_comboboxes[f"{i}"], i + 1, 2) for i in range(len(self.plot_number_comboboxes))]
+        [ss_layout.addWidget(self.rightarrows[f"{i}"], i + 1, 3) for i in range(len(self.rightarrows))]
         
         # Plots
         [layouts["plots"].addWidget(widget) for widget in [self.channel_selection_comboboxes["x_axis"], self.plot_widgets["graph_0"], self.plot_widgets["graph_1"]]]
@@ -313,7 +326,7 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
         
         # Main
         main_layout = layouts["main"]
-        main_layout.addWidget(widgets["selector"], 1, 0, 2, 1) # Spectrum selector buttons
+        main_layout.addWidget(widgets["selector"], 0, 0, 2, 1) # Spectrum selector buttons
         main_layout.addWidget(widgets["x"], 0, 1) # x axis channel selection combobox
         main_layout.addWidget(widgets["plot"], 1, 1, 2, 1)
         main_layout.addLayout(layouts["i/o"], 0, 2)

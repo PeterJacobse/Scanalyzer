@@ -128,7 +128,7 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
             "spec_locations": make_toggle_button("", "View the spectroscopy locations\n(Space)", self.icons.get("spec_locations"), flip_icon = True),
             "spectralyzer": make_button("", "Open Spectralyzer\n(S)", self.icons.get("graph")),
 
-            "save_png": make_button("", "Save as png file\n(Ctrl + S)", self.icons.get("floppy")),
+            "save_png": make_button("", "Save as png file\n(Ctrl + S)", self.icons.get("save_png")),
             "save_hdf5": make_button("", "Save as hdf5 file\n(Ctrl + 5)", self.icons.get("h5")),
             "output_folder": make_button("Output folder", "Open output folder\n(O)", self.icons.get("view_folder")),
             "exit": make_button("", "Exit scanalyzer\n(Esc / X / E)", self.icons.get("escape")),
@@ -147,7 +147,7 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
         make_checkbox = self.gui_items.make_checkbox
         
         checkboxes = {
-            "sobel": make_checkbox("Sobel", "Compute the complex gradient d/dx + i d/dy\n(Shift + S)", self.icons.get("derivative")),
+            "sobel": make_checkbox("Sobel", "Compute the complex gradient d/dx + i d/dy\n(Shift + S)", self.icons.get("sobel")),
             "laplace": make_checkbox("Laplace", "Compute the Laplacian (d/dx)^2 + (d/dy)^2\n(Shift + L)", self.icons.get("laplacian")),
             "fft": make_checkbox("Fft", "Compute the 2D Fourier transform\n(Shift + F)", self.icons.get("fourier")),
             "normal": make_checkbox("Normal", "Compute the z component of the surface normal\n(Shift + N)", self.icons.get("surface_normal")),
@@ -282,6 +282,7 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
         return (im_view, plot_item)
 
     def make_widgets(self) -> dict:
+        make_sle = self.gui_items.make_slider_line_edit
         layouts = self.layouts
         QWgt = QtWidgets.QWidget
         
@@ -295,6 +296,8 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
         self.coarse_control_widgets = [widgets[name] for name in ["coarse_actions", "arrows"]]     
 
         layouts.update({"main": QtWidgets.QHBoxLayout(widgets["central"])})
+        
+        self.phase_slider = make_sle("", "Set complex phase phi in deg\n(= multiplication by exp(i * pi * phi rad / (180 deg)))")
         
         return widgets
 
@@ -378,7 +381,8 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
         p_layout.addWidget(checkboxes["gaussian"], 1, 1)
         p_layout.addWidget(line_edits["gaussian_width"], 1, 2)
         p_layout.addWidget(checkboxes["fft"], 1, 0)
-        p_layout.addWidget(comboboxes["projection"], 2, 1)
+        p_layout.addWidget(comboboxes["projection"], 2, 0)
+        p_layout.addWidget(self.phase_slider, 2, 1, 1, 2)
         
         l_layout = layouts["limits"]
         self.limits_columns = [self.min_line_edits, self.min_radio_buttons, self.scale_buttons, self.max_radio_buttons, self.max_line_edits]

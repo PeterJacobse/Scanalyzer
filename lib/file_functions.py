@@ -790,7 +790,7 @@ class FileFunctions():
 
             scan_header = scan_object.header
             up_or_down = scan_header.get("scan_dir", "down") # Read whether the scan was recorded in the upward or downward direction
-            pixels_uncropped = scan_header.get("scan_pixels", np.array([100, 100], dtype = int)) # Read the number of pixels in the scan
+            (pixels, lines_uncropped) = scan_header.get("scan_pixels", np.array([100, 100], dtype = int)) # Read the number of pixels in the scan
             scan_range_uncropped = scan_header.get("scan_range", np.array([1E-8, 1E-8], dtype = float)) # Read the size of the scan
             bias = round(float(scan_header.get("bias", 0)), 3) # Get the bias (present in the header as a string, passed more directly as a float)
             z_controller = scan_header.get("z-controller") # Extract and convert z-controller parameters
@@ -864,12 +864,12 @@ class FileFunctions():
             good_rows = np.where(nan_counts == 0)[0]
             scan_tensor = np.array([[scan_tensor_uncropped[channel, 0, good_rows], scan_tensor_uncropped[channel, 1, good_rows]] for channel in range(len(channels))])
             
-            pixels = np.asarray(np.shape(scan_tensor[0, 0])) # The number of pixels is recalculated on the basis of the scans potentially being cropped
-            scan_range = np.array([scan_range_uncropped[0], scan_range_uncropped[1] * pixels[1] / pixels_uncropped[1]]) # Recalculate the size of the slow scan direction after cropping
+            # Recalculate the scan range on the basis of the fraction of leftover lines (after cropping) to lines before cropping
+            [lines, pixels] = np.shape(scan_tensor[0, 0]) # The number of pixels is recalculated on the basis of the scans potentially being cropped
+            scan_range = np.array([scan_range_uncropped[0], scan_range_uncropped[1] * lines / lines_uncropped]) # Recalculate the size of the slow scan direction after cropping
             scan_range_unitized = [self.ureg.Quantity(range_dim, "m").to("nm") for range_dim in scan_range]
-            
+
             # Apply the re-unitization to various attributes in the header
-            scan_range = [scan_dimension * L_multiplication_factor for scan_dimension in scan_range]
             setpoint_unitized = self.ureg.Quantity(float(setpoint_str.split()[0]), "A").to("pA")
             
             x_center = self.ureg.Quantity(float(offset[0]), "m").to("nm")
@@ -880,9 +880,8 @@ class FileFunctions():
             x_nm = x_center.magnitude
             y_nm = y_center.magnitude
             center_nm = [dim.magnitude for dim in center]
-            scan_range_nm = scan_range
             angle_deg = angle.magnitude
-            
+            scan_range_nm = [dim.magnitude for dim in scan_range_unitized]
             frame = {
                 "x (nm)": x_nm,
                 "y (nm)": y_nm,
@@ -899,11 +898,13 @@ class FileFunctions():
             setattr(scan_object, "bias", bias_unitized)
             setattr(scan_object, "channels", channels)
             setattr(scan_object, "tensor_uncropped", scan_tensor_uncropped) # Uncropped means the size of the scan before deleting the rows that were not recorded
-            setattr(scan_object, "pixels_uncropped", pixels_uncropped)
+            setattr(scan_object, "pixels_uncropped", pixels)
+            setattr(scan_object, "lines_uncropped", lines_uncropped)
             setattr(scan_object, "scan_range_uncropped", scan_range_uncropped)
             setattr(scan_object, "scan_range_uncropped_unitized", scan_range_uncropped_unitized)
             setattr(scan_object, "tensor", scan_tensor)
             setattr(scan_object, "pixels", pixels)
+            setattr(scan_object, "lines", lines)
             setattr(scan_object, "scan_range", scan_range_unitized)
             setattr(scan_object, "feedback", feedback)
             setattr(scan_object, "setpoint", setpoint_unitized)

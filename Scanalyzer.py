@@ -28,6 +28,7 @@ class Scanalyzer(QtCore.QObject):
         
         sys_folder = os.path.join(scanalyzer_folder, "sys") # The directory of the config file
         config_path = os.path.join(sys_folder, "config.yml") # The path to the configuration file
+        splash_screen_path = os.path.join(sys_folder, "splash_screen.png") # Splash screen
         
         lib_folder = os.path.join(scanalyzer_folder, "lib") # The directory of the Scanalyzer package
         spectralyzer_path = os.path.join(lib_folder, "Spectralyzer.py") # The path to Spectralyzer
@@ -44,6 +45,7 @@ class Scanalyzer(QtCore.QObject):
             "spectralyzer_path": spectralyzer_path,
             "spectralyzer_folder": lib_folder,
             "sys_folder": sys_folder,
+            "splash_screen": splash_screen_path,
             "lib_folder": lib_folder,
             "icon_folder": icon_folder,
             "config_path": config_path,
@@ -141,6 +143,7 @@ class Scanalyzer(QtCore.QObject):
         comboboxes["channels"].currentIndexChanged.connect(self.update_processing_flags)
         comboboxes["projection"].currentIndexChanged.connect(self.update_processing_flags)
         line_edits["gaussian_width"].editingFinished.connect(self.gaussian_width_edited)
+        self.gui.phase_slider.valueChanged.connect(self.update_processing_flags)
         
         direction_shortcut = QShc(QSeq(QKey.Key_X), self.gui)
         direction_shortcut.activated.connect(self.toggle_direction)
@@ -208,9 +211,14 @@ class Scanalyzer(QtCore.QObject):
         if not os.path.isdir(folder_name):
             print("Error loading files")
             return
+        
+        # Splash screen
+        pixmap = QtGui.QPixmap()
+        pixmap.load(self.paths["splash_screen"])
+        self.splash = QtWidgets.QSplashScreen(pixmap, QtCore.Qt.WindowType.WindowStaysOnTopHint)
+        self.splash.show()
 
         self.files_dict = {}
-
         try:
             # Set the paths according to what file was selected
             self.paths["data_folder"] = folder_name
@@ -281,6 +289,9 @@ class Scanalyzer(QtCore.QObject):
         except Exception as e:
             print(f"Error loading folder: {e}")
             buttons["select_file"].setText("Select file")
+        finally:
+            self.splash.close()
+            self.splash.finish(self.gui)
         
         return
 
@@ -676,16 +687,22 @@ class Scanalyzer(QtCore.QObject):
         lim_methods = ["full", "percentiles", "deviations", "absolute"]
         for method in lim_methods:
             if radio_buttons[f"min_{method}"].isChecked():
-                min_str = line_edits[f"min_{method}"].text()
-                numbers = self.data.extract_numbers_from_str(min_str)
-                if len(numbers) > 0: min_value = numbers[0]
-                else: min_value = 0
+                min_value = 0
+                try:
+                    min_str = line_edits[f"min_{method}"].text()
+                    numbers = self.data.extract_numbers_from_str(min_str)
+                    if len(numbers) > 0: min_value = numbers[0]
+                except:
+                    pass
                 flags.update({"min_method": f"{method}", "min_method_value": f"{min_value}"})
             if radio_buttons[f"max_{method}"].isChecked():
-                max_str = line_edits[f"max_{method}"].text()
-                numbers = self.data.extract_numbers_from_str(max_str)
-                if len(numbers) > 0: max_value = numbers[0]
-                else: max_value = 0
+                max_value = 1
+                try:
+                    max_str = line_edits[f"max_{method}"].text()
+                    numbers = self.data.extract_numbers_from_str(max_str)
+                    if len(numbers) > 0: max_value = numbers[0]
+                    else: max_value = 0
+                except: pass
                 flags.update({"max_method": f"{method}", "max_method_value": f"{max_value}"})
 
         # Channel, direction, projection
@@ -700,6 +717,8 @@ class Scanalyzer(QtCore.QObject):
         # Operations
         try: [flags.update({operation: checkboxes[operation].isChecked()}) for operation in ["sobel", "normal", "laplace", "gaussian", "fft"]]
         except: pass
+        phase = self.gui.phase_slider.value()
+        flags.update({"phase": phase})
 
         # File name
         bare_name = f"{channel}_{self.file_index + 1:03d}"

@@ -117,7 +117,9 @@ class Spectralyzer:
         toggle_shortcuts = [QShc(QSeq(keystroke), self.gui) for keystroke in [QKey.Key_Up, QKey.Key_Down, QKey.Key_Left, QKey.Key_Right, QKey.Key_Space]]
         [self.up_shortcut, self.down_shortcut, self.left_shortcut, self.right_shortcut, self.checkbox_shortcut] = toggle_shortcuts
         
+        self.gui.buttons["dec_focus_row"].clicked.connect(lambda: self.set_focus_row(-1, increase = False))
         self.up_shortcut.activated.connect(lambda: self.set_focus_row(-1, increase = False))
+        self.gui.buttons["inc_focus_row"].clicked.connect(lambda: self.set_focus_row(-1, increase = True))
         self.down_shortcut.activated.connect(lambda: self.set_focus_row(-1, increase = True))
 
         buttons["line_width"].clicked.connect(lambda: self.update_processing_flags(increase_linewidth = True))
