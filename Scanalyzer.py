@@ -1,8 +1,7 @@
-import os, sys, re, yaml
+import os, sys, yaml
 import numpy as np
 from PyQt6 import QtCore, QtGui, QtWidgets
-import pyqtgraph as pg
-from lib import ScanalyzerGUI, HoverTargetItem, DataProcessing, FileFunctions, Spectralyzer
+from lib import ScanalyzerGUI, PJTargetItem, DataProcessing, FileFunctions, Spectralyzer
 
 
 
@@ -117,6 +116,8 @@ class Scanalyzer(QtCore.QObject):
         radio_buttons["bg_none"].setShortcut(QSeq(QKey.Key_0))
         radio_buttons["bg_plane"].setShortcut(QSeq(QKey.Key_P))
         radio_buttons["bg_linewise"].setShortcut(QSeq(QKey.Key_L))
+        checkboxes["rotation"].setShortcut(QSeq(QKey.Key_R))
+        checkboxes["offset"].setShortcut(QSeq(QKey.Key_O))
 
         # Matrix operations
         [checkboxes[operation].clicked.connect(self.update_processing_flags) for operation in ["sobel", "gaussian", "normal", "fft", "laplace", "rotation", "offset"]]
@@ -125,8 +126,6 @@ class Scanalyzer(QtCore.QObject):
         checkboxes["gaussian"].setShortcut(QSeq(QMod.SHIFT | QKey.Key_G))
         checkboxes["fft"].setShortcut(QSeq(QMod.SHIFT | QKey.Key_F))
         checkboxes["laplace"].setShortcut(QSeq(QMod.SHIFT | QKey.Key_L))
-        checkboxes["offset"].setShortcut(QSeq(QMod.SHIFT | QKey.Key_O))
-        checkboxes["rotation"].setShortcut(QSeq(QMod.SHIFT | QKey.Key_R))
 
         # Limits control group
         toggle_min_shortcut = QShc(QSeq(QKey.Key_Minus), self.gui)
@@ -163,8 +162,8 @@ class Scanalyzer(QtCore.QObject):
     def on_file_index_change(self, index: int = 1) -> None:
         scan_dict = self.files_dict.get("scan_files")
         self.file_index += index
-        if self.file_index < 0: self.file_index = len(scan_dict) - 1
-        if self.file_index > len(self.files_dict.get("scan_files")) - 1: self.file_index = 0
+        if self.file_index < 0: self.file_index = len(scan_dict) - 2 # scan_dict has 1 element called scan_dict, which should be disregarded
+        if self.file_index > len(self.files_dict.get("scan_files")) - 2: self.file_index = 0
         self.load_process_display(new_scan = True)
         return
 
@@ -173,7 +172,7 @@ class Scanalyzer(QtCore.QObject):
         if file_path: self.load_folder(file_path)
         return
 
-    def on_receive_filename(self, file_name) -> None:
+    def on_receive_filename(self, file_name: str) -> None:
         if os.path.exists(file_name): self.load_folder(file_name)
         
         return
@@ -191,7 +190,7 @@ class Scanalyzer(QtCore.QObject):
         return
 
     # Projections
-    def toggle_projections(self, index) -> None:
+    def toggle_projections(self, index: int) -> None:
         self.gui.comboboxes["projection"].toggleIndex(index)
         self.update_processing_flags()
         return
@@ -264,7 +263,7 @@ class Scanalyzer(QtCore.QObject):
                 if os.path.samefile(single_file_dict.get("path"), file_path):
                     self.file_index = key
                     break
-            if self.file_index > len(scan_dict) - 1: self.file_index = 0 # Roll over if the selected file index is too large
+            if self.file_index > len(scan_dict) - 2: self.file_index = 0 # Roll over if the selected file index is too large
             
             # Update folder/contents labels
             try:
@@ -331,13 +330,6 @@ class Scanalyzer(QtCore.QObject):
             comboboxes["channels"].renewItems(channels)
         except Exception as e:
             print(f"{e}")
-
-        # Read the metadata, the metadata file and update if necessary
-        try:
-            self.read_metadata(scan_object)
-            pass
-        except Exception as e:
-            print(f"{e}")
         
         # Extract the image from the scan object using the processing flags available in the data object        
         (image, selected_channel, frame, error) = self.data.pick_image_from_scan_object(scan_object)
@@ -346,50 +338,86 @@ class Scanalyzer(QtCore.QObject):
             print(f"{error}")
             return
 
+        # Read the metadata, the metadata file and update if necessary
+        try:
+            self.read_metadata(scan_object)
+            self.find_spectra()
+            pass
+        except Exception as e:
+            print(f"{e}")
+
         return (image, selected_channel, frame, error)
 
-    def find_associated_spectra(self) -> None:
-        # From the list of spectra (spec_files), select the ones that are associated with the current scan (associated scan name is column 3 in self.spec_files and column 0 in self.sxm_files)
+    def find_spectra(self) -> None:
+        # Get a list of spectra and their locations
+        flags = self.data.processing_flags
+        spec_dict = self.files_dict.get("spectroscopy_files")
+        
+        spectrum_list = []
+        associated_spectrum_list = []
+        
+        first_spectrum_name = ""
+        for key, single_file_dict in spec_dict.items():
+            if not isinstance(single_file_dict, dict): continue
+            
+            spec_name = single_file_dict.get("file_name")
+            x_nm = single_file_dict.get("x (nm)")
+            y_nm = single_file_dict.get("y (nm)")
+            z_nm = single_file_dict.get("z (nm)")
+            date_time_str = single_file_dict.get("date_time_str")
+            associated_scan_name = single_file_dict.get("associated_scan_name")            
+            
+            if self.scan_file_name == associated_scan_name:
+                spectrum_list.append(f">>{spec_name}")
+                associated_spectrum_list.append([spec_name, x_nm, y_nm, z_nm, date_time_str])
+                
+                if first_spectrum_name == "": first_spectrum_name = f">>{spec_name}"
+            else:
+                spectrum_list.append(f"{spec_name}")
+        
         try:
-            #associated_spectra_indices = np.where(self.spec_files[:, 3] == self.sxm_file[0])[0]
-            self.associated_spectra = [self.spec_files[index] for index in [0, 1, 2]]
+            self.gui.comboboxes["spectra"].renewItems(spectrum_list)
+            self.gui.comboboxes["spectra"].selectItem(first_spectrum_name)
         except:
-            self.associated_spectra = []
-
-        # Update the spectra combobox
-        self.comboboxes["spectra"].renewItems([spectrum[0] for spectrum in self.associated_spectra])
-
-        # Remove all spectroscopy targets if there were any
+            pass
+        
+        # Create targets for spec locations
         view_box = self.gui.image_view.getView()
-        for target in self.spec_targets:
-            view_box.removeItem(target)
-
-        # Get the new targets
+        for target in self.spec_targets: view_box.removeItem(target)
         self.spec_targets = []
 
-        for index, data in enumerate(self.associated_spectra):
+        for index, data in enumerate(associated_spectrum_list):
             try:
-                x = data[4]
-                y = data[5]
+                x_nm = data[1]
+                y_nm = data[2]
+                
+                frame = flags.get("frame")
+                if not flags.get("offset"):
+                    offset_nm = frame.get("offset (nm)")
+                    
+                    x_relative_to_frame = x_nm - offset_nm[0]
+                    y_relative_to_frame = y_nm - offset_nm[1]
+                    
+                    x_nm = x_relative_to_frame
+                    y_nm = y_relative_to_frame
 
-                x_nm = x.to("nm").magnitude
-                y_nm = y.to("nm").magnitude
+                if not flags.get("rotation"):
+                    angle_deg = frame.get("angle (deg)")
+                    
+                    cos_theta = np.cos(angle_deg * np.pi / 180)
+                    sin_theta = np.sin(angle_deg * np.pi / 180)
 
-                x_relative_to_frame = x_nm - self.offset_nm[0]
-                y_relative_to_frame = y_nm - self.offset_nm[1]
+                    x_rotated = cos_theta * x_relative_to_frame - sin_theta * y_relative_to_frame
+                    y_rotated = cos_theta * y_relative_to_frame + sin_theta * x_relative_to_frame
+                
+                    x_nm = x_rotated
+                    y_nm = y_rotated
 
-                cos_theta = np.cos(self.angle_deg)
-                sin_theta = np.sin(self.angle_deg)
-
-                x_rotated = cos_theta * x_relative_to_frame - sin_theta * y_relative_to_frame
-                y_rotated = cos_theta * y_relative_to_frame + sin_theta * x_relative_to_frame
-
-                target_item = HoverTargetItem(pos = [x_rotated, y_rotated], size = 10, tip_text = data[0])
-                target_item.setZValue(10)
+                target_item = PJTargetItem(pos = [x_nm, y_nm], size = 10, tip_text = f"{data[0]}\n{data[4]}")
                 
                 self.spec_targets.append(target_item)
             except Exception as e:
-                print("Error populating the target items")
+                print(f"Error populating the target items: {e}")
         
         return
 
@@ -422,16 +450,24 @@ class Scanalyzer(QtCore.QObject):
             x = offset_nm[0]
             y = offset_nm[1]
             
+            self.gui.image_view.clear()
             self.gui.image_view.setImage(scan, autoRange = True) # Show the scan in the app
             image_item = self.gui.image_view.getImageItem()
-            if self.data.processing_flags["offset"] == True:
-                image_item.setRect(QtCore.QRectF(x - w / 2, y - h / 2, w, h)) # Add dimensions to the ImageView object
-            else:
-                image_item.setRect(QtCore.QRectF(- w / 2, - h / 2, w, h)) # Add dimensions to the ImageView object
+            
+            box = QtCore.QRectF(- w / 2, - h / 2, w, h) # Add dimensions to the ImageView object
+            image_item.setRect(box)
+            
+            center = image_item.boundingRect().center()
+            image_item.setTransformOriginPoint(center)            
             if self.data.processing_flags["rotation"] == True:
-                image_item.setRotation(angle_deg)
+                image_item.setRotation(-angle_deg)
             else:
                 image_item.setRotation(0)
+            if self.data.processing_flags["offset"] == True:
+                image_item.setPos(x, y)
+            else:
+                image_item.setPos(0, 0)
+            
             self.gui.image_view.autoRange()
         except:
             pass
@@ -454,7 +490,7 @@ class Scanalyzer(QtCore.QObject):
         
         self.hist_item.sigLevelChangeFinished.connect(self.histogram_scale_changed)
 
-    def read_metadata(self, scan_object):
+    def read_metadata(self, scan_object: object):
         bias = scan_object.bias
         bias_V = bias.to("V").magnitude
         
@@ -716,9 +752,6 @@ class Scanalyzer(QtCore.QObject):
             QtCore.QTimer.singleShot(1000, msg_box.close)
             msg_box.exec()
 
-            #self.check_exists_box.setText("png already exists!")
-            #self.check_exists_box.setStyleSheet("background-color: orange")
-
         except Exception as e:
             print(f"Error saving the image file: {e}")
             pass
@@ -749,11 +782,13 @@ class Scanalyzer(QtCore.QObject):
         self.on_exit
     
     def on_exit(self) -> None:
-        scan_dict = self.files_dict.get("scan_files")
-        data = {"last_file": str(scan_dict[self.file_index].get("path"))}
-        save_path = self.paths["config_path"]
-        
-        error = self.file_functions.save_yaml(data, save_path)
+        try:
+            scan_dict = self.files_dict.get("scan_files")
+            data = {"last_file": str(scan_dict[self.file_index].get("path"))}
+            save_path = self.paths["config_path"]
+            error = self.file_functions.save_yaml(data, save_path)
+        except:
+            pass
         print("Thank you for using Scanalyzer!")
         QtWidgets.QApplication.instance().quit()
 

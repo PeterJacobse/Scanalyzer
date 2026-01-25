@@ -19,6 +19,7 @@ class GUIItems:
         button = PJPushButton(name)
         button.setObjectName(name)
         button.setToolTip(tooltip)
+        button.setStyleSheet("QPushButton{ background-color: #101010; icon-size: 22px 22px; }")
 
         if isinstance(icon, QtGui.QIcon):
             if type(rotate_icon) == float or type(rotate_icon) == int and rotate_icon != 0:
@@ -32,6 +33,7 @@ class GUIItems:
         button = PJTogglePushButton(name, flip_icon = flip_icon)
         button.setObjectName(name)
         button.setToolTip(tooltip)
+        button.setStyleSheet("QPushButton{ background-color: #101010; icon-size: 22px 22px; }")
 
         if isinstance(icon, QtGui.QIcon):
             if type(rotate_icon) == float or type(rotate_icon) == int and rotate_icon != 0:
@@ -53,6 +55,7 @@ class GUIItems:
         button = PJRadioButton(name)
         button.setObjectName(name)
         button.setToolTip(tooltip)
+        button.setStyleSheet("QRadioButton{ icon-size: 22px 22px; }")
 
         if isinstance(icon, QtGui.QIcon):
             if type(rotate_icon) == float or type(rotate_icon) == int and rotate_icon != 0:
@@ -66,6 +69,7 @@ class GUIItems:
         box = PJCheckBox(name)
         box.setObjectName(name)
         box.setToolTip(tooltip)
+        box.setStyleSheet("QCheckBox{ icon-size: 22px 22px; }")
         
         if isinstance(icon, QtGui.QIcon):
             if type(rotate_icon) == float or type(rotate_icon) == int and rotate_icon != 0:
@@ -79,6 +83,7 @@ class GUIItems:
         box = PJComboBox()
         box.setObjectName(name)
         box.setToolTip(tooltip)
+        box.setStyleSheet("QCombobox{ background-color: #101010; icon-size: 22px 22px; }")
 
         if len(items) > 0: box.addItems(items)
         
@@ -89,6 +94,7 @@ class GUIItems:
         line_edit.setObjectName(name)
         line_edit.setToolTip(tooltip)
         line_edit.setText(name)
+        line_edit.setStyleSheet("QLineEdit{ background-color: #101010 }")
         
         return line_edit
 
@@ -148,15 +154,16 @@ class GUIItems:
 
 
 
-class HoverTargetItem(pg.TargetItem):
-    def __init__(self, pos = None, size = 10, tip_text = ""):
-        super().__init__(pos, size)
+class PJTargetItem(pg.TargetItem):
+    def __init__(self, pos = None, size = 10, pen = "y", tip_text = ""):
+        super().__init__(pos = pos, size = size, pen = pen)
         self.size = size
         self.tip_text = tip_text
 
         self.text_item = pg.TextItem(tip_text, anchor = (0, 1), fill = 'k')
         self.text_item.setParentItem(self)
         self.text_item.hide()
+        self.setZValue(10)
 
     def hoverEvent(self, event) -> None:
         super().hoverEvent(event)
@@ -266,9 +273,11 @@ class PJTogglePushButton(QtWidgets.QPushButton):
         self.toggle()
         if self.isChecked():
             self.setIcon(self.new_icon)
+            self.setStyleSheet("QPushButton{ background-color: #101010; icon-size: 22px 22px; }")
             self.setChecked(False)
         else:
             self.setIcon(self.flipped_icon)
+            self.setStyleSheet("QPushButton{ background-color: #2020C0; icon-size: 22px 22px; }")
             self.setChecked(True)
         self.blockSignals(False)
         

@@ -3,7 +3,7 @@ import numpy as np
 from PyQt6 import QtCore, QtGui, QtWidgets
 import pyqtgraph as pg
 import pyqtgraph.exporters as expts
-from . import GUIItems, HoverTargetItem, DataProcessing, FileFunctions
+from . import GUIItems, PJTargetItem, DataProcessing, FileFunctions
 from .gui_spectralyzer import SpectralyzerGUI
 
 

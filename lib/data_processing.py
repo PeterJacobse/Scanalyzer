@@ -109,6 +109,9 @@ class DataProcessing():
                     break
             image = tensor_slice[int(self.processing_flags.get("direction") == "backward")]
             
+            # Update the frame to the processing flags
+            self.processing_flags.update({"frame": frame})
+            
         except Exception as e:
             error = e
 

@@ -108,6 +108,7 @@ class FileFunctions():
 
 
 
+    # To be deprecated
     def get_basic_header(self, file_name: str) -> tuple[dict, bool | str]:
         error = False
         header = {}
@@ -854,7 +855,7 @@ class FileFunctions():
             
             # Stack the forward and backward scans for each channel in a tensor. Flip the backward scan
             scan_tensor_uncropped = np.stack([np.stack((np.array(scans[channel]["forward"], dtype = float), np.flip(np.array(scans[channel]["backward"], dtype = float), axis = 1))) for channel in channels])
-            if up_or_down == "up": scan_tensor_uncropped = np.flip(scan_tensor_uncropped, axis = 2) # Flip the scan if it recorded in the upward direction
+            if up_or_down == "down": scan_tensor_uncropped = np.flip(scan_tensor_uncropped, axis = 2) # Flip the scan if it recorded in the upward direction
             # scan_tensor: axis 0 = direction (0 for forward, 1 for backward); axis 1 = channel; axis 2 and 3 are x and y
 
             # Determine which rows should be cropped off in case the scan was not completed

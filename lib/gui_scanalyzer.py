@@ -24,7 +24,7 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
         self.radio_buttons = self.make_radio_buttons()
         self.lines = self.make_lines()
         self.layouts = self.make_layouts()
-        self.image_view = self.make_image_view()
+        (self.image_view, self.plot_item) = self.make_image_view()
         self.widgets = self.make_widgets()
         self.consoles = self.make_consoles()
         self.shortcuts = self.make_shortcuts()
@@ -99,7 +99,7 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
         # Named groups
         
         return labels
-    
+
     def make_buttons(self) -> dict:
         make_button = self.gui_items.make_button
         make_toggle_button = self.gui_items.make_toggle_button
@@ -110,27 +110,27 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
 
         buttons = {
             "previous_file": make_button("", "Previous file\n(←)", self.icons.get("single_arrow"), rotate_icon = 180),
-            "select_file": make_button("", "Load scan and corresponding folder\n(L)", self.icons.get("folder_yellow")),
+            "select_file": make_button("", "Load scan and corresponding folder\n(Ctrl + L)", self.icons.get("folder_yellow")),
             "next_file": make_button("", "Next file\n(→)", self.icons.get("single_arrow")),
 
             "previous_channel": make_button("", "Previous channel\n(↑)", icon = arrow, rotate_icon = 270),
             "next_channel": make_button("","Next channel\n(↓)", icon = arrow, rotate_icon = 90),
             "direction": make_toggle_button("", "Change scan direction\n(X)", self.icons.get("triple_arrow"), flip_icon = True),
 
-            "folder_name": make_button("Open folder", "Open the data folder\n(1)", self.icons.get("folder_blue")),
+            "folder_name": make_button("Open folder", "Open the data folder\n(1)", self.icons.get("view_folder")),
 
             "full_data_range": make_button("", sivr + "to the full data range\n(Shift + U)", self.icons.get("100")),
-            "percentiles": make_button("", sivr + "by percentiles\n(Shift + R)", self.icons.get("percentiles")),
+            "percentiles": make_button("", sivr + "by percentiles\n(Shift + P)", self.icons.get("percentiles")),
             "standard_deviation": make_button("", sivr + "by standard deviations\n(Shift + D)", self.icons.get("deviation")),
             "absolute_values": make_button("", sivr + "by absolute values\n(Shift + A)", self.icons.get("numbers")),
 
             "spec_info": make_button("", "Spectrum information", self.icons.get("question")),
-            "spec_locations": make_toggle_button("", "View the spectroscopy locations\n(3)", self.icons.get("spec_locations"), flip_icon = True),
-            "spectralyzer": make_button("", "Open Spectralyzer\n(O)", self.icons.get("graph")),
+            "spec_locations": make_toggle_button("", "View the spectroscopy locations\n(Space)", self.icons.get("spec_locations"), flip_icon = True),
+            "spectralyzer": make_button("", "Open Spectralyzer\n(S)", self.icons.get("graph")),
 
-            "save_png": make_button("", "Save as png file\n(S)", self.icons.get("floppy")),
-            "save_hdf5": make_button("", "Save as hdf5 file\n(5)", self.icons.get("h5")),
-            "output_folder": make_button("Output folder", "Open output folder\n(T)", self.icons.get("folder_blue")),
+            "save_png": make_button("", "Save as png file\n(Ctrl + S)", self.icons.get("floppy")),
+            "save_hdf5": make_button("", "Save as hdf5 file\n(Ctrl + 5)", self.icons.get("h5")),
+            "output_folder": make_button("Output folder", "Open output folder\n(O)", self.icons.get("view_folder")),
             "exit": make_button("", "Exit scanalyzer\n(Esc / X / E)", self.icons.get("escape")),
             "info": make_button("", "Info", self.icons.get("i"))
         }
@@ -151,10 +151,10 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
             "laplace": make_checkbox("Laplace", "Compute the Laplacian (d/dx)^2 + (d/dy)^2\n(Shift + L)", self.icons.get("laplacian")),
             "fft": make_checkbox("Fft", "Compute the 2D Fourier transform\n(Shift + F)", self.icons.get("fourier")),
             "normal": make_checkbox("Normal", "Compute the z component of the surface normal\n(Shift + N)", self.icons.get("surface_normal")),
-            "gaussian": make_checkbox("Gauss", "Gaussian blur applied\n(Provide a width to toggle)", self.icons.get("gaussian")),
+            "gaussian": make_checkbox("Gauss", "Gaussian blur applied\n(Shift + G) or provide a width to toggle", self.icons.get("gaussian")),
             
-            "rotation": make_checkbox("", "Show the scan frame rotation", self.icons.get("rotation")),
-            "offset": make_checkbox("", "Show the scan frame offset", self.icons.get("offset"))
+            "rotation": make_checkbox("", "Show the scan frame rotation\n(R)", self.icons.get("rotation")),
+            "offset": make_checkbox("", "Show the scan frame offset(O)", self.icons.get("offset"))
         }
 
         return checkboxes
@@ -164,9 +164,9 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
         buttons = self.buttons
         
         comboboxes = {
-            "channels": make_combobox("Channels", "Available scan channels\ntoggle with (↑ / ↓)"),
-            "projection": make_combobox("Projection", "Select a projection\ntoggle with (Shift + ↑ / ↓)", items = ["re", "im", "abs", "arg (b/w)", "arg (hue)", "complex", "abs^2", "log(abs)"]),
-            "spectra": make_combobox("spectra", "Spectra associated with the current scan")
+            "channels": make_combobox("Channels", "Available scan channels\n(↑ / ↓)"),
+            "projection": make_combobox("Projection", "Select a projection\n(Shift + ↑ / ↓)", items = ["re", "im", "abs", "arg (b/w)", "arg (hue)", "complex", "abs^2", "log(abs)"]),
+            "spectra": make_combobox("spectra", "Spectra (those associated with the current scan are emphasized)")
         }
         
         # Named groups
@@ -205,7 +205,7 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
         QGroup = QtWidgets.QButtonGroup
         
         radio_buttons = {
-            "bg_none": make_radio_button("", "None\n(0)", self.icons.get("0")),
+            "bg_none": make_radio_button("", "None\n(0)", self.icons.get("0_2")),
             "bg_plane": make_radio_button("", "Plane\n(P)", self.icons.get("plane_subtract")),
             "bg_linewise": make_radio_button("", "Linewise\n(L)", self.icons.get("lines")),
             "bg_inferred": make_radio_button("", "None\n(0)", self.icons.get("0")),
@@ -237,7 +237,7 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
         # Initialize
         checked_buttons = [radio_buttons[name] for name in ["min_full", "max_full", "bg_none"]]
         [button.setChecked(True) for button in checked_buttons]
-        
+
         return radio_buttons
 
     def make_lines(self) -> dict:
@@ -275,9 +275,11 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
     def make_image_view(self) -> pg.ImageView:
         pg.setConfigOptions(imageAxisOrder = "row-major", antialias = True)
         
-        im_view = pg.ImageView(view = pg.PlotItem())
+        plot_item = pg.PlotItem()        
+        im_view = pg.ImageView(view = plot_item)
+        im_view.view.invertY(False)
         
-        return im_view
+        return (im_view, plot_item)
 
     def make_widgets(self) -> dict:
         layouts = self.layouts
@@ -330,16 +332,17 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
             "folder_name": QSeq(QKey.Key_1),
 
             "full_data_range": QSeq(QMod.SHIFT | QKey.Key_U),
-            "percentiles": QSeq(QMod.SHIFT | QKey.Key_5),
+            "percentiles": QSeq(QMod.SHIFT | QKey.Key_P),
             "standard_deviation": QSeq(QMod.SHIFT | QKey.Key_D),
             "absolute_values": QSeq(QMod.SHIFT | QKey.Key_A),
             
             "spec_locations": QSeq(QKey.Key_Space),
-            "spectralyzer": QSeq(QMod.CTRL | QKey.Key_S),
+            "spectralyzer": QSeq(QKey.Key_S),
 
-            "save_png": QSeq(QKey.Key_S),
-            "save_hdf5": QSeq(QKey.Key_5),
-            "output_folder": QSeq(QKey.Key_T),
+            #"save_png": QSeq(QKey.Key_S),
+            "save_png": QSeq(QMod.CTRL | QKey.Key_S),
+            "save_hdf5": QSeq(QMod.CTRL | QKey.Key_5),
+            "output_folder": QSeq(QKey.Key_O),
         }
 
         return shortcuts
