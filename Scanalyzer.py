@@ -313,7 +313,7 @@ class Scanalyzer(QtCore.QObject):
             print("Error. Could not retrieve scan.")
             return
 
-        # Use the global variabls file_index to extract the path of the requested scan from the dict
+        # Use the global variable file_index to extract the path of the requested scan from the dict
         if self.file_index < 0: self.file_index = len(scan_dict) - 1
         if self.file_index > len(scan_dict) - 1: self.file_index = 0
         scan_file_path = scan_file_entry.get("path")
@@ -329,7 +329,7 @@ class Scanalyzer(QtCore.QObject):
             channels = scan_object.channels
             comboboxes["channels"].renewItems(channels)
         except Exception as e:
-            print(f"{e}")
+            print(f"{e}")        
         
         # Extract the image from the scan object using the processing flags available in the data object        
         (image, selected_channel, frame, error) = self.data.pick_image_from_scan_object(scan_object)
@@ -337,6 +337,14 @@ class Scanalyzer(QtCore.QObject):
         if error:
             print(f"{error}")
             return
+
+        # Create an output file name using the selected channel and processing flags, then update paths and line_edits
+        bare_name = f"{selected_channel}_{self.file_index + 1:03d}"
+        tagged_name = self.data.add_tags_to_file_name(bare_name)
+        self.data.processing_flags["file_name"] = tagged_name
+        self.paths["output_file_basename"] = tagged_name
+        self.gui.line_edits["file_name"].setText(os.path.basename(tagged_name))
+        self.gui.buttons["output_folder"].setText(self.paths["output_folder_name"])
 
         # Read the metadata, the metadata file and update if necessary
         try:
@@ -730,7 +738,7 @@ class Scanalyzer(QtCore.QObject):
             print(f"Error reading the histogram levels: {e}")
         denom = max_val - min_val if max_val != min_val else 1
         rescaled_array = (processed_scan - min_val) / denom
-        rescaled_array = np.clip(rescaled_array, 0, 1)  # Ensure within [0,1]
+        rescaled_array = np.clip(np.flipud(rescaled_array), 0, 1)  # Ensure within [0,1]
         uint8_array = (255 * rescaled_array).astype(np.uint8)
 
         try:

@@ -120,6 +120,7 @@ class Spectralyzer:
         self.up_shortcut.activated.connect(lambda: self.set_focus_row(-1, increase = False))
         self.down_shortcut.activated.connect(lambda: self.set_focus_row(-1, increase = True))
 
+        buttons["line_width"].clicked.connect(lambda: self.update_processing_flags(increase_linewidth = True))
         buttons["x_axis"].clicked.connect(lambda: self.update_processing_flags(toggle_channelbox = "x_axis"))
         buttons["y_axis_0"].clicked.connect(lambda: self.update_processing_flags(toggle_channelbox = "y_axis_0"))
         buttons["y_axis_1"].clicked.connect(lambda: self.update_processing_flags(toggle_channelbox = "y_axis_1"))
@@ -277,7 +278,7 @@ class Spectralyzer:
         self.update_processing_flags(toggle_checkbox = False, toggle_channelbox = False)
         return
 
-    def update_processing_flags(self, toggle_checkbox: bool = False, toggle_channelbox: bool = False):
+    def update_processing_flags(self, toggle_checkbox: bool = False, toggle_channelbox: bool = False, increase_linewidth: bool = False):
         checkboxes = self.gui.checkboxes
         leftarrows = self.gui.leftarrows
         rightarrows = self.gui.rightarrows
@@ -319,6 +320,9 @@ class Spectralyzer:
         if len(numbers) < 1: line_width = 2
         else: line_width = numbers[0]
         
+        if increase_linewidth: line_width += 1
+        if line_width > 10: line_width = 1
+        
         opacity_str = line_edits["opacity"].text()
         numbers = self.data.extract_numbers_from_str(opacity_str)
         if len(numbers) < 1: opacity = 1
@@ -345,11 +349,7 @@ class Spectralyzer:
         return
 
     def redraw_spectra(self) -> None:
-        plot_items = self.gui.plot_items
-        line_edits = self.gui.line_edits
         checkboxes = self.gui.checkboxes
-        leftarrows = self.gui.leftarrows
-        rightarrows = self.gui.rightarrows
         plot_number_comboboxes = self.gui.plot_number_comboboxes
         graph_0 = self.gui.plot_items["graph_0"]
         graph_1 = self.gui.plot_items["graph_1"]
@@ -364,6 +364,10 @@ class Spectralyzer:
         # Set the pen and successive spectrum offset properties from processing flags
         line_width = flags.get("line_width", 1)
         opacity = flags.get("opacity", 1)
+        if opacity < 0 or opacity > 1:
+            opacity = 1
+            flags.update({"opacity": 1})
+        opacity_hex = "{:02x}".format(int(opacity * 255))        
         offset_0 = flags.get("offset_0", 0)
         offset_1 = flags.get("offset_1", 0)
         
@@ -371,12 +375,13 @@ class Spectralyzer:
         [graph.clear() for graph in [graph_0, graph_1]]
         for i in range(len(checkboxes)):
             color = color_list[i]
+            color = color + opacity_hex
 
             if not checkboxes[f"{i}"].isChecked(): continue
             
             try:
                 # Create pen with color, width, and opacity
-                pen = pg.mkPen(color = color, width = line_width, alphaF = opacity)
+                pen = pg.mkPen(color = color, width = line_width)
                 pen.setCapStyle(QtCore.Qt.PenCapStyle.RoundCap)
                 pen.setJoinStyle(QtCore.Qt.PenJoinStyle.RoundJoin)
                 

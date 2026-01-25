@@ -67,7 +67,8 @@ class DataProcessing():
     # Misc
     def extract_numbers_from_str(self, text: str) -> list[float] | None:
         # Extract the numeric part
-        number_matches = re.findall(r"-?\d+\.?\d*", text)
+        regex_pattern = r"[-+]?(?:[0-9]*\.)?[0-9]+(?:[eE][-+]?[0-9]+)?"
+        number_matches = re.findall(regex_pattern, text)
         numbers = [float(x) for x in number_matches]
         if len(numbers) < 1: numbers = None
         

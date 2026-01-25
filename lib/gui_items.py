@@ -5,155 +5,6 @@ import numpy as np
 
 
 
-class GUIItems:
-    def __init__(self):
-        pass
-
-    def make_groupbox(self, name: str, tooltip: str = "") -> QtWidgets.QGroupBox:
-        box = QtWidgets.QGroupBox(name)
-        box.setToolTip(tooltip)
-        box.setCheckable(True)
-        return box
-
-    def make_button(self, name: str, tooltip: str = "", icon = None, rotate_icon: float = 0) -> PJPushButton:
-        button = PJPushButton(name)
-        button.setObjectName(name)
-        button.setToolTip(tooltip)
-        button.setStyleSheet("QPushButton{ background-color: #101010; icon-size: 22px 22px; }")
-
-        if isinstance(icon, QtGui.QIcon):
-            if type(rotate_icon) == float or type(rotate_icon) == int and rotate_icon != 0:
-                try: icon = self.rotate_icon(icon, rotate_icon)
-                except: pass
-            try: button.setIcon(icon)
-            except: pass
-        return button
-
-    def make_toggle_button(self, name: str, tooltip: str = "", icon = None, rotate_icon: float = 0, flip_icon: bool = False) -> PJPushButton:
-        button = PJTogglePushButton(name, flip_icon = flip_icon)
-        button.setObjectName(name)
-        button.setToolTip(tooltip)
-        button.setStyleSheet("QPushButton{ background-color: #101010; icon-size: 22px 22px; }")
-
-        if isinstance(icon, QtGui.QIcon):
-            if type(rotate_icon) == float or type(rotate_icon) == int and rotate_icon != 0:
-                try: icon = self.rotate_icon(icon, rotate_icon)
-                except: pass
-            try: button.newIcon(icon)
-            except: pass
-        return button
-
-    def make_label(self, name: str, tooltip: str = "") -> QtWidgets.QLabel:
-        label = QtWidgets.QLabel(name)
-        label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        label.setObjectName(name)
-        label.setToolTip(tooltip)
-
-        return label
-
-    def make_radio_button(self, name: str, tooltip: str = "", icon = None, rotate_icon: float = 0) -> PJRadioButton:
-        button = PJRadioButton(name)
-        button.setObjectName(name)
-        button.setToolTip(tooltip)
-        button.setStyleSheet("QRadioButton{ icon-size: 22px 22px; }")
-
-        if isinstance(icon, QtGui.QIcon):
-            if type(rotate_icon) == float or type(rotate_icon) == int and rotate_icon != 0:
-                try: icon = self.rotate_icon(icon, rotate_icon)
-                except: pass
-            try: button.setIcon(icon)
-            except: pass
-        return button
-    
-    def make_checkbox(self, name: str, tooltip: str = "", icon = None, rotate_icon: float = 0) -> PJCheckBox:
-        box = PJCheckBox(name)
-        box.setObjectName(name)
-        box.setToolTip(tooltip)
-        box.setStyleSheet("QCheckBox{ icon-size: 22px 22px; }")
-        
-        if isinstance(icon, QtGui.QIcon):
-            if type(rotate_icon) == float or type(rotate_icon) == int and rotate_icon != 0:
-                try: icon = self.rotate_icon(icon, rotate_icon)
-                except: pass
-            try: box.setIcon(icon)
-            except: pass
-        return box
-    
-    def make_combobox(self, name: str = "", tooltip: str = "", items: list = []) -> PJComboBox:
-        box = PJComboBox()
-        box.setObjectName(name)
-        box.setToolTip(tooltip)
-        box.setStyleSheet("QCombobox{ background-color: #101010; icon-size: 22px 22px; }")
-
-        if len(items) > 0: box.addItems(items)
-        
-        return box
-
-    def make_line_edit(self, name: str, tooltip: str = "", unit = None, limits = None) -> PJLineEdit:
-        line_edit = PJLineEdit(unit = unit, limits = limits)
-        line_edit.setObjectName(name)
-        line_edit.setToolTip(tooltip)
-        line_edit.setText(name)
-        line_edit.setStyleSheet("QLineEdit{ background-color: #101010 }")
-        
-        return line_edit
-
-    def make_progress_bar(self, name, tooltip: str = "") -> PJProgressBar:
-        bar = PJProgressBar()
-        
-        bar.setObjectName(name)
-        bar.setMinimum(0)
-        bar.setMaximum(100)
-        bar.setValue(0)
-        bar.setToolTip(tooltip)
-        
-        return bar
-
-    def make_layout(self, orientation: str = "h") -> QtWidgets.QLayout:
-        match orientation:
-            case "h":
-                layout = QtWidgets.QHBoxLayout()
-            case "v":
-                layout = QtWidgets.QVBoxLayout()
-            case _:
-                layout = QtWidgets.QGridLayout()
-        
-        layout.setSpacing(1)
-        return layout
-    
-    def make_console(self, name, tooltip) -> PJConsole:
-        console = PJConsole()
-        console.setObjectName(name)
-        console.setToolTip(tooltip)
-        
-        return console
-    
-    def line_widget(self, orientation: str = "v", thickness: int = 1) -> QtWidgets.QFrame:
-        line = QtWidgets.QFrame()
-        match orientation:
-            case "h":
-                line.setFrameShape(QtWidgets.QFrame.Shape.HLine)
-            case _:
-                line.setFrameShape(QtWidgets.QFrame.Shape.VLine)
-        line.setLineWidth(thickness)
-        return line
-
-    def rotate_icon(self, icon, angle) -> QtGui.QIcon:
-        try:
-            pixmap = icon.pixmap(QtCore.QSize(92, 92))
-            transform = QtGui.QTransform()
-            transform.rotate(angle)
-
-            rotated_pixmap = pixmap.transformed(transform)
-
-            return QtGui.QIcon(rotated_pixmap)
-    
-        except Exception as e:
-            print(f"Error: {e}")
-            return False
-
-
-
 class PJTargetItem(pg.TargetItem):
     def __init__(self, pos = None, size = 10, pen = "y", tip_text = ""):
         super().__init__(pos = pos, size = size, pen = pen)
@@ -594,4 +445,153 @@ class StreamRedirector(QtCore.QObject):
             self._buffer = ""
         
         return
+
+
+
+class GUIItems:
+    def __init__(self):
+        pass
+
+    def make_groupbox(self, name: str, tooltip: str = "") -> QtWidgets.QGroupBox:
+        box = QtWidgets.QGroupBox(name)
+        box.setToolTip(tooltip)
+        box.setCheckable(True)
+        return box
+
+    def make_button(self, name: str, tooltip: str = "", icon = None, rotate_icon: float = 0) -> PJPushButton:
+        button = PJPushButton(name)
+        button.setObjectName(name)
+        button.setToolTip(tooltip)
+        button.setStyleSheet("QPushButton{ background-color: #101010; icon-size: 22px 22px; }")
+
+        if isinstance(icon, QtGui.QIcon):
+            if type(rotate_icon) == float or type(rotate_icon) == int and rotate_icon != 0:
+                try: icon = self.rotate_icon(icon, rotate_icon)
+                except: pass
+            try: button.setIcon(icon)
+            except: pass
+        return button
+
+    def make_toggle_button(self, name: str, tooltip: str = "", icon = None, rotate_icon: float = 0, flip_icon: bool = False) -> PJPushButton:
+        button = PJTogglePushButton(name, flip_icon = flip_icon)
+        button.setObjectName(name)
+        button.setToolTip(tooltip)
+        button.setStyleSheet("QPushButton{ background-color: #101010; icon-size: 22px 22px; }")
+
+        if isinstance(icon, QtGui.QIcon):
+            if type(rotate_icon) == float or type(rotate_icon) == int and rotate_icon != 0:
+                try: icon = self.rotate_icon(icon, rotate_icon)
+                except: pass
+            try: button.newIcon(icon)
+            except: pass
+        return button
+
+    def make_label(self, name: str, tooltip: str = "") -> QtWidgets.QLabel:
+        label = QtWidgets.QLabel(name)
+        label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        label.setObjectName(name)
+        label.setToolTip(tooltip)
+
+        return label
+
+    def make_radio_button(self, name: str, tooltip: str = "", icon = None, rotate_icon: float = 0) -> PJRadioButton:
+        button = PJRadioButton(name)
+        button.setObjectName(name)
+        button.setToolTip(tooltip)
+        button.setStyleSheet("QRadioButton{ icon-size: 22px 22px; }")
+
+        if isinstance(icon, QtGui.QIcon):
+            if type(rotate_icon) == float or type(rotate_icon) == int and rotate_icon != 0:
+                try: icon = self.rotate_icon(icon, rotate_icon)
+                except: pass
+            try: button.setIcon(icon)
+            except: pass
+        return button
+    
+    def make_checkbox(self, name: str, tooltip: str = "", icon = None, rotate_icon: float = 0) -> PJCheckBox:
+        box = PJCheckBox(name)
+        box.setObjectName(name)
+        box.setToolTip(tooltip)
+        box.setStyleSheet("QCheckBox{ icon-size: 22px 22px; }")
+        
+        if isinstance(icon, QtGui.QIcon):
+            if type(rotate_icon) == float or type(rotate_icon) == int and rotate_icon != 0:
+                try: icon = self.rotate_icon(icon, rotate_icon)
+                except: pass
+            try: box.setIcon(icon)
+            except: pass
+        return box
+    
+    def make_combobox(self, name: str = "", tooltip: str = "", items: list = []) -> PJComboBox:
+        box = PJComboBox()
+        box.setObjectName(name)
+        box.setToolTip(tooltip)
+        box.setStyleSheet("QCombobox{ background-color: #101010; icon-size: 22px 22px; }")
+
+        if len(items) > 0: box.addItems(items)
+        
+        return box
+
+    def make_line_edit(self, name: str, tooltip: str = "", unit = None, limits = None) -> PJLineEdit:
+        line_edit = PJLineEdit(unit = unit, limits = limits)
+        line_edit.setObjectName(name)
+        line_edit.setToolTip(tooltip)
+        line_edit.setText(name)
+        line_edit.setStyleSheet("QLineEdit{ background-color: #101010 }")
+        
+        return line_edit
+
+    def make_progress_bar(self, name, tooltip: str = "") -> PJProgressBar:
+        bar = PJProgressBar()
+        
+        bar.setObjectName(name)
+        bar.setMinimum(0)
+        bar.setMaximum(100)
+        bar.setValue(0)
+        bar.setToolTip(tooltip)
+        
+        return bar
+
+    def make_layout(self, orientation: str = "h") -> QtWidgets.QLayout:
+        match orientation:
+            case "h":
+                layout = QtWidgets.QHBoxLayout()
+            case "v":
+                layout = QtWidgets.QVBoxLayout()
+            case _:
+                layout = QtWidgets.QGridLayout()
+        
+        layout.setSpacing(1)
+        return layout
+    
+    def make_console(self, name, tooltip) -> PJConsole:
+        console = PJConsole()
+        console.setObjectName(name)
+        console.setToolTip(tooltip)
+        
+        return console
+    
+    def line_widget(self, orientation: str = "v", thickness: int = 1) -> QtWidgets.QFrame:
+        line = QtWidgets.QFrame()
+        match orientation:
+            case "h":
+                line.setFrameShape(QtWidgets.QFrame.Shape.HLine)
+            case _:
+                line.setFrameShape(QtWidgets.QFrame.Shape.VLine)
+        line.setLineWidth(thickness)
+        return line
+
+    def rotate_icon(self, icon, angle) -> QtGui.QIcon:
+        try:
+            pixmap = icon.pixmap(QtCore.QSize(92, 92))
+            transform = QtGui.QTransform()
+            transform.rotate(angle)
+
+            rotated_pixmap = pixmap.transformed(transform)
+
+            return QtGui.QIcon(rotated_pixmap)
+    
+        except Exception as e:
+            print(f"Error: {e}")
+            return False
 
