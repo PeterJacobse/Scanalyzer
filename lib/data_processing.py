@@ -256,6 +256,7 @@ class DataProcessing():
 
         try:
             phase = self.processing_flags.get("phase", 0)
+            if phase == 0: return(image, error)
             phase_factor = np.exp(1j * phase * np.pi / 180)
             phase_shifted_image = phase_factor * image
             
@@ -544,7 +545,6 @@ class DataProcessing():
             range_min, range_max = (data_sorted[0], data_sorted[-1]) # Calculate the total range
             range_total = range_max - range_min
             standard_deviation = np.sum(np.sqrt((data_sorted - range_mean) ** 2) / n_pixels) # Calculate the standard deviation
-            print(7)
 
             image_statistics = {
                 "data_sorted": data_sorted,

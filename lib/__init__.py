@@ -1,4 +1,3 @@
-from .gui_functions import GUIFunctions
 from .gui_items import GUIItems, PJTargetItem
 from .gui_scanalyzer import ScanalyzerGUI
 from .file_functions import FileFunctions
