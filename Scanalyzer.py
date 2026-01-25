@@ -407,8 +407,8 @@ class Scanalyzer(QtCore.QObject):
                     cos_theta = np.cos(angle_deg * np.pi / 180)
                     sin_theta = np.sin(angle_deg * np.pi / 180)
 
-                    x_rotated = cos_theta * x_relative_to_frame - sin_theta * y_relative_to_frame
-                    y_rotated = cos_theta * y_relative_to_frame + sin_theta * x_relative_to_frame
+                    x_rotated = cos_theta * x_nm - sin_theta * y_nm
+                    y_rotated = cos_theta * y_nm + sin_theta * x_nm
                 
                     x_nm = x_rotated
                     y_nm = y_rotated

@@ -83,11 +83,12 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
             "offset_0": make_label("Offset", "Offset between successive spectra"),
             "offset_1": make_label("Offset", "Offset between successive spectra"),
             "line_width": make_label("Line width", "Line width"),
-            "opacity": make_label("Opacity", "Opacity")
+            "opacity": make_label("Opacity", "Opacity"),
+            "empty_0": make_label(""),
+            "empty_1": make_label("")
         }
         
-        # Named groups
-        self.option_widgets_col0 = [labels[name] for name in ["y_axis_0", "offset_0", "save_0", "y_axis_1", "offset_1", "save_1", "line_width", "opacity"]]
+        labels["x_axis"].setWindowIcon(self.icons.get("x_axis"))
         
         return labels
     
@@ -95,9 +96,16 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
         make_button = self.gui_items.make_button
 
         buttons = {
-            "save_0": make_button("", "Save graph 0 to svg", self.icons.get("floppy")),
-            "save_1": make_button("", "Save graph 1 to svg", self.icons.get("floppy")),
-            "open_folder": make_button("", "Open folder", self.icons.get("folder_blue")),
+            "x_axis": make_button("", "Toggle the x axis\n(X)", self.icons.get("x_axis")),
+            "y_axis_0": make_button("", "Toggle the y axis of plot 0\n(Y)", self.icons.get("y_axis")),
+            "y_axis_1": make_button("", "Toggle the y axis of plot 1\n(Y)", self.icons.get("y_axis")),
+            "offset_0": make_button("", "Set the offset between successive spectra in plot 0", self.icons.get("line_offset")),
+            "offset_1": make_button("", "Set the offset between successive spectra in plot 1", self.icons.get("line_offset")),
+            "save_0": make_button("", "Save graph 0 to svg", self.icons.get("save_0")),
+            "save_1": make_button("", "Save graph 1 to svg", self.icons.get("save_1")),
+            "line_width": make_button("", "Set the line width >>", self.icons.get("line_width")),
+            "open_folder": make_button("", "Open folder", self.icons.get("folder_yellow")),
+            "view_folder": make_button("", "Open folder", self.icons.get("view_folder")),
             "exit": make_button("", "Exit Spectrum Viewer (Q / Esc)", self.icons.get("escape"))
         }
         
@@ -147,6 +155,10 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
         }
         
         # Named groups
+        labels = self.labels
+        buttons = self.buttons
+
+        self.option_widgets_col0 = [buttons["y_axis_0"], buttons["offset_0"], labels["empty_0"], buttons["y_axis_1"], buttons["offset_1"], labels["empty_1"], buttons["line_width"], labels["opacity"]]
         self.option_widgets_col1 = [self.channel_selection_comboboxes["y_axis_0"], line_edits["offset_0"], self.buttons["save_0"], self.channel_selection_comboboxes["y_axis_1"],
                                     line_edits["offset_1"], self.buttons["save_1"], line_edits["line_width"], line_edits["opacity"]]
 
@@ -263,8 +275,8 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
     # 3: Populate layouts with GUI items. Requires GUI items.
     def populate_layouts(self) -> None:
         layouts = self.layouts
-        labels = self.labels
         widgets = self.widgets
+        buttons = self.buttons
         
         # Add items to the layouts
         ss_layout = self.layouts["selector"]
@@ -287,7 +299,8 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
         layouts["i/o"].addWidget(self.buttons["exit"], 1)
         
         # x axis
-        [layouts["x_axis"].addWidget(widget) for widget in [labels["x_axis"], self.channel_selection_comboboxes["x_axis"]]]
+        [layouts["x_axis"].addWidget(widget, 4 * i + 1) for i, widget in enumerate([buttons["x_axis"], self.channel_selection_comboboxes["x_axis"]])]
+        layouts["x_axis"].setStretch(2, 3)
         widgets["x"].setLayout(layouts["x_axis"])
         
         #

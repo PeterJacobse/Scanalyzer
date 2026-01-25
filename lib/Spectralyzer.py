@@ -91,7 +91,7 @@ class Spectralyzer:
         buttons["save_0"].clicked.connect(lambda: self.on_save_spectrum(0))
         buttons["save_1"].clicked.connect(lambda: self.on_save_spectrum(1))
         buttons["open_folder"].clicked.connect(self.on_select_file)
-        buttons["exit"].clicked.connect(self.on_exit)        
+        buttons["exit"].clicked.connect(self.on_exit)
         
         chan_sel_boxes = [self.gui.channel_selection_comboboxes[name] for name in ["x_axis", "y_axis_0", "y_axis_1"]]
         [combobox.currentIndexChanged.connect(lambda: self.update_processing_flags(toggle_checkbox = False, toggle_channelbox = False)) for combobox in chan_sel_boxes]
@@ -120,11 +120,14 @@ class Spectralyzer:
         self.up_shortcut.activated.connect(lambda: self.set_focus_row(-1, increase = False))
         self.down_shortcut.activated.connect(lambda: self.set_focus_row(-1, increase = True))
 
+        buttons["x_axis"].clicked.connect(lambda: self.update_processing_flags(toggle_channelbox = "x_axis"))
+        buttons["y_axis_0"].clicked.connect(lambda: self.update_processing_flags(toggle_channelbox = "y_axis_0"))
+        buttons["y_axis_1"].clicked.connect(lambda: self.update_processing_flags(toggle_channelbox = "y_axis_1"))
         [x_axis_shortcut, y_axis_0_shortcut, y_axis_1_shortcut] = [QShc(QSeq(keystroke), self.gui) for keystroke in [QKey.Key_X, QKey.Key_Y, QKey.Key_Z]]
         x_axis_shortcut.activated.connect(lambda: self.update_processing_flags(toggle_channelbox = "x_axis"))
         y_axis_0_shortcut.activated.connect(lambda: self.update_processing_flags(toggle_channelbox = "y_axis_0"))
         y_axis_1_shortcut.activated.connect(lambda: self.update_processing_flags(toggle_channelbox = "y_axis_1"))
-                
+
         # Connect the checkboxes
         [checkbox.toggled.connect(lambda: self.update_processing_flags(toggle_checkbox = False, toggle_channelbox = False)) for checkbox in self.gui.checkboxes.values()]
         
@@ -145,6 +148,7 @@ class Spectralyzer:
             return
         
         self.paths["data_folder"] = folder_name
+        self.paths["output_folder"] = os.path.join(folder_name, self.paths["output_folder_name"])
         self.gui.buttons["open_folder"].setText(folder_name)
         
         # 0: Check if the metadata.yml file exists, and load it if it does
@@ -309,11 +313,30 @@ class Spectralyzer:
             "y_1_channel": y_1_channel
         })
         
-        # Add the offsets
-        offset_0 = float(line_edits["offset_0"].text())
-        offset_1 = float(line_edits["offset_1"].text())
+        # Line width, opacity, offsets
+        line_width_str = line_edits["line_width"].text()
+        numbers = self.data.extract_numbers_from_str(line_width_str)
+        if len(numbers) < 1: line_width = 2
+        else: line_width = numbers[0]
+        
+        opacity_str = line_edits["opacity"].text()
+        numbers = self.data.extract_numbers_from_str(opacity_str)
+        if len(numbers) < 1: opacity = 1
+        else: opacity = numbers[0]
+        
+        offset_0_str = line_edits["offset_0"].text()
+        numbers = self.data.extract_numbers_from_str(offset_0_str)
+        if len(numbers) < 1: offset_0 = 0
+        else: offset_0 = numbers[0]
+        
+        offset_1_str = line_edits["offset_1"].text()
+        numbers = self.data.extract_numbers_from_str(offset_1_str)
+        if len(numbers) < 1: offset_1 = 0
+        else: offset_1 = numbers[0]
         
         flags.update({
+            "line_width": line_width,
+            "opacity": opacity,
             "offset_0": offset_0,
             "offset_1": offset_1
         })
@@ -461,14 +484,13 @@ class Spectralyzer:
                 scene = self.gui.plot_widgets["graph_0"].scene()
             else:
                 scene = self.gui.plot_widgets["graph_0"].scene()
-            
             exporter = expts.SVGExporter(scene)
-            file_path, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Save file", export_folder, "svg files (*.svg)")
+            file_path, _ = QtWidgets.QFileDialog.getSaveFileName(self.gui, "Save file", export_folder, "svg files (*.svg)")
             if file_path:
                 exporter.export(file_path)
         
         except Exception as e:
-            print("Error saving file.")
+            print(f"Error saving file: {e}")
         
         return
 
