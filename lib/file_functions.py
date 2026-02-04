@@ -1,8 +1,7 @@
-import re, os, yaml
+import re, os, yaml, pint
 import numpy as np
 import nanonispy2 as nap
 from datetime import datetime
-import pint
 
 
 
@@ -974,5 +973,4 @@ class FileFunctions():
             error = f"Error: {e}"
         
         return (spec_object, error)
-
 

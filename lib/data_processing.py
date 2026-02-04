@@ -4,7 +4,8 @@ from scipy.ndimage import gaussian_filter
 from scipy.fft import fft2, fftshift
 from matplotlib import colors
 from scipy.linalg import lstsq
-import pint, re
+import pint, re, yaml, os
+from dataclasses import dataclass
 
 
 
@@ -67,10 +68,10 @@ class DataProcessing():
     # Misc
     def extract_numbers_from_str(self, text: str) -> list[float] | None:
         # Extract the numeric part
+        if text.startswith("."): text = "0" + text
         regex_pattern = r"[-+]?(?:[0-9]*\.)?[0-9]+(?:[eE][-+]?[0-9]+)?"
         number_matches = re.findall(regex_pattern, text)
         numbers = [float(x) for x in number_matches]
-        if len(numbers) < 1: numbers = None
         
         return numbers
     
@@ -304,8 +305,12 @@ class DataProcessing():
                 
         sobel_x = .125 * np.array([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], dtype = float)
         sobel_y = .125 * np.array([[-1, -2, -1], [0, 0, 0], [1, 2, 1]], dtype = float)
-        ddx = convolve2d(image, sobel_x, mode = "valid") # These are the gradients computed using normalized sobel kernels
-        ddy = convolve2d(image, sobel_y, mode = "valid")
+        try:
+            ddx = convolve2d(image, sobel_x, mode = "valid") # These are the gradients computed using normalized sobel kernels
+            ddy = convolve2d(image, sobel_y, mode = "valid")
+        except:
+            error = "Error. Calculating gradient failed."
+            return (image, error)
 
         if isinstance(scan_range, np.ndarray) or isinstance(scan_range, list):
             # If a scan range is provided, the gradients will be calculated as derivatives wrt to x and y rather than wrt pixel index
@@ -492,17 +497,31 @@ class DataProcessing():
         
         return (rgb_array, error)
 
-    def subtract_background(self, image: np.ndarray, mode: str = "plane", scan_range_nm = None) -> tuple[np.ndarray, bool | str]:
+    def subtract_background(self, image: np.ndarray, mode: str = "plane") -> tuple[np.ndarray, bool | str]:
         error = False
+        input_image = image
 
         if not isinstance(image, np.ndarray):
             error = "Error. The provided image is not a numpy array."
             return (image, error)
-
+        
         try:
+            # Unfinished scans: remove NaN rows
+            num_rows = len(image)
+            nan_mask = np.isnan(image).any(axis = 1)
+            image = image[~nan_mask]
+            non_nan_rows = len(image)
+
+            if non_nan_rows < 3: # Do not perform data processing if the scan is all NaNs
+                return (input_image, error)
+
             avg_image = np.mean(image.flatten()) # The average value of the image, or the offset
             (gradient_image, error) = self.image_gradient(image) # The (complex) gradient of the image
+            if error: return (image, error)
             avg_gradient = np.mean(gradient_image.flatten()) # The average value of the gradient
+            if not isinstance(avg_gradient, complex):
+                error = "Error. Could not compute average gradient for background subtraction."
+                return (input_image, error)
 
             pix_y, pix_x = np.shape(image)
             x_values = np.arange(-(pix_x - 1) / 2, pix_x / 2, 1)
@@ -519,12 +538,15 @@ class DataProcessing():
                     processed_image = image - avg_image
                 case _:
                     processed_image = image
-
-        except:
-            error = "Error. Failed to perform the background subtraction."
-            return (image, error)
+            
+            # Pad the NaN rows back
+            if num_rows - non_nan_rows > 0: processed_image = np.pad(processed_image, ((0, num_rows - non_nan_rows), (0, 0)), mode = 'constant', constant_values = np.nan)
+    
+            return (processed_image, error)
         
-        return (processed_image, error)
+        except Exception as e:
+            error = f"Error. Failed to perform the background subtraction: {e}"
+            return (input_image, error)
 
 
 
@@ -579,4 +601,77 @@ class DataProcessing():
 
         return (image_statistics, error)
 
+
+
+class UserData:
+    def __init__(self):
+        script_path = os.path.abspath(__file__)
+        lib_folder = os.path.dirname(script_path)
+        scantelligent_folder = os.path.dirname(lib_folder)
+        sys_folder = os.path.join(scantelligent_folder, "sys")
+        self.parameters_file = os.path.join(sys_folder, "user_parameters.yml")
+
+        self.frames = [
+            {}, {}, {}
+        ]
+        (self.scan_parameters, self.tip_prep_parameters) = self.load_parameter_sets()
+        self.windows = [{}, {}, {}]
+
+
+    
+    def save_yaml(self, data, path: str) -> bool | str:
+        error = False
+
+        try: # Save the currently opened scan folder to the config yaml file so it opens automatically on startup next time
+            with open(path, "w") as file:
+                yaml.safe_dump(data, file)
+        except Exception as e:
+            error = f"Failed to save to yaml: {e}"
+        
+        return error
+
+    def load_yaml(self, path: str) -> tuple[object, bool | str]:
+        error = False
+        
+        try: # Read the last scan file from the config yaml file
+            with open(path, "r") as file:
+                yaml_data = yaml.safe_load(file)
+        except Exception as e:
+            error = e
+
+        return (yaml_data, error)
+    
+    def load_parameter_sets(self):
+        (yaml_data, error) = self.load_yaml(self.parameters_file)
+        
+        scan_parameters = []
+        tip_prep_parameters = []
+        
+        for parameter_set_type, dicts_set in yaml_data.items():
+            
+            match parameter_set_type:
+                case "scan_parameters":
+                    for key, parameters_dict in dicts_set.items():
+                        scan_parameters.append(parameters_dict)
+                
+                case "tip_prep_parameters":
+                    for key, parameters_dict in dicts_set.items():
+                        tip_prep_parameters.append(parameters_dict)
+                
+                case _:
+                    pass
+
+        return (scan_parameters, tip_prep_parameters)
+    
+    def save_parameter_sets(self):
+        output_dict = {"scan_parameters": {}, "other_parameters": {}, "tip_prep_parameters": {}}
+        
+        for index, set in enumerate(self.scan_parameters):
+            output_dict["scan_parameters"].update({index: set})
+        
+        for index, set in enumerate(self.tip_prep_parameters):
+            output_dict["tip_prep_parameters"].update({index: set})
+
+        self.save_yaml(output_dict, self.parameters_file)
+        return
 
