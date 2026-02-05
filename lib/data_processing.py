@@ -58,10 +58,13 @@ class DataProcessing():
         processing_flags = {
             "line_width": 2,
             "opacity": 1,
-            "offset": 1,
+            "offset_0": 0,
+            "offset_1": 0,
             "direction": "fwd_bwd",
-            "abs_log": False,
-            "differentiate": False
+            "log_abs_0": False,
+            "differentiate_0": False,
+            "log_abs_1": False,
+            "differentiate_1": False
         }
         
         return processing_flags
@@ -125,41 +128,102 @@ class DataProcessing():
 
 
     # Spectrum operations
-    def process_spectrum(self, spectrum: dict) -> tuple[dict, bool | str]:
+    def process_spectrum(self, spectrum: dict, index: int = 0) -> tuple[dict, bool | str]:
         error = False
-        processed_spectrum = {}
+        flags = self.spec_processing_flags
+                
+        try:
+            (spectrum, error) = self.choose_direction(spectrum)
+            if error: raise Exception(error)
+            
+            if flags.get(f"differentiate_{index}"): (spectrum, error) = self.differentiate(spectrum)
+            if error: raise Exception(error)
+            
+            if flags.get(f"log_abs_{index}"): (spectrum, error) = self.apply_log_abs(spectrum)
+            if error: raise Exception(error)
+
+        except Exception as e:
+            error = e
+        
+        return (spectrum, error)
+    
+    def choose_direction(self, spectrum: dict) -> tuple[dict, bool | str]:
+        error = False
         
         try:
             spec_direction = self.spec_processing_flags.get("direction")
             match spec_direction:
                 case "fwd":
-                    processed_spectrum = spectrum.pop("y_bwd_data")
+                    spectrum.pop("y_bwd_data")
                 case "bwd":
                     y_bwd_data = spectrum.get("y_bwd_data")
                     spectrum.update({"y_data": y_bwd_data})
-                    processed_spectrum = spectrum.pop("y_bwd_data")
+                    spectrum.pop("y_bwd_data")
                 case "average":
                     y_fwd_data = spectrum.get("y_data")
                     y_bwd_data = spectrum.get("y_bwd_data")
-                    if y_bwd_data:
-                        y_data = [0.5 * y_fwd_data[index] + 0.5 * y_bwd_data[index] for index in min(len(y_fwd_data), len(y_bwd_data))]
+                    if isinstance(y_bwd_data, np.ndarray):
+                        
+                        len_data = min(len(y_fwd_data), len(y_bwd_data))
+                        y_data = [0.5 * y_fwd_data[index] + 0.5 * y_bwd_data[index] for index in range(len_data)]
                     else:
                         y_data = y_fwd_data
                     spectrum.update({"y_data": y_data})
-                    processed_spectrum = spectrum.pop("y_bwd_data")
+                    spectrum.pop("y_bwd_data")
                 case "fwd_bwd":
-                    processed_spectrum = spectrum
+                    pass
                 case _:
-                    processed_spectrum = spectrum
+                    pass
         except Exception as e:
             error = e
-
-        return (processed_spectrum, error)
+        
+        return (spectrum, error)
     
-    def apply_abs_log(self, spectrum: dict) -> tuple[dict, bool | str]:
+    def apply_log_abs(self, spectrum: dict) -> tuple[dict, bool | str]:
         error = False
         
-        return
+        try:
+            y_fwd_data = spectrum.get("y_data")
+            y_fwd_abs = np.abs(y_fwd_data)
+            y_fwd_abs_log = np.log10(y_fwd_abs)
+            spectrum.update({"y_data": y_fwd_abs_log})
+                        
+            y_bwd_data = spectrum.get("y_bwd_data")
+            if isinstance(y_bwd_data, np.ndarray):
+                y_bwd_abs = np.abs(y_bwd_data)
+                y_bwd_abs_log = np.log10(y_bwd_abs)
+                spectrum.update({"y_bwd_data": y_bwd_abs_log})
+        except Exception as e:
+            error = e
+        
+        return (spectrum, error)
+
+    def differentiate(self, spectrum: dict) -> tuple[dict, bool | str]:
+        error = False
+
+        try:
+            y_fwd_data = spectrum.get("y_data")
+            x_data = spectrum.get("x_data")
+            
+            dx = x_data[1] - x_data[0]
+            dy = np.diff(y_fwd_data)
+            dydx = dy / dx
+            x_avg = np.convolve(x_data, np.array([0.5, 0.5]), mode = "valid")
+            
+            spectrum.update({"x_data": x_avg})
+            spectrum.update({"y_data": dydx})
+
+            y_bwd_data = spectrum.get("y_bwd_data")
+            if isinstance(y_bwd_data, np.ndarray):
+                dy_bwd = np.diff(y_bwd_data)
+                dy_bwddx = dy_bwd / dx
+                
+                spectrum.update({"y_bwd_data": dy_bwddx})
+    
+        except Exception as e:
+            error = e
+        
+        return (spectrum, error)
 
 
     

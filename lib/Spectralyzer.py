@@ -20,7 +20,7 @@ class Spectralyzer:
         self.scan_file_name = scan_file_name
         self.parameters_init()
         self.gui = SpectralyzerGUI()
-        self.gui.image_item.setImage(scan_image)
+        self.gui.image_item.setImage(scan_image)        
         self.gui.line_edits["scan_file_name"].setText(f"{self.scan_file_name}")
         
         self.connect_buttons()
@@ -65,9 +65,6 @@ class Spectralyzer:
             "output_folder": os.path.join(data_folder, output_folder_name),
             "output_file_basename": ""
         }
-        
-        self.files_dict = {}
-        self.spec_list = np.array((0, 3), dtype = object)
 
         # Icons
         icon_files = os.listdir(icon_folder)
@@ -81,6 +78,9 @@ class Spectralyzer:
 
         # Some attributes
         self.focus_row = 0
+        self.direction_index = 2
+        self.files_dict = {}
+        self.spec_list = np.array((0, 3), dtype = object)
         self.file_functions = FileFunctions()
         self.data = DataProcessing()
 
@@ -97,6 +97,11 @@ class Spectralyzer:
         buttons["output_folder_0"].clicked.connect(lambda: self.open_folder("output_folder"))
         buttons["output_folder_1"].clicked.connect(lambda: self.open_folder("output_folder"))
         buttons["exit"].clicked.connect(self.on_exit)
+        buttons["direction"].clicked.connect(self.toggle_spec_direction)
+        buttons["log_abs_0"].clicked.connect(self.update_processing_flags)
+        buttons["log_abs_1"].clicked.connect(self.update_processing_flags)
+        buttons["differentiate_0"].clicked.connect(self.update_processing_flags)
+        buttons["differentiate_1"].clicked.connect(self.update_processing_flags) 
         
         chan_sel_boxes = [self.gui.channel_selection_comboboxes[name] for name in ["x_axis", "y_axis_0", "y_axis_1"]]
         [combobox.currentIndexChanged.connect(lambda: self.update_processing_flags(toggle_channelbox = False)) for combobox in chan_sel_boxes]
@@ -302,19 +307,11 @@ class Spectralyzer:
                 checkboxes[f"{i}"].setSilentCheck(True)
             self.set_consecutive(i)
         
-        """
-        # Initialize the rest of the comboboxes with successive spectra after the last one associated with the scan file
-        index += 1
-        for i in range(i_max, len(plot_number_comboboxes)):
-            if index < len(self.spec_list) - 1:
-                plot_number_comboboxes[f"{i}"].selectIndex(index)
-        
-        self.update_processing_flags(toggle_channelbox = False)
-        """
+        self.update_processing_flags()
         return
 
     def set_consecutive(self, row_number: int = 0) -> None:
-        if row_number < 0 or row_number > len(self.gui.left_arrows):
+        if row_number < 0 or row_number > len(self.gui.left_arrows) - 1:
             return
         
         plot_number_comboboxes = self.gui.plot_number_comboboxes
@@ -378,11 +375,21 @@ class Spectralyzer:
         if len(numbers) < 1: offset_1 = 0
         else: offset_1 = numbers[0]
         
+        # More operations
+        log_abs_0 = self.gui.buttons["log_abs_0"].isChecked()
+        log_abs_1 = self.gui.buttons["log_abs_1"].isChecked()
+        differentiate_0 = self.gui.buttons["differentiate_0"].isChecked()
+        differentiate_1 = self.gui.buttons["differentiate_1"].isChecked()
+        
         flags.update({
             "line_width": line_width,
             "opacity": opacity,
             "offset_0": offset_0,
-            "offset_1": offset_1
+            "offset_1": offset_1,
+            "log_abs_0": log_abs_0,
+            "log_abs_1": log_abs_1,
+            "differentiate_0": differentiate_0,
+            "differentiate_1": differentiate_1            
         })
         
         self.redraw_spectra()
@@ -391,8 +398,16 @@ class Spectralyzer:
     def redraw_spectra(self) -> None:
         checkboxes = self.gui.checkboxes
         plot_number_comboboxes = self.gui.plot_number_comboboxes
+        
+        widget_0 = self.gui.plot_widgets["graph_0"]
+        widget_1 = self.gui.plot_widgets["graph_1"]
+        [widget.clear() for widget in [widget_0, widget_1]]
+                
         graph_0 = self.gui.plot_items["graph_0"]
         graph_1 = self.gui.plot_items["graph_1"]
+        [graph.clear() for graph in [graph_0, graph_1]]
+        
+        # Redraw the spectra        
         flags = self.data.spec_processing_flags
         
         # Extract the channels from the processing flags
@@ -426,10 +441,7 @@ class Spectralyzer:
         opacity_hex = "{:02x}".format(int(opacity * 255))        
         offset_0 = flags.get("offset_0", 0)
         offset_1 = flags.get("offset_1", 0)
-        
-        # Redraw the spectra
-        [graph.clear() for graph in [graph_0, graph_1]]
-        
+       
         index = 0
         for i in range(len(plot_number_comboboxes)):            
             if not checkboxes[f"{i}"].isChecked(): continue
@@ -456,14 +468,13 @@ class Spectralyzer:
 
                 spectrum = {"x_axis": x_channel, "x_data": x_data, "y_axis": y_0_channel, "y_data": y_0_data}
                 if y_0_bwd_channel: spectrum.update({"y_bwd_data": y_0_bwd_data})
-                (processed_spectrum, error) = self.data.process_spectrum(spectrum)
+                (processed_spectrum, error) = self.data.process_spectrum(spectrum, 0)
 
                 if not error:
                     # Plot number 0
                     x_data = processed_spectrum.get("x_data")
-                    print(f"x {type(x_data)}")
                     y_data = processed_spectrum.get("y_data")
-                    if isinstance(offset_0, float): y_data += index * offset_0
+                    if isinstance(offset_0, float): y_data = [y_data[i] + index * offset_0 for i in range(len(y_data))]
                     graph_0.plot(x_data, y_data, pen = pen)
                     
                     if "y_bwd_data" in processed_spectrum.keys():
@@ -475,20 +486,20 @@ class Spectralyzer:
                 print(f"Error: {e}")
             
             try:
+                x_data = spec_signal.get(x_channel, None)
                 y_1_data = spec_signal.get(y_1_channel, None)
                 y_1_bwd_data = spec_signal.get(y_1_bwd_channel, None)
                 if not isinstance(y_1_data, np.ndarray): continue
                 
                 spectrum = {"x_axis": x_channel, "x_data": x_data, "y_axis": y_1_channel, "y_data": y_1_data}
                 if y_1_bwd_channel: spectrum.update({"y_bwd_data": y_1_bwd_data})
-                (processed_spectrum, error) = self.data.process_spectrum(spectrum)
+                (processed_spectrum, error) = self.data.process_spectrum(spectrum, 1)
 
                 if not error:
                     # Plot number 1
                     x_data = processed_spectrum.get("x_data")
-                    print(f"x {type(x_data)}")
                     y_data = processed_spectrum.get("y_data")
-                    if isinstance(offset_1, float): y_data += index * offset_1
+                    if isinstance(offset_1, float): y_data = [y_data[i] + index * offset_1 for i in range(len(y_data))]
                     graph_1.plot(x_data, y_data, pen = pen)
                     
                     if "y_bwd_data" in processed_spectrum.keys():
@@ -567,8 +578,29 @@ class Spectralyzer:
         return
 
     def toggle_spec_direction(self) -> None:
+        dir_button = self.gui.buttons["direction"]
+        self.direction_index +=1
+        if self.direction_index > 3: self.direction_index = 0
         
+        match self.direction_index:
+            case 0:
+                dir_button.setIcon(self.icons.get("fwd"))
+                dir_button.changeToolTip("(forward)")
+                self.data.spec_processing_flags.update({"direction": "fwd"})
+            case 1:
+                dir_button.setIcon(self.icons.get("bwd"))
+                dir_button.changeToolTip("(backward)")
+                self.data.spec_processing_flags.update({"direction": "bwd"})
+            case 2:
+                dir_button.setIcon(self.icons.get("fwd_bwd"))
+                dir_button.changeToolTip("(forward and backward)")
+                self.data.spec_processing_flags.update({"direction": "fwd_bwd"})
+            case 3:
+                dir_button.setIcon(self.icons.get("average"))
+                dir_button.changeToolTip("(forward + backward averaged)")
+                self.data.spec_processing_flags.update({"direction": "average"})        
         
+        self.update_processing_flags()
         return
 
     def width_opacity_change(self, target: str = "width", value: int = 100) -> None:

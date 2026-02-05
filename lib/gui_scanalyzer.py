@@ -129,6 +129,7 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
             "spectralyzer": make_button("", "Open Spectralyzer\n(S)", self.icons.get("graph")),
 
             "save_png": make_button("", "Save as png file\n(Ctrl + S)", self.icons.get("save_png")),
+            "save_svg": make_button("", "Save image and markers to svg\n(Ctrl + S)", self.icons.get("svg")),
             "save_hdf5": make_button("", "Save as hdf5 file\n(Ctrl + 5)", self.icons.get("h5")),
             "output_folder": make_button("Output folder", "Open output folder\n(O)", self.icons.get("view_folder")),
             "exit": make_button("", "Exit scanalyzer\n(Esc / X / E)", self.icons.get("escape")),
@@ -402,10 +403,10 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
         layouts["spectra"].setStretchFactor(comboboxes["spectra"], 4)
         
         io_layout = layouts["i/o"]
-        [io_layout.addWidget(buttons[name], 0, i + 1) for i, name in enumerate(["save_png", "save_hdf5", "info"])]
+        [io_layout.addWidget(buttons[name], 0, i + 1) for i, name in enumerate(["save_png", "save_svg", "save_hdf5", "info"])]
         [io_layout.addWidget(widget, i, 0) for i, widget in enumerate([line_edits["file_name"], labels["in_output_folder"]])]
         io_layout.addWidget(buttons["output_folder"], 1, 1, 1, 2)
-        io_layout.addWidget(buttons["exit"], 1, 3)
+        io_layout.addWidget(buttons["exit"], 1, 3, 1, 2)
                 
         return
 

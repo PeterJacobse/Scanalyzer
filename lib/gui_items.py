@@ -19,11 +19,18 @@ class PJTargetItem(pg.TargetItem):
     def hoverEvent(self, event) -> None:
         super().hoverEvent(event)
 
-        if event.isEnter():
-            self.text_item.setPos(0, 0) # Adjust position as needed
-            self.text_item.show()
-        elif event.isExit():
-            self.text_item.hide()
+        if event.isEnter(): self.activate_tooltip()
+        elif event.isExit(): self.deactivate_tooltip()
+        return
+
+    def activate_tooltip(self) -> None:
+        self.text_item.setPos(0, 0)
+        self.text_item.show()
+        return
+    
+    def deactivate_tooltip(self) -> None:
+        self.text_item.hide()
+        return
 
 
 

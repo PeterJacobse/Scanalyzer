@@ -1,5 +1,6 @@
 import os, sys, yaml
 import numpy as np
+import pyqtgraph as pg
 from PyQt6 import QtCore, QtGui, QtWidgets
 from lib import ScanalyzerGUI, PJTargetItem, DataProcessing, FileFunctions, Spectralyzer
 
@@ -18,7 +19,6 @@ class Scanalyzer(QtCore.QObject):
         if last_file: self.load_folder(last_file)
         
         self.gui.show()
-        self.open_spectralyzer()
 
 
 
@@ -97,7 +97,7 @@ class Scanalyzer(QtCore.QObject):
                        
                        ["spec_info", self.load_process_display], ["spec_locations", self.on_toggle_spec_locations], ["spectralyzer", self.open_spectralyzer],
                        
-                       ["save_png", self.on_save_png], ["save_hdf5", self.on_save_png], ["output_folder", lambda: self.open_folder("output_folder")], ["info", self.on_info], ["exit", self.on_exit]
+                       ["save_png", self.on_save_png], ["save_svg", self.on_save_svg], ["save_hdf5", self.on_save_png], ["output_folder", lambda: self.open_folder("output_folder")], ["info", self.on_info], ["exit", self.on_exit]
                     ]
         
         for connection in connections:
@@ -497,7 +497,8 @@ class Scanalyzer(QtCore.QObject):
         # Spectroscopy locations
         if self.data.processing_flags["spec_locations"]:
             view_box = self.gui.image_view.getView()        
-            for target in self.spec_targets: view_box.addItem(target)
+            for target in self.spec_targets:
+                view_box.addItem(target)
 
         # Reset the limits and histogram
         self.hist_levels = list(self.hist_item.getLevels())
@@ -512,7 +513,7 @@ class Scanalyzer(QtCore.QObject):
         
         self.hist_item.sigLevelChangeFinished.connect(self.histogram_scale_changed)
 
-    def read_metadata(self, scan_object: object):
+    def read_metadata(self, scan_object: object) -> None:
         bias = scan_object.bias
         bias_V = bias.to("V").magnitude
         
@@ -641,7 +642,7 @@ class Scanalyzer(QtCore.QObject):
         return
 
     # Update all the processing flags
-    def gaussian_width_edited(self):
+    def gaussian_width_edited(self) -> None:
         flags = self.data.processing_flags
         g_le = self.gui.line_edits["gaussian_width"]
         g_cb = self.gui.checkboxes["gaussian"]
@@ -668,8 +669,10 @@ class Scanalyzer(QtCore.QObject):
         except:
             pass
         self.update_processing_flags()
+        
+        return
 
-    def update_processing_flags(self):
+    def update_processing_flags(self) -> None:
         flags = self.data.processing_flags
         
         checkboxes = self.gui.checkboxes
@@ -806,8 +809,32 @@ class Scanalyzer(QtCore.QObject):
 
         except Exception as e:
             print(f"Error saving the image file: {e}")
-            pass
 
+        return
+
+    def on_save_svg(self) -> None:
+        try:
+            self.gui.buttons["spec_locations"].setChecked(True)
+            view = self.gui.image_view.getView()
+            for target in self.spec_targets:
+                target.activate_tooltip()
+                view.addItem(target)
+            
+            exporter = pg.exporters.SVGExporter(view)
+            output_file_name = os.path.join(self.paths["output_folder"], self.paths["output_file_basename"] + ".svg")
+            
+            os.makedirs(self.paths["output_folder"], exist_ok = True)
+            exporter.export(output_file_name)
+
+            msg_box = QtWidgets.QMessageBox(self.gui)
+            msg_box.setWindowTitle("Success")
+            msg_box.setText("svg file saved")
+            QtCore.QTimer.singleShot(1000, msg_box.close)
+            msg_box.exec()
+        
+        except Exception as e:
+            print(f"Error saving the image file: {e}")
+        
         return
 
     # Open folders
