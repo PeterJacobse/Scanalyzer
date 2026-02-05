@@ -108,9 +108,15 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
             "inc_line_width": make_button("", "Increase the line width\n(L)", self.icons.get("increase_width")),
             "dec_opacity": make_button("", "Decrease the line opacity\n(O)", self.icons.get("decrease_opacity")),
             "inc_opacity": make_button("", "Increase the line opacity\n(O)", self.icons.get("increase_opacity")),
+            "log_abs_0": make_button("", "Show the data on a log scale", self.icons.get("log_abs")),
+            "log_abs_1": make_button("", "Show the data on a log scale", self.icons.get("log_abs")),
+            "direction_0": make_button("", "Toggle the spectroscopy direction\n", self.icons.get("fwd_bwd")),
+            "direction_1": make_button("", "Toggle the spectroscopy direction\n", self.icons.get("fwd_bwd")),
             
-            "open_folder": make_button("", "Open folder", self.icons.get("folder_yellow")),
-            "view_folder": make_button("", "Open folder", self.icons.get("view_folder")),
+            "open_folder": make_button("", "Load data folder", self.icons.get("folder_yellow")),
+            "view_folder": make_button("", "View data folder", self.icons.get("view_folder")),
+            "output_folder_0": make_button("", "View output folder", self.icons.get("view_folder")),
+            "output_folder_1": make_button("", "View output folder", self.icons.get("view_folder")),
             "exit": make_button("", "Exit Spectrum Viewer\n(Q / Esc)", self.icons.get("escape")),
             "dec_focus_row": make_button("", "Decrease the focus row index\n(↑)", self.icons.get("dec_focus_row")),
             "inc_focus_row": make_button("", "Increase the focus row index\n(↓)", self.icons.get("inc_focus_row")),
@@ -157,7 +163,7 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
         
         row_items = [f"Row {i} ({hex(i)[2]})" for i in range(len(plot_number_comboboxes))]
         focus_row_combobox.renewItems(row_items)
-        metadata_items = ["date_time", "relative time (to previous)", "position", "relative position (to previous)"]
+        metadata_items = ["date", "time", "date_time", "relative time (to previous)", "position", "relative position (to previous)"]
         metadata_combobox.renewItems(metadata_items)
 
         # Named groups
@@ -194,12 +200,14 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
         
         self.plot0_options_col0 = [buttons[name] for name in ["y_axis_0", "offset_0", "save_0"]]
         self.plot0_options_col1 = [self.channel_selection_comboboxes["y_axis_0"], line_edits["offset_0"], line_edits["file_name_0"]]
+        self.plot0_options_col2 = [buttons[name] for name in ["direction_0", "log_abs_0", "output_folder_0"]]
         
         self.line_width_options = [buttons["dec_line_width"], line_edits["line_width"], buttons["inc_line_width"]]
         self.opacity_options = [buttons["dec_opacity"], line_edits["opacity"], buttons["inc_opacity"]]
         
         self.plot1_options_col0 = [buttons[name] for name in ["y_axis_1", "offset_1", "save_1"]]
         self.plot1_options_col1 = [self.channel_selection_comboboxes["y_axis_1"], line_edits["offset_1"], line_edits["file_name_1"]]
+        self.plot1_options_col2 = [buttons[name] for name in ["direction_1", "log_abs_1", "output_folder_1"]]
 
         return (line_edits, metadata_line_edits)
 
@@ -340,7 +348,7 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
         
         # Right column
         layouts["i/o"].addWidget(self.buttons["open_folder"], 5)
-        layouts["i/o"].addWidget(self.buttons["exit"], 1)
+        layouts["i/o"].addWidget(self.buttons["view_folder"], 1)
         
         [layouts["width_opacity"].addWidget(widget, 0, index) for index, widget in enumerate(self.line_width_options)]
         [layouts["width_opacity"].addWidget(widget, 1, index) for index, widget in enumerate(self.opacity_options)]
@@ -362,10 +370,13 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
         
         [layouts["right_column"].addWidget(widget, index + 2, 0) for index, widget in enumerate(self.plot0_options_col0)]
         [layouts["right_column"].addWidget(widget, index + 2, 1) for index, widget in enumerate(self.plot0_options_col1)]
+        [layouts["right_column"].addWidget(widget, index + 2, 2) for index, widget in enumerate(self.plot0_options_col2)]
         layouts["right_column"].addWidget(image_widget, 5, 0, 1, 3)
         layouts["right_column"].addWidget(self.line_edits["scan_file_name"], 6, 0, 1, 3)
         [layouts["right_column"].addWidget(widget, index + 7, 0) for index, widget in enumerate(self.plot1_options_col0)]
         [layouts["right_column"].addWidget(widget, index + 7, 1) for index, widget in enumerate(self.plot1_options_col1)]
+        [layouts["right_column"].addWidget(widget, index + 7, 2) for index, widget in enumerate(self.plot1_options_col2)]
+        layouts["right_column"].addWidget(self.buttons["exit"], 10, 0, 1, 3)
         
         # Main
         main_layout = layouts["main"]

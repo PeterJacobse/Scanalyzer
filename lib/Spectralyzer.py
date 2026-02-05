@@ -5,6 +5,7 @@ import pyqtgraph as pg
 import pyqtgraph.exporters as expts
 from . import GUIItems, PJTargetItem, DataProcessing, FileFunctions
 from .gui_spectralyzer import SpectralyzerGUI
+from datetime import datetime
 
 
 
@@ -92,11 +93,15 @@ class Spectralyzer:
         buttons["save_0"].clicked.connect(lambda: self.on_save_spectrum(0))
         buttons["save_1"].clicked.connect(lambda: self.on_save_spectrum(1))
         buttons["open_folder"].clicked.connect(self.on_select_file)
+        buttons["view_folder"].clicked.connect(lambda: self.open_folder("data_folder"))
+        buttons["output_folder_0"].clicked.connect(lambda: self.open_folder("output_folder"))
+        buttons["output_folder_1"].clicked.connect(lambda: self.open_folder("output_folder"))
         buttons["exit"].clicked.connect(self.on_exit)
         
         chan_sel_boxes = [self.gui.channel_selection_comboboxes[name] for name in ["x_axis", "y_axis_0", "y_axis_1"]]
         [combobox.currentIndexChanged.connect(lambda: self.update_processing_flags(toggle_channelbox = False)) for combobox in chan_sel_boxes]
-        self.gui.metadata_combobox.currentIndexChanged.connect(self.change_metadata_display)
+        self.gui.metadata_combobox.selectIndex(3)
+        self.gui.metadata_combobox.currentIndexChanged.connect(self.update_processing_flags)
         self.gui.checkboxes["all"].toggled.connect(lambda: self.check_checkbox("all"))
         fr_cbb = self.gui.focus_row_combobox
         fr_cbb.currentIndexChanged.connect(lambda index = fr_cbb.currentIndex(): self.set_focus_row(index, increase = False))
@@ -241,8 +246,9 @@ class Spectralyzer:
                 spec_list.append([spec_file_name, associated_scan_name, spec_object, spec_x, spec_y, spec_z, datetime])
             
             all_channels_set = set(all_channels) # Duplicate entries are automatically removed from sets
-            all_channels_filt_set = {item for item in all_channels_set if not item.endswith("[filt]")}
-            all_channels = list(all_channels_filt_set)
+            all_channels_filt_set = {item for item in all_channels_set if not "[filt]" in item}
+            all_channels_filt_set_2 = {item for item in all_channels_filt_set if not "[bwd]" in item}
+            all_channels = list(all_channels_filt_set_2)
             self.spec_list = np.array(spec_list)
             [channel_selection_comboboxes[axis].renewItems(all_channels) for axis in ["x_axis", "y_axis_0", "y_axis_1"]]
             
@@ -346,6 +352,7 @@ class Spectralyzer:
             "y_1_channel": y_1_channel
         })
         self.update_file_names()
+        self.update_metadata_display()
         
         # Line width, opacity, offsets
         line_width_str = line_edits["line_width"].text()
@@ -393,7 +400,7 @@ class Spectralyzer:
         y_0_channel = flags.get("y_0_channel", None)
         y_1_channel = flags.get("y_1_channel", None)
         if not x_channel or not y_0_channel or not y_1_channel: return
-        
+                
         # get the plot axis quantities and units and display them along the axes
         try:
             (quantity, unit, backward_bool, error) = self.file_functions.split_physical_quantity(x_channel)
@@ -402,8 +409,11 @@ class Spectralyzer:
             
             (quantity, unit, backward_bool, error) = self.file_functions.split_physical_quantity(y_0_channel)
             graph_0.getAxis("left").setLabel(f"{quantity}", units = unit)
+            y_0_bwd_channel = f"{quantity} [bwd] ({unit})"
+            
             (quantity, unit, backward_bool, error) = self.file_functions.split_physical_quantity(y_1_channel)
             graph_1.getAxis("left").setLabel(f"{quantity}", units = unit)
+            y_1_bwd_channel = f"{quantity} [bwd] ({unit})"
         except:
             pass
         
@@ -438,25 +448,53 @@ class Spectralyzer:
                 spec_index = plot_number_comboboxes[f"{i}"].currentIndex()
                 spec_object = self.spec_list[spec_index, 2]
                 spec_signal = spec_object.signals
-                
+                                
                 x_data = spec_signal.get(x_channel, None)
                 y_0_data = spec_signal.get(y_0_channel, None)
+                y_0_bwd_data = spec_signal.get(y_0_bwd_channel, None)                
                 if not isinstance(x_data, np.ndarray) or not isinstance(y_0_data, np.ndarray): continue
 
-                # Plot number 0
-                y_0_data_shifted = y_0_data + index * offset_0
-                graph_0.plot(x_data, y_0_data_shifted, pen = pen)
+                spectrum = {"x_axis": x_channel, "x_data": x_data, "y_axis": y_0_channel, "y_data": y_0_data}
+                if y_0_bwd_channel: spectrum.update({"y_bwd_data": y_0_bwd_data})
+                (processed_spectrum, error) = self.data.process_spectrum(spectrum)
+
+                if not error:
+                    # Plot number 0
+                    x_data = processed_spectrum.get("x_data")
+                    print(f"x {type(x_data)}")
+                    y_data = processed_spectrum.get("y_data")
+                    if isinstance(offset_0, float): y_data += index * offset_0
+                    graph_0.plot(x_data, y_data, pen = pen)
+                    
+                    if "y_bwd_data" in processed_spectrum.keys():
+                        y_data = processed_spectrum.get("y_bwd_data")
+                        if isinstance(offset_0, float): y_data += index * offset_0
+                        graph_0.plot(x_data, y_data, pen = pen)
 
             except Exception as e:
                 print(f"Error: {e}")
             
             try:
                 y_1_data = spec_signal.get(y_1_channel, None)
+                y_1_bwd_data = spec_signal.get(y_1_bwd_channel, None)
                 if not isinstance(y_1_data, np.ndarray): continue
                 
-                # Plot number 1
-                y_1_data_shifted = y_1_data + index * offset_1
-                graph_1.plot(x_data, y_1_data_shifted, pen = pen)
+                spectrum = {"x_axis": x_channel, "x_data": x_data, "y_axis": y_1_channel, "y_data": y_1_data}
+                if y_1_bwd_channel: spectrum.update({"y_bwd_data": y_1_bwd_data})
+                (processed_spectrum, error) = self.data.process_spectrum(spectrum)
+
+                if not error:
+                    # Plot number 1
+                    x_data = processed_spectrum.get("x_data")
+                    print(f"x {type(x_data)}")
+                    y_data = processed_spectrum.get("y_data")
+                    if isinstance(offset_1, float): y_data += index * offset_1
+                    graph_1.plot(x_data, y_data, pen = pen)
+                    
+                    if "y_bwd_data" in processed_spectrum.keys():
+                        y_data = processed_spectrum.get("y_bwd_data")
+                        if isinstance(offset_0, float): y_data += index * offset_1
+                        graph_1.plot(x_data, y_data, pen = pen)
             
             except Exception as e:
                 print(f"Error: {e}")
@@ -528,6 +566,11 @@ class Spectralyzer:
 
         return
 
+    def toggle_spec_direction(self) -> None:
+        
+        
+        return
+
     def width_opacity_change(self, target: str = "width", value: int = 100) -> None:
         flags = self.data.spec_processing_flags
         match target:
@@ -582,26 +625,75 @@ class Spectralyzer:
         self.update_processing_flags()
         return
 
-    def change_metadata_display(self) -> None:
+    def update_metadata_display(self) -> None:
         metadata_item = self.gui.metadata_combobox.currentText()
         
-        spec_file_names = np.array([[index, self.gui.plot_number_comboboxes[f"{index}"].currentText()] for index in range(len(self.gui.plot_number_comboboxes))])
+        x_old = None
+        time_old = None
         
-        spec_dict = self.files_dict.get("spectroscopy_files")
-        for key, single_spec_dict in spec_dict.items():
-            if not isinstance(single_spec_dict, dict): continue
-
-            file_name = single_spec_dict.get("file_name")
-            if file_name in spec_file_names[:, 1]:
-                print(spec_file_names)
+        for row_number in range(len(self.gui.left_arrows)):
+            cbb = self.gui.plot_number_comboboxes[f"{row_number}"]
+            l_e = self.gui.metadata_line_edits[f"{row_number}"]
+            cbb_index = cbb.currentIndex()
+            row_data = self.spec_list[cbb_index]
+            
+            date_time_str = row_data[6]
+            format_string = "%Y-%m-%d %H:%M:%S"
+            datetime_object = datetime.strptime(date_time_str, format_string)
+            
+            match metadata_item:
+                case "date":
+                    date_str = datetime_object.strftime("%Y-%m-%d")
+                    l_e.setText(date_str)
+                case "time":
+                    time_str = datetime_object.strftime("%H:%M:%S")
+                    l_e.setText(time_str)
+                case "date_time":
+                    l_e.setText(date_time_str)
+                case "position":
+                    [x, y, z] = [row_data[index] for index in [3, 4, 5]]
+                    l_e.setText(f"({x:.1f}, {y:.1f}, {z:.1f}) nm")
+                case "relative position (to previous)":
+                    [x, y, z] = [row_data[index] for index in [3, 4, 5]]
+                    
+                    if not isinstance(x_old, float):
+                        l_e.setText(f"(0, 0, 0) nm")
+                    else:
+                        x_rel = x - x_old
+                        y_rel = y - y_old
+                        z_rel = z - z_old
+                        l_e.setText(f"({x_rel:.1f}, {y_rel:.1f}, {z_rel:.1f}) nm")
+                    
+                    x_old = x
+                    y_old = y
+                    z_old = z
+                case "relative time (to previous)":                    
+                    if not isinstance(time_old, datetime):
+                        l_e.setText(f"0")
+                    else:
+                        delta_time = datetime_object - time_old
+                        
+                        seconds = delta_time.seconds
+                        hours, remainder = divmod(seconds, 3600)
+                        minutes, seconds = divmod(remainder, 60)
+                        
+                        if delta_time.days > 0:
+                            l_e.setText(f"{delta_time.days} d, {hours} h: {minutes} min: {seconds} s")
+                        elif hours > 0:
+                            l_e.setText(f"{hours} h: {minutes} min: {seconds} s")
+                        else:
+                            l_e.setText(f"{minutes} min: {seconds} s")
+                    
+                    time_old = datetime_object
+                    
+                case _:
+                    pass
         
-        print(self.spec_list)
         return
 
     def update_file_names(self) -> None:
         flags = self.data.spec_processing_flags
         
-        print(flags.get("x_channel"))
         scan_file_base = self.scan_file_name.split(".")[0]
         (x_quantity, x_unit, backward_bool, error) = self.file_functions.split_physical_quantity(flags.get("x_channel"))
         (y_0_quantity, y_0_unit, backward_bool, error) = self.file_functions.split_physical_quantity(flags.get("y_0_channel"))
@@ -626,8 +718,6 @@ class Spectralyzer:
                 file_name = self.gui.line_edits["file_name_1"].text()
             export_path = os.path.join(export_folder, file_name + ".svg")
             
-            print(export_path)
-            
             exporter = expts.SVGExporter(scene)
             file_path, _ = QtWidgets.QFileDialog.getSaveFileName(self.gui, "Save file", export_path, "svg files (*.svg)")
             if file_path:
@@ -640,6 +730,13 @@ class Spectralyzer:
 
     def on_exit(self) -> None:
         self.gui.close()
+
+    def open_folder(self, paths_entry: str = "") -> None:
+        if paths_entry in list(self.paths.keys()):
+            try: os.startfile(self.paths[paths_entry])
+            except: pass        
+        return
+
 
 
 """

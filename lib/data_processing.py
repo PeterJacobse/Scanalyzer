@@ -58,7 +58,10 @@ class DataProcessing():
         processing_flags = {
             "line_width": 2,
             "opacity": 1,
-            "offset": 1
+            "offset": 1,
+            "direction": "fwd_bwd",
+            "abs_log": False,
+            "differentiate": False
         }
         
         return processing_flags
@@ -119,6 +122,48 @@ class DataProcessing():
 
         return (image, selected_channel, frame, error)
 
+
+
+    # Spectrum operations
+    def process_spectrum(self, spectrum: dict) -> tuple[dict, bool | str]:
+        error = False
+        processed_spectrum = {}
+        
+        try:
+            spec_direction = self.spec_processing_flags.get("direction")
+            match spec_direction:
+                case "fwd":
+                    processed_spectrum = spectrum.pop("y_bwd_data")
+                case "bwd":
+                    y_bwd_data = spectrum.get("y_bwd_data")
+                    spectrum.update({"y_data": y_bwd_data})
+                    processed_spectrum = spectrum.pop("y_bwd_data")
+                case "average":
+                    y_fwd_data = spectrum.get("y_data")
+                    y_bwd_data = spectrum.get("y_bwd_data")
+                    if y_bwd_data:
+                        y_data = [0.5 * y_fwd_data[index] + 0.5 * y_bwd_data[index] for index in min(len(y_fwd_data), len(y_bwd_data))]
+                    else:
+                        y_data = y_fwd_data
+                    spectrum.update({"y_data": y_data})
+                    processed_spectrum = spectrum.pop("y_bwd_data")
+                case "fwd_bwd":
+                    processed_spectrum = spectrum
+                case _:
+                    processed_spectrum = spectrum
+        except Exception as e:
+            error = e
+
+        return (processed_spectrum, error)
+    
+    def apply_abs_log(self, spectrum: dict) -> tuple[dict, bool | str]:
+        error = False
+        
+        return
+
+
+    
+    # Image operations
     def process_scan(self, image: np.ndarray) -> tuple[np.ndarray, dict, list, bool | str]:
         error = False
         statistics = False
@@ -243,10 +288,6 @@ class DataProcessing():
 
 
 
-    # Spectrum operations
-    
-    
-    # Image operations
     def apply_phase(self, image: np.ndarray) -> tuple[np.ndarray, bool | str]:
         error = False
         phase_shifted_image = image
