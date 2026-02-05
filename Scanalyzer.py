@@ -18,6 +18,7 @@ class Scanalyzer(QtCore.QObject):
         if last_file: self.load_folder(last_file)
         
         self.gui.show()
+        self.open_spectralyzer()
 
 
 
@@ -142,6 +143,7 @@ class Scanalyzer(QtCore.QObject):
         
         comboboxes["channels"].currentIndexChanged.connect(self.update_processing_flags)
         comboboxes["projection"].currentIndexChanged.connect(self.update_processing_flags)
+        comboboxes["spectra"].currentIndexChanged.connect(self.change_spec_combobox_item)
         line_edits["gaussian_width"].editingFinished.connect(self.gaussian_width_edited)
         self.gui.phase_slider.valueChanged.connect(self.update_processing_flags)
         
@@ -278,6 +280,7 @@ class Scanalyzer(QtCore.QObject):
                 buttons["folder_name"].setText(self.paths["data_folder"])
                 if len(scan_dict) == 1: labels["number_of_files"].setText("which contains 1 sxm file")
                 else: labels["number_of_files"].setText(f"which contains {len(scan_dict)} sxm files")
+                self.change_spec_combobox_item()
             except Exception as e:
                 print(f"Error: {e}")
 
@@ -741,6 +744,28 @@ class Scanalyzer(QtCore.QObject):
     def on_toggle_spec_locations(self) -> None:
         self.data.processing_flags["spec_locations"] = self.gui.buttons["spec_locations"].isChecked()
         self.load_process_display(new_scan = True)    
+        return
+
+    def change_spec_combobox_item(self) -> None:
+        spec_name = self.gui.comboboxes["spectra"].currentText()
+        
+        # Strip the >>
+        if spec_name.startswith(">>"):
+            spec_name = spec_name[2:]
+        
+        # Read the spec information
+        spec_dict = self.files_dict.get("spectroscopy_files")
+        
+        for key, single_spec_dict in spec_dict.items():
+            if not isinstance(single_spec_dict, dict): continue
+            file_name = single_spec_dict.get("file_name")
+            
+            if file_name == spec_name:
+                associated_scan_name = single_spec_dict.get("associated_scan_name")
+                date_time_str = single_spec_dict.get("date_time_str")
+                self.gui.buttons["spec_info"].setToolTip(f"Spectrum {spec_name}\nRecorded on {date_time_str}\nAssociated with scan {associated_scan_name}")
+                break
+
         return
 
 

@@ -17,10 +17,10 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
         # 2: Create the specific GUI items using the items from the GUIItems class. Requires icons.
         self.gui_items = GUIItems()
         self.labels = self.make_labels()
-        (self.buttons, self.leftarrows, self.rightarrows) = self.make_buttons()
-        (self.checkboxes, self.all_checkbox) = self.make_checkboxes()
-        (self.channel_selection_comboboxes, self.plot_number_comboboxes, self.focus_row_combobox) = self.make_comboboxes()
-        self.line_edits = self.make_line_edits()
+        (self.buttons, self.left_arrows, self.right_arrows, self.consecutives) = self.make_buttons()
+        self.checkboxes = self.make_checkboxes()
+        (self.channel_selection_comboboxes, self.plot_number_comboboxes, self.focus_row_combobox, self.metadata_combobox) = self.make_comboboxes()
+        (self.line_edits, self.metadata_line_edits) = self.make_line_edits()
         self.layouts = self.make_layouts()
         self.image_widget = self.make_image_widget()
         (self.plot_widgets, self.plot_items) = self.make_plot_widgets()
@@ -103,8 +103,12 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
             "offset_1": make_button("", "Set the offset between successive spectra in plot 1", self.icons.get("line_offset")),
             "save_0": make_button("", "Save graph 0 to svg", self.icons.get("save_0")),
             "save_1": make_button("", "Save graph 1 to svg", self.icons.get("save_1")),
-            "line_width": make_button("", "Set the line width\n(L)", self.icons.get("line_width")),
-            "opacity": make_button("", "Set the line opacity\n(O)", self.icons.get("opacity")),
+            
+            "dec_line_width": make_button("", "Decrease the line width\n(L)", self.icons.get("decrease_width")),
+            "inc_line_width": make_button("", "Increase the line width\n(L)", self.icons.get("increase_width")),
+            "dec_opacity": make_button("", "Decrease the line opacity\n(O)", self.icons.get("decrease_opacity")),
+            "inc_opacity": make_button("", "Increase the line opacity\n(O)", self.icons.get("increase_opacity")),
+            
             "open_folder": make_button("", "Open folder", self.icons.get("folder_yellow")),
             "view_folder": make_button("", "Open folder", self.icons.get("view_folder")),
             "exit": make_button("", "Exit Spectrum Viewer\n(Q / Esc)", self.icons.get("escape")),
@@ -113,13 +117,15 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
         }
         
         # Named groups
-        leftarrows = {}
-        rightarrows = {}
+        left_arrows = {}
+        right_arrows = {}
+        consecutives = {}
         for number in range(16):
-            leftarrows.update({f"{number}": make_button("", f"decrease plot number {number} (left arrow when row is highlighted)", self.icons.get("single_arrow"), rotate_icon = 180)})
-            rightarrows.update({f"{number}": make_button("", f"increase plot number {number} (right arrow when row is highlighted)", self.icons.get("single_arrow"))})
+            left_arrows.update({f"{number}": make_button("", f"decrease plot number {number} (left arrow when row is highlighted)", self.icons.get("single_arrow"), rotate_icon = 180)})
+            right_arrows.update({f"{number}": make_button("", f"increase plot number {number} (right arrow when row is highlighted)", self.icons.get("single_arrow"))})
+            consecutives.update({f"{number}": make_button("", "Set consecutive spectra below", self.icons.get("consecutive"))})
 
-        return (buttons, leftarrows, rightarrows)
+        return (buttons, left_arrows, right_arrows, consecutives)
 
     def make_checkboxes(self) -> dict:
         make_checkbox = self.gui_items.make_checkbox
@@ -129,9 +135,9 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
             checkboxes.update({f"{number}": make_checkbox(f"{number}", f"toggle visibility of plot {number} (space when row is in focus)")})
             checkboxes[f"{number}"].setStyleSheet(f"color: {self.color_list[number]};")
         
-        all_checkbox = make_checkbox("all", f"toggle visibility of all plots")
+        checkboxes.update({"all": make_checkbox("all", f"toggle visibility of all plots")})
         
-        return (checkboxes, all_checkbox)
+        return checkboxes
     
     def make_comboboxes(self) -> dict:
         make_combobox = self.gui_items.make_combobox
@@ -143,18 +149,21 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
         }
         
         focus_row_combobox = make_combobox("Focus row", "Set the focus row\n(↑ / ↓)")
-                        
+        metadata_combobox = make_combobox("Metadata", "Select what metadata to display")
+
         plot_number_comboboxes = {}
         for number in range(16):
             plot_number_comboboxes.update({f"{number}": make_combobox(f"{number}", f"data for plot {number}")})
         
         row_items = [f"Row {i} ({hex(i)[2]})" for i in range(len(plot_number_comboboxes))]
         focus_row_combobox.renewItems(row_items)
-        
+        metadata_items = ["date_time", "relative time (to previous)", "position", "relative position (to previous)"]
+        metadata_combobox.renewItems(metadata_items)
+
         # Named groups
-        self.focus_row_buttons = [self.all_checkbox, self.buttons["dec_focus_row"], focus_row_combobox, self.buttons["inc_focus_row"]]
+        self.selector_header = [self.checkboxes["all"], self.buttons["dec_focus_row"], focus_row_combobox, self.buttons["inc_focus_row"], metadata_combobox]
         
-        return (channel_selection_comboboxes, plot_number_comboboxes, focus_row_combobox)
+        return (channel_selection_comboboxes, plot_number_comboboxes, focus_row_combobox, metadata_combobox)
 
     def make_line_edits(self) -> dict:
         make_line_edit = self.gui_items.make_line_edit
@@ -162,19 +171,37 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
         line_edits = {
             "offset_0": make_line_edit("0", "Offset between successive spectra"),
             "offset_1": make_line_edit("0", "Offset between successive spectra"),
-            "line_width": make_line_edit("2", "Line width"),
-            "opacity": make_line_edit("1", "Opacity")
+            "line_width": make_line_edit("2 px", "Line width", unit = "px"),
+            "opacity": make_line_edit("100 %", "Opacity", unit = "%"),
+            
+            "file_name_0": make_line_edit("File name 0"),
+            "file_name_1": make_line_edit("File name 1"),
+            "scan_file_name": make_line_edit("Scan file name", "Name of the scan file")
         }
+        
+        line_edits["scan_file_name"].setReadOnly(True)
+        
+        # Make the metadata line edits
+        metadata_line_edits = {}
+        for number in range(16):
+            l_e = make_line_edit(f"{number}", f"metadata for plot {number}")
+            l_e.setReadOnly(True)
+            metadata_line_edits.update({f"{number}": l_e})
         
         # Named groups
         labels = self.labels
         buttons = self.buttons
+        
+        self.plot0_options_col0 = [buttons[name] for name in ["y_axis_0", "offset_0", "save_0"]]
+        self.plot0_options_col1 = [self.channel_selection_comboboxes["y_axis_0"], line_edits["offset_0"], line_edits["file_name_0"]]
+        
+        self.line_width_options = [buttons["dec_line_width"], line_edits["line_width"], buttons["inc_line_width"]]
+        self.opacity_options = [buttons["dec_opacity"], line_edits["opacity"], buttons["inc_opacity"]]
+        
+        self.plot1_options_col0 = [buttons[name] for name in ["y_axis_1", "offset_1", "save_1"]]
+        self.plot1_options_col1 = [self.channel_selection_comboboxes["y_axis_1"], line_edits["offset_1"], line_edits["file_name_1"]]
 
-        self.option_widgets_col0 = [buttons["y_axis_0"], buttons["offset_0"], labels["empty_0"], buttons["y_axis_1"], buttons["offset_1"], labels["empty_1"], buttons["line_width"], buttons["opacity"]]
-        self.option_widgets_col1 = [self.channel_selection_comboboxes["y_axis_0"], line_edits["offset_0"], self.buttons["save_0"], self.channel_selection_comboboxes["y_axis_1"],
-                                    line_edits["offset_1"], self.buttons["save_1"], line_edits["line_width"], line_edits["opacity"]]
-
-        return line_edits
+        return (line_edits, metadata_line_edits)
 
     def make_lines(self) -> dict:
         make_line = self.gui_items.line_widget
@@ -195,7 +222,8 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
             "selector": make_layout("g"),
             "x_axis": make_layout("h"),
             "plots": make_layout("v"),
-            "options": make_layout("g"),
+            "right_column": make_layout("g"),
+            "width_opacity": make_layout("g"),
             "i/o": make_layout("h")
         }
         
@@ -290,33 +318,34 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
         widgets = self.widgets
         buttons = self.buttons
         
-        # Add items to the layouts
+        # Plot selector
         ss_layout = self.layouts["selector"]
-        [ss_layout.addWidget(widget, 0, i) for i, widget in enumerate(self.focus_row_buttons)]
-        [ss_layout.addWidget(self.checkboxes[f"{i}"], i + 1, 0) for i in range(len(self.checkboxes))]
-        [ss_layout.addWidget(self.leftarrows[f"{i}"], i + 1, 1) for i in range(len(self.leftarrows))]
-        [ss_layout.addWidget(self.plot_number_comboboxes[f"{i}"], i + 1, 2) for i in range(len(self.plot_number_comboboxes))]
-        [ss_layout.addWidget(self.rightarrows[f"{i}"], i + 1, 3) for i in range(len(self.rightarrows))]
+        [ss_layout.addWidget(widget, 0, i + 1) for i, widget in enumerate(self.selector_header)]
+        [ss_layout.addWidget(self.consecutives[f"{i}"], i + 1, 0) for i in range(len(self.left_arrows))]
+        [ss_layout.addWidget(self.checkboxes[f"{i}"], i + 1, 1) for i in range(len(self.left_arrows))]
+        [ss_layout.addWidget(self.left_arrows[f"{i}"], i + 1, 2) for i in range(len(self.left_arrows))]
+        [ss_layout.addWidget(self.plot_number_comboboxes[f"{i}"], i + 1, 3) for i in range(len(self.plot_number_comboboxes))]
+        [ss_layout.addWidget(self.right_arrows[f"{i}"], i + 1, 4) for i in range(len(self.right_arrows))]
+        [ss_layout.addWidget(self.metadata_line_edits[f"{i}"], i + 1, 5) for i in range(len(self.metadata_line_edits))]
+        
+        # x axis
+        [layouts["x_axis"].addWidget(widget) for widget in [buttons["x_axis"], self.channel_selection_comboboxes["x_axis"]]]
+        layouts["x_axis"].setStretch(2, 3)
+        widgets["x"].setLayout(layouts["x_axis"])
         
         # Plots
         [layouts["plots"].addWidget(widget) for widget in [self.channel_selection_comboboxes["x_axis"], self.plot_widgets["graph_0"], self.plot_widgets["graph_1"]]]
         widgets["plot"].setLayout(layouts["plots"])
         self.plot_items["graph_0"].setFixedWidth(500)
         
-        # Options
-        [layouts["options"].addWidget(widget, index, 0) for index, widget in enumerate(self.option_widgets_col0)]
-        [layouts["options"].addWidget(widget, index, 1) for index, widget in enumerate(self.option_widgets_col1)]
-        widgets["options"].setLayout(layouts["options"])
-        
+        # Right column
         layouts["i/o"].addWidget(self.buttons["open_folder"], 5)
         layouts["i/o"].addWidget(self.buttons["exit"], 1)
         
-        # x axis
-        [layouts["x_axis"].addWidget(widget, 4 * i + 1) for i, widget in enumerate([buttons["x_axis"], self.channel_selection_comboboxes["x_axis"]])]
-        layouts["x_axis"].setStretch(2, 3)
-        widgets["x"].setLayout(layouts["x_axis"])
-        
-        #
+        [layouts["width_opacity"].addWidget(widget, 0, index) for index, widget in enumerate(self.line_width_options)]
+        [layouts["width_opacity"].addWidget(widget, 1, index) for index, widget in enumerate(self.opacity_options)]
+
+        # Right column: Image view
         image_widget = self.image_widget
         self.view_box = image_widget.addViewBox()
         self.view_box.setAspectLocked(True)
@@ -324,21 +353,35 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
         self.image_item = pg.ImageItem()
         self.view_box.addItem(self.image_item)
         
+        #[layouts["right_column"].addWidget(widget, index, 0) for index, widget in enumerate(self.option_widgets_col0)]
+        #[layouts["right_column"].addWidget(widget, index, 1) for index, widget in enumerate(self.option_widgets_col1)]
+        #layouts["right_column"].addLayout(layouts["width_opacity"], 0, 0, 1, 3)
+        
+        [layouts["right_column"].addWidget(widget, 0, index) for index, widget in enumerate(self.line_width_options)]
+        [layouts["right_column"].addWidget(widget, 1, index) for index, widget in enumerate(self.opacity_options)]
+        
+        [layouts["right_column"].addWidget(widget, index + 2, 0) for index, widget in enumerate(self.plot0_options_col0)]
+        [layouts["right_column"].addWidget(widget, index + 2, 1) for index, widget in enumerate(self.plot0_options_col1)]
+        layouts["right_column"].addWidget(image_widget, 5, 0, 1, 3)
+        layouts["right_column"].addWidget(self.line_edits["scan_file_name"], 6, 0, 1, 3)
+        [layouts["right_column"].addWidget(widget, index + 7, 0) for index, widget in enumerate(self.plot1_options_col0)]
+        [layouts["right_column"].addWidget(widget, index + 7, 1) for index, widget in enumerate(self.plot1_options_col1)]
+        
         # Main
         main_layout = layouts["main"]
         main_layout.addWidget(widgets["selector"], 0, 0, 2, 1) # Spectrum selector buttons
         main_layout.addWidget(widgets["x"], 0, 1) # x axis channel selection combobox
+        #main_layout.addLayout(layouts["x_axis"], 0, 1, 1, 1) # x axis channel selection combobox
         main_layout.addWidget(widgets["plot"], 1, 1, 2, 1)
         main_layout.addLayout(layouts["i/o"], 0, 2)
-        main_layout.addWidget(widgets["options"], 1, 2)
-        main_layout.addWidget(self.image_widget, 2, 2)
+        main_layout.addLayout(layouts["right_column"], 1, 2)
         main_layout.setColumnMinimumWidth(1, 500)
         
         return
 
 
 
-    # 4: Set up the main window layout
+    # 4: Set up the main window layout.
     def setup_main_window(self) -> None:
         layouts = self.layouts
         widgets = self.widgets

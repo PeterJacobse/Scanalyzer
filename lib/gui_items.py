@@ -426,12 +426,12 @@ class SliderLineEdit(QtWidgets.QWidget):
     """
     valueChanged = QtCore.pyqtSignal(int)
 
-    def __init__(self, parent = None, min_val = -180, max_val = 180, initial_val = 0):
+    def __init__(self, parent = None, min_val = -180, max_val = 180, initial_val = 0, unit = "deg"):
         super().__init__(parent)
         
         # 1: Create the widgets
         self.slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
-        self.line_edit = QtWidgets.QLineEdit()
+        self.line_edit = PJLineEdit()
 
         # 2: Configure widgets
         self.slider.setRange(min_val, max_val)
@@ -442,12 +442,12 @@ class SliderLineEdit(QtWidgets.QWidget):
         self.line_edit.setText(str(initial_val))
 
         # 3: Set up the layout
-        layout = QtWidgets.QHBoxLayout()
-        layout.addWidget(self.slider)
-        layout.addWidget(self.line_edit)
+        self.widget_layout = QtWidgets.QHBoxLayout()
+        self.widget_layout.addWidget(self.slider)
+        self.widget_layout.addWidget(self.line_edit)
         # Remove extra margins from the layout
-        layout.setContentsMargins(0, 0, 0, 0) 
-        self.setLayout(layout)
+        self.widget_layout.setContentsMargins(0, 0, 0, 0) 
+        self.setLayout(self.widget_layout)
 
         # 4: Connect signals and slots
         self.slider.valueChanged.connect(self._update_line_edit)
@@ -459,15 +459,25 @@ class SliderLineEdit(QtWidgets.QWidget):
 
     def _update_line_edit(self, value):
         self.line_edit.blockSignals(True) 
-        self.line_edit.setText(str(value))
+        self.line_edit.setText(f"{value} deg")
         self.line_edit.blockSignals(False)
 
     def _update_slider(self):
         try:
-            value = int(self.line_edit.text())
+            text = self.line_edit.text()
+            if text.startswith("."): text = "0" + text
+            regex_pattern = r"[-+]?(?:[0-9]*\.)?[0-9]+(?:[eE][-+]?[0-9]+)?"
+            number_matches = re.findall(regex_pattern, text)
+            numbers = [int(x) for x in number_matches]
+            value = numbers[0]            
+            
             self.slider.blockSignals(True)
             self.slider.setValue(value)
             self.slider.blockSignals(False)
+
+            self.line_edit.blockSignals(True) 
+            self.line_edit.setText(f"{value} deg")
+            self.line_edit.blockSignals(False)
         except ValueError:
             # Handle empty or invalid input by resetting to the current slider value
             self.line_edit.setText(str(self.slider.value()))
@@ -479,6 +489,42 @@ class SliderLineEdit(QtWidgets.QWidget):
     def setValue(self, value):
         """Sets the value of the combined widget programmatically."""
         self.slider.setValue(value)
+
+
+
+class PhaseSlider(SliderLineEdit):
+    """
+    A slider line edit with buttons for controlling a phase
+    """
+    def __init__(self, parent = None, unit = "", phase_0_icon = None, phase_180_icon = None):
+        super().__init__(parent, unit = unit, min_val = -180, max_val = 180, initial_val = 0)
+        
+        self.phase_0_button = PJPushButton()
+        self.phase_0_button.setToolTip("Set the phase to 0")
+        if isinstance(phase_0_icon, QtGui.QIcon): self.phase_0_button.setIcon(phase_0_icon)
+        self.phase_180_button = PJPushButton()
+        self.phase_180_button.setToolTip("Set the phase to 180 deg")
+        if isinstance(phase_180_icon, QtGui.QIcon): self.phase_180_button.setIcon(phase_180_icon)
+        
+        self.widget_layout.addWidget(self.phase_0_button)
+        self.widget_layout.addWidget(self.phase_180_button)
+        # Remove extra margins from the layout
+        self.setLayout(self.widget_layout)
+        
+        self.phase_0_button.clicked.connect(self.set_phase_0)
+        self.phase_180_button.clicked.connect(self.set_phase_180)
+        
+    def set_phase_0(self):
+        self.line_edit.blockSignals(True) 
+        self.line_edit.setText(f"0 deg")
+        self.line_edit.blockSignals(False)
+        self.slider.setValue(0)
+
+    def set_phase_180(self):
+        self.line_edit.blockSignals(True) 
+        self.line_edit.setText(f"180 deg")
+        self.line_edit.blockSignals(False)
+        self.slider.setValue(180)
 
 
 
@@ -628,19 +674,26 @@ class GUIItems:
         layout.setSpacing(1)
         return layout
     
-    def make_console(self, name, tooltip) -> PJConsole:
+    def make_console(self, name: str = "", tooltip: str = "") -> PJConsole:
         console = PJConsole()
         console.setObjectName(name)
         console.setToolTip(tooltip)
         
         return console
 
-    def make_slider_line_edit(self, name, tooltip) -> SliderLineEdit:
-        slider_line_edit = SliderLineEdit()
+    def make_slider_line_edit(self, name: str = "", tooltip: str = "", unit: str = "deg") -> SliderLineEdit:
+        slider_line_edit = SliderLineEdit(unit = unit)
         slider_line_edit.setObjectName(name)
         slider_line_edit.setToolTip(tooltip)
         
         return slider_line_edit
+
+    def make_phase_slider(self, name: str = "", tooltip: str = "", unit: str = "deg", phase_0_icon = None, phase_180_icon = None) -> PhaseSlider:
+        phase_slider = PhaseSlider(unit = unit, phase_0_icon = phase_0_icon, phase_180_icon = phase_180_icon)
+        phase_slider.setObjectName(name)
+        phase_slider.setToolTip(tooltip)
+        
+        return phase_slider        
     
     def line_widget(self, orientation: str = "v", thickness: int = 1) -> QtWidgets.QFrame:
         line = QtWidgets.QFrame()

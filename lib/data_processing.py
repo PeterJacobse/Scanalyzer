@@ -58,7 +58,7 @@ class DataProcessing():
         processing_flags = {
             "line_width": 2,
             "opacity": 1,
-            "offset": 1,
+            "offset": 1
         }
         
         return processing_flags

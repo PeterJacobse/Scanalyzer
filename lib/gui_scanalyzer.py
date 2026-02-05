@@ -282,7 +282,7 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
         return (im_view, plot_item)
 
     def make_widgets(self) -> dict:
-        make_sle = self.gui_items.make_slider_line_edit
+        make_sle = self.gui_items.make_phase_slider
         layouts = self.layouts
         QWgt = QtWidgets.QWidget
         
@@ -297,7 +297,7 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
 
         layouts.update({"main": QtWidgets.QHBoxLayout(widgets["central"])})
         
-        self.phase_slider = make_sle("", "Set complex phase phi in deg\n(= multiplication by exp(i * pi * phi rad / (180 deg)))")
+        self.phase_slider = make_sle("0 deg", "Set complex phase phi\n(= multiplication by exp(i * pi * phi rad / (180 deg)))", unit = "deg", phase_0_icon = self.icons.get("0"), phase_180_icon = self.icons.get("180"))
         
         return widgets
 

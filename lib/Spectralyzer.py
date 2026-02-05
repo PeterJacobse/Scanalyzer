@@ -20,6 +20,7 @@ class Spectralyzer:
         self.parameters_init()
         self.gui = SpectralyzerGUI()
         self.gui.image_item.setImage(scan_image)
+        self.gui.line_edits["scan_file_name"].setText(f"{self.scan_file_name}")
         
         self.connect_buttons()
         self.set_focus_row(0)
@@ -94,11 +95,20 @@ class Spectralyzer:
         buttons["exit"].clicked.connect(self.on_exit)
         
         chan_sel_boxes = [self.gui.channel_selection_comboboxes[name] for name in ["x_axis", "y_axis_0", "y_axis_1"]]
-        [combobox.currentIndexChanged.connect(lambda: self.update_processing_flags(toggle_checkbox = False, toggle_channelbox = False)) for combobox in chan_sel_boxes]
-        [plot_number_comboboxes[f"{index}"].currentIndexChanged.connect(lambda: self.update_processing_flags(toggle_checkbox = False, toggle_channelbox = False)) for index in range(len(plot_number_comboboxes))]
+        [combobox.currentIndexChanged.connect(lambda: self.update_processing_flags(toggle_channelbox = False)) for combobox in chan_sel_boxes]
+        self.gui.metadata_combobox.currentIndexChanged.connect(self.change_metadata_display)
+        self.gui.checkboxes["all"].toggled.connect(lambda: self.check_checkbox("all"))
+        fr_cbb = self.gui.focus_row_combobox
+        fr_cbb.currentIndexChanged.connect(lambda index = fr_cbb.currentIndex(): self.set_focus_row(index, increase = False))
+        
+        for index in range(len(plot_number_comboboxes)):
+            self.gui.consecutives[f"{index}"].clicked.connect(lambda checked, idx = index: self.set_consecutive(idx))
+            plot_number_comboboxes[f"{index}"].currentIndexChanged.connect(lambda: self.update_processing_flags(toggle_channelbox = False))
+            self.gui.left_arrows[f"{index}"].clicked.connect(lambda checked, idx = index: self.toggle_plot_number(idx, True))
+            self.gui.right_arrows[f"{index}"].clicked.connect(lambda checked, idx = index: self.toggle_plot_number(idx, False))
 
-        [self.gui.line_edits[name].editingFinished.connect(lambda: self.update_processing_flags(toggle_checkbox = False, toggle_channelbox = False)) for name in ["line_width", "opacity"]]
-        [self.gui.line_edits[name].editingFinished.connect(lambda: self.update_processing_flags(toggle_checkbox = False, toggle_channelbox = False)) for name in ["offset_0", "offset_1"]]
+        [self.gui.line_edits[name].editingFinished.connect(lambda: self.update_processing_flags(toggle_channelbox = False)) for name in ["line_width", "opacity"]]
+        [self.gui.line_edits[name].editingFinished.connect(lambda: self.update_processing_flags(toggle_channelbox = False)) for name in ["offset_0", "offset_1"]]
 
         QKey = QtCore.Qt.Key
         QSeq = QtGui.QKeySequence
@@ -122,7 +132,11 @@ class Spectralyzer:
         self.gui.buttons["inc_focus_row"].clicked.connect(lambda: self.set_focus_row(-1, increase = True))
         self.down_shortcut.activated.connect(lambda: self.set_focus_row(-1, increase = True))
 
-        buttons["line_width"].clicked.connect(lambda: self.update_processing_flags(increase_linewidth = True))
+        buttons["dec_line_width"].clicked.connect(lambda: self.width_opacity_change("width", -100))
+        buttons["inc_line_width"].clicked.connect(lambda: self.width_opacity_change("width", 100))
+        buttons["dec_opacity"].clicked.connect(lambda: self.width_opacity_change("opacity", -1))
+        buttons["inc_opacity"].clicked.connect(lambda: self.width_opacity_change("opacity", 2))
+        
         buttons["x_axis"].clicked.connect(lambda: self.update_processing_flags(toggle_channelbox = "x_axis"))
         buttons["y_axis_0"].clicked.connect(lambda: self.update_processing_flags(toggle_channelbox = "y_axis_0"))
         buttons["y_axis_1"].clicked.connect(lambda: self.update_processing_flags(toggle_channelbox = "y_axis_1"))
@@ -132,7 +146,7 @@ class Spectralyzer:
         y_axis_1_shortcut.activated.connect(lambda: self.update_processing_flags(toggle_channelbox = "y_axis_1"))
 
         # Connect the checkboxes
-        [checkbox.toggled.connect(lambda: self.update_processing_flags(toggle_checkbox = False, toggle_channelbox = False)) for checkbox in self.gui.checkboxes.values()]
+        [checkbox.toggled.connect(lambda: self.update_processing_flags(toggle_channelbox = False)) for checkbox in self.gui.checkboxes.values()]
         
         self.gui.dataDropped.connect(self.load_folder)
         
@@ -200,13 +214,13 @@ class Spectralyzer:
         
         return
 
-    def read_spectroscopy_files(self) -> tuple:
+    def read_spectroscopy_files(self) -> None:
         channel_selection_comboboxes = self.gui.channel_selection_comboboxes
         plot_number_comboboxes = self.gui.plot_number_comboboxes
         checkboxes = self.gui.checkboxes
         spec_list = []
         all_channels = []
-        
+
         # Extract the channels from the spec objects, then remove duplicates. Also, build a list of spec files, with names and associated scan files
         try:
             spec_dict = self.files_dict.get("spectroscopy_files")
@@ -218,33 +232,38 @@ class Spectralyzer:
                 channels = single_spec_file.get("channels")
                 spec_file_name = single_spec_file.get("file_name")
                 associated_scan_name = single_spec_file.get("associated_scan_name")
+                spec_x = single_spec_file.get("x (nm)")
+                spec_y = single_spec_file.get("y (nm)")
+                spec_z = single_spec_file.get("z (nm)")
+                datetime = single_spec_file.get("date_time_str")
                 
                 [all_channels.append(str(channel)) for channel in channels]
-                spec_list.append([spec_file_name, associated_scan_name, spec_object])
+                spec_list.append([spec_file_name, associated_scan_name, spec_object, spec_x, spec_y, spec_z, datetime])
             
             all_channels_set = set(all_channels) # Duplicate entries are automatically removed from sets
-            all_channels = list(all_channels_set)
+            all_channels_filt_set = {item for item in all_channels_set if not item.endswith("[filt]")}
+            all_channels = list(all_channels_filt_set)
             self.spec_list = np.array(spec_list)
             [channel_selection_comboboxes[axis].renewItems(all_channels) for axis in ["x_axis", "y_axis_0", "y_axis_1"]]
             
         except:
             pass
-        
+                
         # Attempt to set the channel toggle boxes to logical starting defaults
         try:
-            x_axis_targets = ["Bias (V)", "Bias [bwd] V", "Bias calc (V)"]
+            x_axis_targets = ["Bias (V)", "Bias calc (V)"]
             for label in x_axis_targets:
                 if label in all_channels:
-                    channel_selection_comboboxes["y_axis_0"].selectItem(label)
+                    channel_selection_comboboxes["x_axis"].selectItem(label)
                     break
 
-            y_axis_0_targets = ["LI Demod 1 X (A)", "LI Demod 1 X [bwd] (A)", "LI Demod 1 X [bwd] (A)", "Current (A)"]
+            y_axis_0_targets = ["LI Demod 1 X (A)", "LI Demod 1 Y (A)", "Current (A)"]
             for label in y_axis_0_targets:
                 if label in all_channels:
                     channel_selection_comboboxes["y_axis_0"].selectItem(label)
                     break
 
-            y_axis_1_targets = ["Current (A)", "Current [bwd] (A)", "Current calc (A)"]
+            y_axis_1_targets = ["Current (A)", "Current (A)", "Current calc (A)"]
             for label in y_axis_1_targets:
                 if label in all_channels:
                     channel_selection_comboboxes["y_axis_0"].selectItem(label)
@@ -265,46 +284,57 @@ class Spectralyzer:
         [plot_number_comboboxes[f"{i}"].renewItems(self.spec_list[:, 0]) for i, item in enumerate(plot_number_comboboxes)]
         
         # Initialize spectra to the indices of the spectra associated with the scan file
+        index = 0        
         i_max = len(associated_scan_indices)
-        for i, index in enumerate(associated_scan_indices):
-            if i > len(plot_number_comboboxes) - 1: break
-            plot_number_comboboxes[f"{i}"].selectIndex(index)
-            checkboxes[f"{i}"].setSilentCheck(True)
+        if i_max < 1:
+            plot_number_comboboxes[f"0"].selectIndex(index)
+            self.set_consecutive(0)
+        else:
+            for i, index in enumerate(associated_scan_indices):
+                if i > len(plot_number_comboboxes) - 1: break
+                plot_number_comboboxes[f"{i}"].selectIndex(index)
+                checkboxes[f"{i}"].setSilentCheck(True)
+            self.set_consecutive(i)
         
+        """
         # Initialize the rest of the comboboxes with successive spectra after the last one associated with the scan file
         index += 1
         for i in range(i_max, len(plot_number_comboboxes)):
             if index < len(self.spec_list) - 1:
                 plot_number_comboboxes[f"{i}"].selectIndex(index)
         
-        self.update_processing_flags(toggle_checkbox = False, toggle_channelbox = False)
+        self.update_processing_flags(toggle_channelbox = False)
+        """
         return
 
-    def update_processing_flags(self, toggle_checkbox: bool = False, toggle_channelbox: bool = False, increase_linewidth: bool = False):
-        checkboxes = self.gui.checkboxes
-        leftarrows = self.gui.leftarrows
-        rightarrows = self.gui.rightarrows
+    def set_consecutive(self, row_number: int = 0) -> None:
+        if row_number < 0 or row_number > len(self.gui.left_arrows):
+            return
+        
         plot_number_comboboxes = self.gui.plot_number_comboboxes
+        
+        start_index = plot_number_comboboxes[f"{row_number}"].currentIndex()
+        index = start_index        
+        for row in range(row_number + 1, len(self.gui.left_arrows)):
+            if index < len(self.spec_list) - 1:
+                index += 1
+            else:
+                index = 0
+            plot_number_comboboxes[f"{row}"].selectIndex(index)
+        
+        self.update_processing_flags()
+        return
+
+    def update_processing_flags(self, toggle_channelbox: bool = False, increase_linewidth: bool = False) -> None:
         channel_selection_comboboxes = self.gui.channel_selection_comboboxes
         line_edits = self.gui.line_edits
         flags = self.data.spec_processing_flags
-
-        # Toggle the state of the checkbox in the focus row if that is desired
-        if toggle_checkbox:
-            checked = checkboxes[f"{self.focus_row}"].isChecked()            
-            checkboxes[f"{self.focus_row}"].setSilentCheck(not checked)
         
         # Toggle the state of the checkbox in the focus row if that is desired
         if toggle_channelbox:
             try: channel_selection_comboboxes[toggle_channelbox].toggleIndex(1)
             except: pass
-        
-        # Grey out the plot rows that are not enabled (checked using the checkbox)
-        for index in range(len(checkboxes)):
-            row_enabled = checkboxes[f"{index}"].isChecked()
-            if row_enabled: [button.setEnabled(True) for button in [leftarrows[f"{index}"], plot_number_comboboxes[f"{index}"], rightarrows[f"{index}"]]]
-            else: [button.setEnabled(False) for button in [leftarrows[f"{index}"], plot_number_comboboxes[f"{index}"], rightarrows[f"{index}"]]]
-        
+                
         # Read the QComboboxes and retrieve what channels are requested
         x_channel = channel_selection_comboboxes["x_axis"].currentText()
         y_0_channel = channel_selection_comboboxes["y_axis_0"].currentText()
@@ -315,6 +345,7 @@ class Spectralyzer:
             "y_0_channel": y_0_channel,
             "y_1_channel": y_1_channel
         })
+        self.update_file_names()
         
         # Line width, opacity, offsets
         line_width_str = line_edits["line_width"].text()
@@ -328,7 +359,7 @@ class Spectralyzer:
         opacity_str = line_edits["opacity"].text()
         numbers = self.data.extract_numbers_from_str(opacity_str)
         if len(numbers) < 1: opacity = 1
-        else: opacity = numbers[0]
+        else: opacity = numbers[0] / 100
         
         offset_0_str = line_edits["offset_0"].text()
         numbers = self.data.extract_numbers_from_str(offset_0_str)
@@ -363,6 +394,19 @@ class Spectralyzer:
         y_1_channel = flags.get("y_1_channel", None)
         if not x_channel or not y_0_channel or not y_1_channel: return
         
+        # get the plot axis quantities and units and display them along the axes
+        try:
+            (quantity, unit, backward_bool, error) = self.file_functions.split_physical_quantity(x_channel)
+            graph_0.getAxis("bottom").setLabel(f"{quantity}", units = unit)
+            graph_1.getAxis("bottom").setLabel(f"{quantity}", units = unit)
+            
+            (quantity, unit, backward_bool, error) = self.file_functions.split_physical_quantity(y_0_channel)
+            graph_0.getAxis("left").setLabel(f"{quantity}", units = unit)
+            (quantity, unit, backward_bool, error) = self.file_functions.split_physical_quantity(y_1_channel)
+            graph_1.getAxis("left").setLabel(f"{quantity}", units = unit)
+        except:
+            pass
+        
         # Set the pen and successive spectrum offset properties from processing flags
         line_width = flags.get("line_width", 1)
         opacity = flags.get("opacity", 1)
@@ -375,14 +419,17 @@ class Spectralyzer:
         
         # Redraw the spectra
         [graph.clear() for graph in [graph_0, graph_1]]
-        for i in range(len(checkboxes)):
-            color = color_list[i]
-            color = color + opacity_hex
-
+        
+        index = 0
+        for i in range(len(plot_number_comboboxes)):            
             if not checkboxes[f"{i}"].isChecked(): continue
+            
+            index += 1
             
             try:
                 # Create pen with color, width, and opacity
+                color = color_list[i]
+                color = color + opacity_hex
                 pen = pg.mkPen(color = color, width = line_width)
                 pen.setCapStyle(QtCore.Qt.PenCapStyle.RoundCap)
                 pen.setJoinStyle(QtCore.Qt.PenJoinStyle.RoundJoin)
@@ -397,9 +444,9 @@ class Spectralyzer:
                 if not isinstance(x_data, np.ndarray) or not isinstance(y_0_data, np.ndarray): continue
 
                 # Plot number 0
-                y_0_data_shifted = y_0_data + i * offset_0
+                y_0_data_shifted = y_0_data + index * offset_0
                 graph_0.plot(x_data, y_0_data_shifted, pen = pen)
-                
+
             except Exception as e:
                 print(f"Error: {e}")
             
@@ -408,7 +455,7 @@ class Spectralyzer:
                 if not isinstance(y_1_data, np.ndarray): continue
                 
                 # Plot number 1
-                y_1_data_shifted = y_1_data + i * offset_1
+                y_1_data_shifted = y_1_data + index * offset_1
                 graph_1.plot(x_data, y_1_data_shifted, pen = pen)
             
             except Exception as e:
@@ -421,9 +468,9 @@ class Spectralyzer:
         return
 
     def set_focus_row(self, number: int = -1, increase: bool = True) -> None:
-        leftarrows = self.gui.leftarrows
+        left_arrows = self.gui.left_arrows
         plot_number_comboboxes = self.gui.plot_number_comboboxes
-        rightarrows = self.gui.rightarrows
+        right_arrows = self.gui.right_arrows
         
         # Disconnect the key shortcuts
         try:
@@ -434,16 +481,17 @@ class Spectralyzer:
             print(f"Error disconnecting the key shortcuts: {e}")
 
         # Change the background color of the buttons
-        for index in range(len(leftarrows)):
-            row_buttons = [leftarrows[f"{index}"], plot_number_comboboxes[f"{index}"], rightarrows[f"{index}"]]
+        for index in range(len(left_arrows)):
+            row_buttons = [left_arrows[f"{index}"], plot_number_comboboxes[f"{index}"], right_arrows[f"{index}"]]
             [button.setStyleSheet(f"background-color: black;") for button in row_buttons]
 
         # Number is set
-        if number > -1 and number < len(leftarrows):
+        if number > -1 and number < len(left_arrows):
             try:
                 self.focus_row = number
-                row_buttons = [leftarrows[f"{number}"], plot_number_comboboxes[f"{number}"], rightarrows[f"{number}"]]
+                row_buttons = [left_arrows[f"{number}"], plot_number_comboboxes[f"{number}"], right_arrows[f"{number}"]]
                 [button.setStyleSheet(f"background-color: #404000;") for button in row_buttons]
+                self.gui.focus_row_combobox.selectIndex(number)
             except Exception as e:
                 print(f"Error changing the focus row: {e}")
 
@@ -453,12 +501,13 @@ class Spectralyzer:
                 if increase: new_row = self.focus_row + 1
                 else: new_row = self.focus_row - 1
 
-                if new_row < 0: new_row = len(leftarrows) - 1
-                if new_row > len(leftarrows) - 1: new_row = 0
+                if new_row < 0: new_row = len(left_arrows) - 1
+                if new_row > len(left_arrows) - 1: new_row = 0
 
                 self.focus_row = new_row
-                row_buttons = [leftarrows[f"{new_row}"], plot_number_comboboxes[f"{new_row}"], rightarrows[f"{new_row}"]]
+                row_buttons = [left_arrows[f"{new_row}"], plot_number_comboboxes[f"{new_row}"], right_arrows[f"{new_row}"]]
                 [button.setStyleSheet(f"background-color: #404000;") for button in row_buttons]
+                self.gui.focus_row_combobox.selectIndex(new_row)
             except Exception as e:
                 print(f"Error changing the focus row: {e}")
         
@@ -466,22 +515,104 @@ class Spectralyzer:
         try:
             self.left_shortcut.activated.connect(lambda plot_index = self.focus_row: self.toggle_plot_number(plot_index, increase = False))
             self.right_shortcut.activated.connect(lambda plot_index = self.focus_row: self.toggle_plot_number(plot_index))
-            self.checkbox_shortcut.activated.connect(lambda: self.update_processing_flags(toggle_checkbox = True))
+            self.checkbox_shortcut.activated.connect(self.check_checkbox)
         except Exception as e:
             print(f"Error connecting the key shortcuts: {e}")
 
     def toggle_axis(self, name: str = "") -> None:
         try:
-            index = self.channel_selection_comboboxes[name].currentIndex()
-            index += 1
-            if index > len(self.channels) - 1: index = 0
-            self.channel_selection_comboboxes[name].blockSignals(True)
-            self.channel_selection_comboboxes[name].setCurrentIndex(index)
-            self.channel_selection_comboboxes[name].blockSignals(False)
-            self.redraw_spectra(False)
+            self.channel_selection_comboboxes[name].toggleIndex(1)
+            self.update_processing_flags()
         except Exception as e:
             print(f"Error toggling the combobox: {e}")
 
+        return
+
+    def width_opacity_change(self, target: str = "width", value: int = 100) -> None:
+        flags = self.data.spec_processing_flags
+        match target:
+            case "width":
+                current_width = flags.get("line_width")
+                if value < 0:
+                    new_width = current_width - 1
+                    if new_width < 1: new_width = 10
+                    
+                    self.gui.line_edits["line_width"].setText(f"{round(new_width)} px")
+                
+                elif value > 10:
+                    new_width = current_width + 1
+                    if new_width > 10: new_width = 1
+                    
+                    self.gui.line_edits["line_width"].setText(f"{round(new_width)} px")
+            
+            case "opacity":
+                current_opacity = flags.get("opacity")
+                if value < 0:
+                    new_opacity = current_opacity - 0.1
+                    if new_opacity < 0: new_opacity = 1
+                    
+                    self.gui.line_edits["opacity"].setText(f"{round(100 * new_opacity)} %")
+                
+                elif value > 1:
+                    new_opacity = current_opacity + 0.1
+                    if new_opacity > 1: new_opacity = 0
+                    
+                    self.gui.line_edits["opacity"].setText(f"{round(100 * new_opacity)} %")
+            case _:
+                pass
+        
+        self.update_processing_flags()
+        return
+
+    def check_checkbox(self, all: bool = False) -> None:
+        checkboxes = self.gui.checkboxes
+        
+        if all:
+            check_list = [int(checkboxes[f"{index}"].isChecked()) for index in range(len(self.gui.left_arrows))]
+            
+            if sum(check_list) < len(self.gui.left_arrows):
+                [checkboxes[f"{index}"].setSilentCheck(True) for index in range(len(self.gui.left_arrows))]
+            else:
+                [checkboxes[f"{index}"].setSilentCheck(False) for index in range(len(self.gui.left_arrows))]
+        
+        else: # Not 'all'; only toggle the state of the checkbox in the focus row
+            checked = checkboxes[f"{self.focus_row}"].isChecked()            
+            checkboxes[f"{self.focus_row}"].setSilentCheck(not checked)
+        
+        self.update_processing_flags()
+        return
+
+    def change_metadata_display(self) -> None:
+        metadata_item = self.gui.metadata_combobox.currentText()
+        
+        spec_file_names = np.array([[index, self.gui.plot_number_comboboxes[f"{index}"].currentText()] for index in range(len(self.gui.plot_number_comboboxes))])
+        
+        spec_dict = self.files_dict.get("spectroscopy_files")
+        for key, single_spec_dict in spec_dict.items():
+            if not isinstance(single_spec_dict, dict): continue
+
+            file_name = single_spec_dict.get("file_name")
+            if file_name in spec_file_names[:, 1]:
+                print(spec_file_names)
+        
+        print(self.spec_list)
+        return
+
+    def update_file_names(self) -> None:
+        flags = self.data.spec_processing_flags
+        
+        print(flags.get("x_channel"))
+        scan_file_base = self.scan_file_name.split(".")[0]
+        (x_quantity, x_unit, backward_bool, error) = self.file_functions.split_physical_quantity(flags.get("x_channel"))
+        (y_0_quantity, y_0_unit, backward_bool, error) = self.file_functions.split_physical_quantity(flags.get("y_0_channel"))
+        (y_1_quantity, y_1_unit, backward_bool, error) = self.file_functions.split_physical_quantity(flags.get("y_1_channel"))
+        
+        spec_name_0 = f"{scan_file_base}_{y_0_quantity}({x_quantity})"
+        spec_name_1 = f"{scan_file_base}_{y_1_quantity}({x_quantity})"
+        
+        self.gui.line_edits["file_name_0"].setText(spec_name_0)
+        self.gui.line_edits["file_name_1"].setText(spec_name_1)
+        
         return
 
     def on_save_spectrum(self, plot_number: int = 0) -> None:
@@ -489,10 +620,16 @@ class Spectralyzer:
             export_folder = self.paths["output_folder"]
             if plot_number == 0:
                 scene = self.gui.plot_widgets["graph_0"].scene()
+                file_name = self.gui.line_edits["file_name_0"].text()
             else:
                 scene = self.gui.plot_widgets["graph_0"].scene()
+                file_name = self.gui.line_edits["file_name_1"].text()
+            export_path = os.path.join(export_folder, file_name + ".svg")
+            
+            print(export_path)
+            
             exporter = expts.SVGExporter(scene)
-            file_path, _ = QtWidgets.QFileDialog.getSaveFileName(self.gui, "Save file", export_folder, "svg files (*.svg)")
+            file_path, _ = QtWidgets.QFileDialog.getSaveFileName(self.gui, "Save file", export_path, "svg files (*.svg)")
             if file_path:
                 exporter.export(file_path)
         
