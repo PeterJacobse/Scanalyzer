@@ -19,7 +19,6 @@ class Scanalyzer(QtCore.QObject):
         if last_file: self.load_folder(last_file)
         
         self.gui.show()
-        self.open_spectralyzer()
 
 
 
@@ -229,36 +228,51 @@ class Scanalyzer(QtCore.QObject):
 
 
 
-            # 1: Create an empty files dictionary
-            (files_dict, error) = self.file_functions.create_empty_files_dict(folder_name)
-            if error:
-                print(f"Error creating the files_dict: {error}")
-                return
+            loaded_files_dict = {}
+            try:
+                if os.path.exists(self.paths["metadata_file"]): # Metadata file already exists. Load metadata from file
+                    (loaded_files_dict, error) = self.file_functions.load_yaml(self.paths["metadata_file"])
+            except:
+                pass
             
-            # 2: Populate it with spectroscopy headers
-            (files_dict, error) = self.file_functions.populate_spectroscopy_headers(files_dict)
-            if error:
-                print(f"Error populating spectroscopy headers: {error}")
-                return
+            if "spectroscopy_files" in loaded_files_dict.keys() and "scan_files" in loaded_files_dict.keys(): # File loaded successfully. Roll with it
+                files_dict = loaded_files_dict
+                print(f"Found the scan and spectroscopy metadata in file {self.paths["metadata_file"]}")
             
-            # 3: Populate it with scan headers
-            (files_dict, error) = self.file_functions.populate_scan_headers(files_dict)
-            if error:
-                print(f"Error populating scan headers: {error}")
-                return
+            else: # No file exists, is loaded or file did not load successfully. Create from scratch by reading all the files in the folder
             
-            # 4: Use the scan headers and spectroscopy headers to associate spectra with scans, and update the dictionary accordingly
-            (files_dict, error) = self.file_functions.populate_associated_scans(files_dict)
-            if error:
-                print(f"Error associating spectra and scans: {error}")
-                return
+                # 1: Create an empty files dictionary
+                (files_dict, error) = self.file_functions.create_empty_files_dict(folder_name)
+                if error:
+                    print(f"Error creating the files_dict: {error}")
+                    return
+                
+                # 2: Populate it with spectroscopy headers
+                (files_dict, error) = self.file_functions.populate_spectroscopy_headers(files_dict)
+                if error:
+                    print(f"Error populating spectroscopy headers: {error}")
+                    return
+                
+                # 3: Populate it with scan headers
+                (files_dict, error) = self.file_functions.populate_scan_headers(files_dict)
+                if error:
+                    print(f"Error populating scan headers: {error}")
+                    return
+                
+                # 4: Use the scan headers and spectroscopy headers to associate spectra with scans, and update the dictionary accordingly
+                (files_dict, error) = self.file_functions.populate_associated_scans(files_dict)
+                if error:
+                    print(f"Error associating spectra and scans: {error}")
+                    return
+                
+                # 5: Save the fully populated dicts to a metadata.yml file
+                error = self.file_functions.save_files_dict(files_dict, folder_name)
+                if error:
+                    print(f"Error saving the files_dict to the metadata.yml file: {error}")
+                    return
+                
+                print(f"Loaded all scan and spectroscopy metadata and saved to file {self.paths["metadata_file"]}")
             
-            # 5: Save the fully populated dicts to a metadata.yml file
-            error = self.file_functions.save_files_dict(files_dict, folder_name)
-            if error:
-                print(f"Error saving the files_dict to the metadata.yml file: {error}")
-                return
-                        
             # 6: All operations successful. Save the populated files_dict as Scanalyzer attribute.
             self.files_dict = files_dict
 

@@ -7,9 +7,10 @@ import numpy as np
 
 class PJTargetItem(pg.TargetItem):
     clicked = QtCore.pyqtSignal(str)
+    position_signal = QtCore.pyqtSignal(float, float)
     
-    def __init__(self, pos = None, rel_pos = [], size: int = 10, pen = "y", tip_text: str = ""):
-        super().__init__(pos = pos, size = size, pen = pen, movable = False)
+    def __init__(self, pos = None, rel_pos = [], size: int = 10, pen = "y", tip_text: str = "", movable = False):
+        super().__init__(pos = pos, size = size, pen = pen, movable = movable)
         self.size = size
         self.tip_text = tip_text
         self.rel_pos = rel_pos # Position relative to the scan frame
@@ -34,6 +35,14 @@ class PJTargetItem(pg.TargetItem):
     def deactivate_tooltip(self) -> None:
         self.text_item.hide()
         return
+
+    def mouseDragEvent(self, event) -> None:
+        super().mouseReleaseEvent(event)
+        
+        # Check if the drag is finished
+        if event.isFinish():
+            new_pos = self.pos()
+            self.position_signal.emit(new_pos.x(), new_pos.y())
 
     def mouseClickEvent(self, event) -> None:
         if event.button() == QtCore.Qt.MouseButton.LeftButton:
@@ -350,7 +359,8 @@ class PJLineEdit(QtWidgets.QLineEdit):
         entered_text = self.text()
         
         # Extract the numeric part of what was entered
-        number_matches = re.findall(r"-?\d+\.?\d*", entered_text)
+        regex_pattern = r"([-+]?(?:[0-9]*\.)?[0-9]+(?:[eE][-+]?[0-9]+)?)(?:\s*[a-zA-Zμ°%]+)?"
+        number_matches = re.findall(regex_pattern, entered_text)
         if self.number_type == "int": numbers = [int(x) for x in number_matches]
         else: numbers = [float(x) for x in number_matches]
         
@@ -439,7 +449,43 @@ class PJConsole(QtWidgets.QTextEdit):
 
 
 
-class SliderLineEdit(QtWidgets.QWidget):
+class PJSlider(QtWidgets.QSlider):
+    """
+    A QSlider with extra method changeToolTip
+    """
+    def __init__(self, parent = None, orientation: str = "h"):
+        super().__init__(parent)
+        if orientation == "h":
+            self.setOrientation(QtCore.Qt.Orientation.Horizontal)
+        else:
+            self.setOrientation(QtCore.Qt.Orientation.Vertical)
+    
+    def changeToolTip(self, text: str, line: int = 0) -> None:
+        """
+        Function to change just a single line of a multiline tooltip, instead of the entire tooltip message
+        """
+        try:
+            old_tooltip = self.toolTip()
+            tooltip_list = old_tooltip.split("\n")
+            
+            if line > len(tooltip_list) - 1: # Add a line to the end if the line number is too big
+                tooltip_list.append(text)
+                new_tooltip = "\n".join(tooltip_list)
+            elif line < 0: # Add a line to the front if the line number is negative
+                new_tooltip_list = [text]
+                [new_tooltip_list.append(item) for item in tooltip_list]
+                new_tooltip = "\n".join(new_tooltip_list)
+            else: # Replace a line
+                tooltip_list[line] = text
+                new_tooltip = "\n".join(tooltip_list)
+
+            self.setToolTip(new_tooltip)
+        except:
+            pass
+
+
+
+class PJSliderLineEdit(QtWidgets.QWidget):
     """
     A custom widget combining a QSlider and a QLineEdit, linked together.
     """
@@ -509,9 +555,54 @@ class SliderLineEdit(QtWidgets.QWidget):
         """Sets the value of the combined widget programmatically."""
         self.slider.setValue(value)
 
+    def changeToolTip(self, text: str, line: int = 0) -> None:
+        """
+        Function to change just a single line of a multiline tooltip, instead of the entire tooltip message
+        """
+        try:
+            old_tooltip = self.toolTip()
+            tooltip_list = old_tooltip.split("\n")
+            
+            if line > len(tooltip_list) - 1: # Add a line to the end if the line number is too big
+                tooltip_list.append(text)
+                new_tooltip = "\n".join(tooltip_list)
+            elif line < 0: # Add a line to the front if the line number is negative
+                new_tooltip_list = [text]
+                [new_tooltip_list.append(item) for item in tooltip_list]
+                new_tooltip = "\n".join(new_tooltip_list)
+            else: # Replace a line
+                tooltip_list[line] = text
+                new_tooltip = "\n".join(tooltip_list)
+
+            self.setToolTip(new_tooltip)
+        except:
+            pass
 
 
-class PhaseSlider(SliderLineEdit):
+
+class PJImageView(pg.ImageView):
+    position_signal = QtCore.pyqtSignal(float, float)
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.view.invertY(False)
+
+    def mouseDoubleClickEvent(self, event):
+        # Ensure it's a left double-click
+        if event.button() == QtCore.Qt.MouseButton.LeftButton:
+            # Get scene position
+            pos = event.position()
+            
+            mapped_pos = self.view.mapToView(pos)
+            self.position_signal.emit(mapped_pos.x(), mapped_pos.y())
+            return
+            
+        # Call base class implementation
+        super().mouseDoubleClickEvent(event)
+
+
+
+class PhaseSlider(PJSliderLineEdit):
     """
     A slider line edit with buttons for controlling a phase
     """
@@ -554,7 +645,7 @@ class StreamRedirector(QtCore.QObject):
         super().__init__(parent)
         self._buffer = ""
 
-    def write(self, text: str) -> None:
+    def write(self, text: str = "") -> None:
         if not text:
             return
         # Accumulate text and only emit complete lines. This avoids
@@ -581,13 +672,13 @@ class GUIItems:
     def __init__(self):
         pass
 
-    def make_groupbox(self, name: str, tooltip: str = "") -> QtWidgets.QGroupBox:
+    def make_groupbox(self, name: str = "", tooltip: str = "") -> QtWidgets.QGroupBox:
         box = QtWidgets.QGroupBox(name)
         box.setToolTip(tooltip)
         box.setCheckable(True)
         return box
 
-    def make_button(self, name: str, tooltip: str = "", icon = None, rotate_icon: float = 0) -> PJPushButton:
+    def make_button(self, name: str = "", tooltip: str = "", icon = None, rotate_icon: float = 0) -> PJPushButton:
         button = PJPushButton(name)
         button.setObjectName(name)
         button.setToolTip(tooltip)
@@ -601,7 +692,7 @@ class GUIItems:
             except: pass
         return button
 
-    def make_toggle_button(self, name: str, tooltip: str = "", icon = None, rotate_icon: float = 0, flip_icon: bool = False) -> PJPushButton:
+    def make_toggle_button(self, name: str = "", tooltip: str = "", icon = None, rotate_icon: float = 0, flip_icon: bool = False) -> PJPushButton:
         button = PJTogglePushButton(name, flip_icon = flip_icon)
         button.setObjectName(name)
         button.setToolTip(tooltip)
@@ -615,7 +706,7 @@ class GUIItems:
             except: pass
         return button
 
-    def make_label(self, name: str, tooltip: str = "") -> QtWidgets.QLabel:
+    def make_label(self, name: str = "", tooltip: str = "") -> QtWidgets.QLabel:
         label = QtWidgets.QLabel(name)
         label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
         label.setObjectName(name)
@@ -623,7 +714,7 @@ class GUIItems:
 
         return label
 
-    def make_radio_button(self, name: str, tooltip: str = "", icon = None, rotate_icon: float = 0) -> PJRadioButton:
+    def make_radio_button(self, name: str = "", tooltip: str = "", icon = None, rotate_icon: float = 0) -> PJRadioButton:
         button = PJRadioButton(name)
         button.setObjectName(name)
         button.setToolTip(tooltip)
@@ -637,7 +728,7 @@ class GUIItems:
             except: pass
         return button
     
-    def make_checkbox(self, name: str, tooltip: str = "", icon = None, rotate_icon: float = 0) -> PJCheckBox:
+    def make_checkbox(self, name: str = "", tooltip: str = "", icon = None, rotate_icon: float = 0) -> PJCheckBox:
         box = PJCheckBox(name)
         box.setObjectName(name)
         box.setToolTip(tooltip)
@@ -661,7 +752,7 @@ class GUIItems:
         
         return box
 
-    def make_line_edit(self, name: str, tooltip: str = "", unit = None, limits = None, number_type: str = "float") -> PJLineEdit:
+    def make_line_edit(self, name: str = "", tooltip: str = "", unit = None, limits = None, number_type: str = "float") -> PJLineEdit:
         line_edit = PJLineEdit(unit = unit, limits = limits, number_type = number_type)
         line_edit.setObjectName(name)
         line_edit.setToolTip(tooltip)
@@ -670,7 +761,7 @@ class GUIItems:
         
         return line_edit
 
-    def make_progress_bar(self, name, tooltip: str = "") -> PJProgressBar:
+    def make_progress_bar(self, name: str = "", tooltip: str = "") -> PJProgressBar:
         bar = PJProgressBar()
         
         bar.setObjectName(name)
@@ -700,12 +791,22 @@ class GUIItems:
         
         return console
 
-    def make_slider_line_edit(self, name: str = "", tooltip: str = "", unit: str = "deg") -> SliderLineEdit:
-        slider_line_edit = SliderLineEdit(unit = unit)
+    def make_slider_line_edit(self, name: str = "", tooltip: str = "") -> PJSliderLineEdit:
+        slider_line_edit = PJSliderLineEdit()
         slider_line_edit.setObjectName(name)
         slider_line_edit.setToolTip(tooltip)
         
         return slider_line_edit
+
+    def make_slider(self, name: str = "", tooltip: str = "", orientation: str = "h") -> PJSlider:
+        slider = PJSlider(orientation = orientation)
+        slider.setObjectName(name)
+        slider.setToolTip(tooltip)
+        slider.setMinimum(-10)
+        slider.setMaximum(10)
+        slider.setValue(10)
+        
+        return slider
 
     def make_phase_slider(self, name: str = "", tooltip: str = "", unit: str = "deg", phase_0_icon = None, phase_180_icon = None) -> PhaseSlider:
         phase_slider = PhaseSlider(unit = unit, phase_0_icon = phase_0_icon, phase_180_icon = phase_180_icon)
@@ -713,6 +814,14 @@ class GUIItems:
         phase_slider.setToolTip(tooltip)
         
         return phase_slider        
+
+    def make_image_view(self) -> PJImageView:
+        pg.setConfigOptions(imageAxisOrder = "row-major", antialias = True)
+
+        plot_item = pg.PlotItem()
+        image_view = PJImageView(view = plot_item)      
+        
+        return image_view
     
     def line_widget(self, orientation: str = "v", thickness: int = 1) -> QtWidgets.QFrame:
         line = QtWidgets.QFrame()
