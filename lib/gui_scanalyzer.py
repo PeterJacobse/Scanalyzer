@@ -155,7 +155,8 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
             "gaussian": make_checkbox("Gauss", "Gaussian blur applied\n(Shift + G) or provide a width to toggle", self.icons.get("gaussian")),
             
             "rotation": make_checkbox("", "Show the scan frame rotation\n(R)", self.icons.get("rotation")),
-            "offset": make_checkbox("", "Show the scan frame offset(O)", self.icons.get("offset"))
+            "offset": make_checkbox("", "Show the scan frame offset(O)", self.icons.get("offset")),
+            "rot_trans": make_checkbox("", "Show the scan in the scan window coordinates\nwith rotation and translation\n(R)", self.icons.get("rot_trans"))
         }
 
         return checkboxes
@@ -376,7 +377,7 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
         fcd_layout.addLayout(layouts["channel_navigation"])
         
         [layouts["background_buttons"].addWidget(button) for button in self.background_buttons]
-        [layouts["background_buttons"].addWidget(checkboxes[name]) for name in ["rotation", "offset"]]
+        [layouts["background_buttons"].addWidget(checkboxes[name]) for name in ["rot_trans"]] #["rotation", "offset"]]
         p_layout = layouts["matrix_processing"]
         [p_layout.addWidget(checkboxes[checkbox_name], 0, index) for index, checkbox_name in enumerate(["sobel", "normal", "laplace"])]
         p_layout.addWidget(checkboxes["gaussian"], 1, 1)

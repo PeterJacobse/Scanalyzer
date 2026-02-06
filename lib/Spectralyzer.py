@@ -3,30 +3,25 @@ import numpy as np
 from PyQt6 import QtCore, QtGui, QtWidgets
 import pyqtgraph as pg
 import pyqtgraph.exporters as expts
-from . import GUIItems, PJTargetItem, DataProcessing, FileFunctions
+from . import DataProcessing, FileFunctions
 from .gui_spectralyzer import SpectralyzerGUI
 from datetime import datetime
 
 
 
-color_list = ["#FFFFFF", "#FFFF20", "#20FFFF", "#FF80FF", "#60FF60", "#FF6060", "#8080FF", "#B0B0B0", "#FFB010", "#A050FF", "#909020", "#00A0A0", "#B030A0", "#40B040", "#B04040", "#5050E0"]
-
-
-
 class Spectralyzer:
-    def __init__(self, data_folder_path: str = "", scan_file_name: str = "", scan_image: np.ndarray = np.zeros((2, 2))):
+    def __init__(self, data_folder_path: str = "", scan_file_name: str = "", scan_image: np.ndarray = np.zeros((2, 2)), scan_frame: dict = {}, spec_targets: list = []):
         super().__init__()
         
         self.scan_file_name = scan_file_name
+        self.spec_targets = spec_targets
         self.parameters_init()
         self.gui = SpectralyzerGUI()
-        self.gui.image_item.setImage(scan_image)        
-        self.gui.line_edits["scan_file_name"].setText(f"{self.scan_file_name}")
+        self.show_scan(scan_image, scan_frame)
         
-        self.connect_buttons()
-        self.set_focus_row(0)
-        
+        self.connect_buttons()        
         if os.path.exists(data_folder_path): self.load_folder(data_folder_path)
+        self.set_focus_row(0)
 
 
 
@@ -79,12 +74,47 @@ class Spectralyzer:
         # Some attributes
         self.focus_row = 0
         self.direction_index = 2
+        self.view_mode = "dark"
         self.files_dict = {}
         self.spec_list = np.array((0, 3), dtype = object)
         self.file_functions = FileFunctions()
         self.data = DataProcessing()
 
+    def show_scan(self, scan_image: np.ndarray = np.zeros((2, 2)), scan_frame: dict = {}) -> None:
+        img = self.gui.image_item
+        plot = self.gui.plot_item
+        
+        img.setImage(scan_image)
+        scan_range_nm = scan_frame.get("scan_range_nm", [100, 100])
+        [w, h] = scan_range_nm
+        img.setRect(-0.5 * w, -0.5 * h, w, h)
+        plot.addItem(img)
+        
+        for target in self.spec_targets:
+            plot.addItem(target)
+            target.clicked.connect(self.target_clicked)
+        
+        self.gui.line_edits["scan_file_name"].setText(f"{self.scan_file_name}")
+        
+        return
 
+
+
+    def target_clicked(self, text: str = "") -> None:
+        target_index = None
+        target_spec_name = text.split("\n")[0]
+        
+        for row, combobox in self.gui.plot_number_comboboxes.items():
+            cbb_index = combobox.currentIndex()
+            cbb_spectrum = self.spec_list[cbb_index]
+            cbb_spec_name = cbb_spectrum[0]
+            
+            if cbb_spec_name == ">>" + target_spec_name:
+                target_index = int(row)
+                break
+
+        if isinstance(target_index, int): self.set_focus_row(target_index)        
+        return
 
     def connect_buttons(self) -> None:
         buttons = self.gui.buttons
@@ -101,7 +131,8 @@ class Spectralyzer:
         buttons["log_abs_0"].clicked.connect(self.update_processing_flags)
         buttons["log_abs_1"].clicked.connect(self.update_processing_flags)
         buttons["differentiate_0"].clicked.connect(self.update_processing_flags)
-        buttons["differentiate_1"].clicked.connect(self.update_processing_flags) 
+        buttons["differentiate_1"].clicked.connect(self.update_processing_flags)
+        buttons["view_mode"].clicked.connect(self.change_view_mode)
         
         chan_sel_boxes = [self.gui.channel_selection_comboboxes[name] for name in ["x_axis", "y_axis_0", "y_axis_1"]]
         [combobox.currentIndexChanged.connect(lambda: self.update_processing_flags(toggle_channelbox = False)) for combobox in chan_sel_boxes]
@@ -160,6 +191,22 @@ class Spectralyzer:
         
         self.gui.dataDropped.connect(self.load_folder)
         
+        return
+
+    def change_view_mode(self) -> None:
+        checked = self.gui.buttons["view_mode"].isChecked()
+        if checked:
+            self.view_mode = "bright"
+            self.gui.buttons["view_mode"].setIcon(self.icons.get("bright_mode"))
+            for number in range(len(self.gui.left_arrows)):
+                self.gui.checkboxes[f"{number}"].setStyleSheet(f"QCheckBox {{color: {self.gui.inv_color_list[number]}; background-color: white; font-weight: bold}}")
+        else:
+            self.view_mode = "dark"
+            self.gui.buttons["view_mode"].setIcon(self.icons.get("dark_mode"))
+            for number in range(len(self.gui.left_arrows)):
+                self.gui.checkboxes[f"{number}"].setStyleSheet(f"QCheckBox {{color: {self.gui.color_list[number]}; background-color: black; font-weight: bold}}")
+        
+        self.redraw_spectra()        
         return
 
     def on_select_file(self) -> None:
@@ -407,6 +454,10 @@ class Spectralyzer:
         graph_1 = self.gui.plot_items["graph_1"]
         [graph.clear() for graph in [graph_0, graph_1]]
         
+        # Set the color scheme
+        if self.view_mode == "bright": [widget.setBackground("#ffffff") for widget in [widget_0, widget_1]]
+        else: [widget.setBackground("#000000") for widget in [widget_0, widget_1]]
+        
         # Redraw the spectra        
         flags = self.data.spec_processing_flags
         
@@ -432,6 +483,12 @@ class Spectralyzer:
         except:
             pass
         
+        # Remove the target from the scan image
+        plot = self.gui.plot_item
+        for item in plot.items[:]:
+            if item is not self.gui.image_item:
+                plot.removeItem(item)
+        
         # Set the pen and successive spectrum offset properties from processing flags
         line_width = flags.get("line_width", 1)
         opacity = flags.get("opacity", 1)
@@ -444,20 +501,32 @@ class Spectralyzer:
        
         index = 0
         for i in range(len(plot_number_comboboxes)):            
-            if not checkboxes[f"{i}"].isChecked(): continue
+            if not checkboxes[f"{i}"].isChecked(): continue # Only plot if the corresponding spectrum is checked
             
             index += 1
             
             try:
+                if self.view_mode == "bright": color = self.gui.inv_color_list[i]
+                else: color = self.gui.color_list[i]
+                
+                # Find the target in the spec_targets, and color and plot it accordingly in the scan image
+                spec_index = plot_number_comboboxes[f"{i}"].currentIndex()
+                spec_name = self.spec_list[spec_index, 0]
+                
+                for target in self.spec_targets:
+                    target_spec_name = ">>" + target.tip_text.split("\n")[0]                    
+                    if spec_name == target_spec_name:
+                        pen = pg.mkPen(color = color, width = 2)
+                        target.setPen(pen)
+                        plot.addItem(target)
+                
                 # Create pen with color, width, and opacity
-                color = color_list[i]
                 color = color + opacity_hex
-                pen = pg.mkPen(color = color, width = line_width)
+                pen = pg.mkPen(color = color, width = line_width)                
                 pen.setCapStyle(QtCore.Qt.PenCapStyle.RoundCap)
                 pen.setJoinStyle(QtCore.Qt.PenJoinStyle.RoundJoin)
                 
                 # Retrieve the spec object
-                spec_index = plot_number_comboboxes[f"{i}"].currentIndex()
                 spec_object = self.spec_list[spec_index, 2]
                 spec_signal = spec_object.signals
                                 
@@ -465,7 +534,8 @@ class Spectralyzer:
                 y_0_data = spec_signal.get(y_0_channel, None)
                 y_0_bwd_data = spec_signal.get(y_0_bwd_channel, None)                
                 if not isinstance(x_data, np.ndarray) or not isinstance(y_0_data, np.ndarray): continue
-
+                
+                # Build and process the spectrum dict object
                 spectrum = {"x_axis": x_channel, "x_data": x_data, "y_axis": y_0_channel, "y_data": y_0_data}
                 if y_0_bwd_channel: spectrum.update({"y_bwd_data": y_0_bwd_data})
                 (processed_spectrum, error) = self.data.process_spectrum(spectrum, 0)
@@ -477,9 +547,10 @@ class Spectralyzer:
                     if isinstance(offset_0, float): y_data = [y_data[i] + index * offset_0 for i in range(len(y_data))]
                     graph_0.plot(x_data, y_data, pen = pen)
                     
-                    if "y_bwd_data" in processed_spectrum.keys():
+                    if "y_bwd_data" in processed_spectrum.keys() and "x_bwd_data" in processed_spectrum.keys():
+                        x_data = processed_spectrum.get("x_bwd_data")
                         y_data = processed_spectrum.get("y_bwd_data")
-                        if isinstance(offset_0, float): y_data += index * offset_0
+                        if isinstance(offset_0, float): y_data = [y_data[i] + index * offset_0 for i in range(len(y_data))]
                         graph_0.plot(x_data, y_data, pen = pen)
 
             except Exception as e:
@@ -502,9 +573,10 @@ class Spectralyzer:
                     if isinstance(offset_1, float): y_data = [y_data[i] + index * offset_1 for i in range(len(y_data))]
                     graph_1.plot(x_data, y_data, pen = pen)
                     
-                    if "y_bwd_data" in processed_spectrum.keys():
+                    if "y_bwd_data" in processed_spectrum.keys() and "x_bwd_data" in processed_spectrum.keys():
+                        x_data = processed_spectrum.get("x_bwd_data")
                         y_data = processed_spectrum.get("y_bwd_data")
-                        if isinstance(offset_0, float): y_data += index * offset_1
+                        if isinstance(offset_0, float): y_data = [y_data[i] + index * offset_1 for i in range(len(y_data))]
                         graph_1.plot(x_data, y_data, pen = pen)
             
             except Exception as e:
@@ -559,6 +631,8 @@ class Spectralyzer:
                 self.gui.focus_row_combobox.selectIndex(new_row)
             except Exception as e:
                 print(f"Error changing the focus row: {e}")
+
+
         
         # Change the key shortcuts
         try:

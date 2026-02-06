@@ -133,6 +133,9 @@ class DataProcessing():
         flags = self.spec_processing_flags
                 
         try:
+            (spectrum, error) = self.crop_unfinished_spectrum(spectrum)
+            if error: raise Exception(error)
+            
             (spectrum, error) = self.choose_direction(spectrum)
             if error: raise Exception(error)
             
@@ -146,7 +149,42 @@ class DataProcessing():
             error = e
         
         return (spectrum, error)
-    
+
+    def crop_unfinished_spectrum(self, spectrum: dict) -> tuple[dict, bool | str]:
+        error = False
+        
+        try:
+            x_data = spectrum.get("x_data")
+            y_data = spectrum.get("y_data")
+            
+            mask = np.isfinite(x_data) & np.isfinite(y_data)
+            if np.all(mask): first_nan_index = len(x_data)
+            else: first_nan_index = np.argmax(~mask)
+
+            # Slice both arrays up to the first NaN index
+            x_data_cropped = x_data[:first_nan_index]
+            y_data_cropped = y_data[:first_nan_index]
+            
+            spectrum.update({"x_data": x_data_cropped, "y_data": y_data_cropped})
+            
+            if "y_bwd_data" in spectrum.keys():
+                y_data = spectrum.get("y_bwd_data")
+   
+                mask = np.isfinite(x_data) & np.isfinite(y_data)
+                if np.all(mask): first_nan_index = len(x_data)
+                else: first_nan_index = np.argmax(~mask)
+
+                # Slice both arrays up to the first NaN index
+                x_data_cropped = x_data[:first_nan_index]
+                y_data_cropped = y_data[:first_nan_index]
+                
+                spectrum.update({"x_bwd_data": x_data_cropped, "y_bwd_data": y_data_cropped})
+                
+        except Exception as e:
+            error = e
+        
+        return (spectrum, error)
+
     def choose_direction(self, spectrum: dict) -> tuple[dict, bool | str]:
         error = False
         
@@ -156,14 +194,18 @@ class DataProcessing():
                 case "fwd":
                     spectrum.pop("y_bwd_data")
                 case "bwd":
+                    x_bwd_data = spectrum.get("x_bwd_data")
                     y_bwd_data = spectrum.get("y_bwd_data")
-                    spectrum.update({"y_data": y_bwd_data})
+                    spectrum.update({"y_data": y_bwd_data, "x_data": x_bwd_data})
+                    spectrum.pop("x_bwd_data")
                     spectrum.pop("y_bwd_data")
                 case "average":
+                    x_fwd_data = spectrum.get("x_data")
+                    x_bwd_data = spectrum.get("x_bwd_data")
                     y_fwd_data = spectrum.get("y_data")
                     y_bwd_data = spectrum.get("y_bwd_data")
+                    
                     if isinstance(y_bwd_data, np.ndarray):
-                        
                         len_data = min(len(y_fwd_data), len(y_bwd_data))
                         y_data = [0.5 * y_fwd_data[index] + 0.5 * y_bwd_data[index] for index in range(len_data)]
                     else:
@@ -223,6 +265,11 @@ class DataProcessing():
         except Exception as e:
             error = e
         
+        return (spectrum, error)
+
+    def moving_average(self, spectrum: dict, window: int) -> tuple[dict, bool | str]:
+        error = False
+
         return (spectrum, error)
 
 
@@ -660,7 +707,8 @@ class DataProcessing():
         error = False
 
         try:
-            data_sorted = np.sort(image.flatten())
+            data_sorted_c = np.sort(image.flatten())
+            data_sorted = np.real(data_sorted_c)
             n_pixels = len(data_sorted)
             data_firsthalf = data_sorted[:int(n_pixels / 2)]
             data_secondhalf = data_sorted[-int(n_pixels / 2):]

@@ -6,10 +6,13 @@ import numpy as np
 
 
 class PJTargetItem(pg.TargetItem):
-    def __init__(self, pos = None, size = 10, pen = "y", tip_text = ""):
-        super().__init__(pos = pos, size = size, pen = pen)
+    clicked = QtCore.pyqtSignal(str)
+    
+    def __init__(self, pos = None, rel_pos = [], size: int = 10, pen = "y", tip_text: str = ""):
+        super().__init__(pos = pos, size = size, pen = pen, movable = False)
         self.size = size
         self.tip_text = tip_text
+        self.rel_pos = rel_pos # Position relative to the scan frame
 
         self.text_item = pg.TextItem(tip_text, anchor = (0, 1), fill = 'k')
         self.text_item.setParentItem(self)
@@ -31,6 +34,13 @@ class PJTargetItem(pg.TargetItem):
     def deactivate_tooltip(self) -> None:
         self.text_item.hide()
         return
+
+    def mouseClickEvent(self, event) -> None:
+        if event.button() == QtCore.Qt.MouseButton.LeftButton:
+            event.accept()
+            self.clicked.emit(self.tip_text)
+        else:
+            super().mouseClickEvent(event)
 
 
 

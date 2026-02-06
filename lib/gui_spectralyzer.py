@@ -50,6 +50,21 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
 
 
 
+    # Color function
+    def color_subtract(self, color1: str, color2: str) -> str:
+        if color1.startswith("#"): color1_hex = "0x" + color1[1:]
+        else: color1_hex = color1
+        
+        if color2.startswith("#"): color2_hex = "0x" + color2[1:]
+        else: color2_hex = color1
+        
+        diff_hex = hex(int(color1_hex, 16) - int(color2_hex, 16))
+        result = "#" + diff_hex[2:].zfill(6)
+        
+        return result
+
+
+
     # 1: Read icons from file.
     def get_icons(self):
         lib_folder = os.path.dirname(os.path.abspath(__file__))
@@ -66,6 +81,7 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
                 pass
 
         self.color_list = ["#FFFFFF", "#FFFF20", "#20FFFF", "#FF80FF", "#60FF60", "#FF6060", "#8080FF", "#B0B0B0", "#FFB010", "#A050FF", "#909020", "#00A0A0", "#B030A0", "#40B040", "#B04040", "#5050E0"]
+        self.inv_color_list = [self.color_subtract("#FFFFFF", color) for color in self.color_list]
         return icons
 
 
@@ -114,6 +130,7 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
             "direction": make_button("", "Toggle the spectroscopy direction\n(forward and backward)", self.icons.get("fwd_bwd")),
             "differentiate_0": make_toggle_button("", "Differentiate the spectrum", self.icons.get("derivative")),
             "differentiate_1": make_toggle_button("", "Differentiate the spectrum", self.icons.get("derivative")),
+            "view_mode": make_toggle_button("", "Toggle between bright mode and dark mode", self.icons.get("dark_mode")),
             
             "open_folder": make_button("", "Load data folder", self.icons.get("folder_yellow")),
             "view_folder": make_button("", "View data folder", self.icons.get("view_folder")),
@@ -143,7 +160,7 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
         checkboxes = {}
         for number in range(16):
             checkboxes.update({f"{number}": make_checkbox(f"{number}", f"toggle visibility of plot {number} (space when row is in focus)")})
-            checkboxes[f"{number}"].setStyleSheet(f"color: {self.color_list[number]};")
+            checkboxes[f"{number}"].setStyleSheet(f"QCheckBox {{color: {self.color_list[number]}; font-weight: bold}}")
         
         checkboxes.update({"all": make_checkbox("all", f"toggle visibility of all plots")})
         
@@ -241,10 +258,14 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
         
         return layouts
 
-    def make_image_widget(self) -> pg.ImageView:
+    def make_image_widget(self) -> pg.GraphicsLayoutWidget:
         #pg.setConfigOptions(imageAxisOrder = "row-major", antialias = True)
         
-        image_widget = pg.GraphicsLayoutWidget()
+        image_widget = pg.GraphicsLayoutWidget(show = True)
+        self.plot_item = image_widget.addPlot()
+        self.plot_item.setAspectLocked(True)
+        self.plot_item.invertY(False)
+        self.image_item = pg.ImageItem()
         
         return image_widget
 
@@ -341,8 +362,8 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
         [ss_layout.addWidget(self.metadata_line_edits[f"{i}"], i + 1, 5) for i in range(len(self.metadata_line_edits))]
         
         # x axis
-        [layouts["x_axis"].addWidget(widget) for widget in [buttons["x_axis"], self.channel_selection_comboboxes["x_axis"]]]
-        layouts["x_axis"].setStretch(2, 3)
+        [layouts["x_axis"].addWidget(widget) for widget in [buttons["x_axis"], self.channel_selection_comboboxes["x_axis"], buttons["view_mode"]]]
+        layouts["x_axis"].setStretch(1, 3)
         widgets["x"].setLayout(layouts["x_axis"])
         
         # Plots
@@ -358,17 +379,12 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
         [layouts["width_opacity"].addWidget(widget, 1, index) for index, widget in enumerate(self.opacity_options)]
 
         # Right column: Image view
-        image_widget = self.image_widget
-        self.view_box = image_widget.addViewBox()
-        self.view_box.setAspectLocked(True)
-        self.view_box.invertY(True)
-        self.image_item = pg.ImageItem()
-        self.view_box.addItem(self.image_item)
-        
-        #[layouts["right_column"].addWidget(widget, index, 0) for index, widget in enumerate(self.option_widgets_col0)]
-        #[layouts["right_column"].addWidget(widget, index, 1) for index, widget in enumerate(self.option_widgets_col1)]
-        #layouts["right_column"].addLayout(layouts["width_opacity"], 0, 0, 1, 3)
-        
+        #self.view_box = self.image_widget.getViewBox()
+        #self.view_box.setAspectLocked(True)
+        #self.view_box.invertY(True)
+        #self.image_item = pg.ImageItem()
+        #self.view_box.addItem(self.image_item)
+                        
         [layouts["right_column"].addWidget(widget, 0, index) for index, widget in enumerate(self.line_width_options)]
         [layouts["right_column"].addWidget(widget, 1, index) for index, widget in enumerate(self.opacity_options)]
         [layouts["right_column"].addWidget(widget, 2, index, 1, 3) for index, widget in enumerate(self.option_buttons_0)]
@@ -376,7 +392,7 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
         [layouts["right_column"].addWidget(widget, index + 3, 0) for index, widget in enumerate(self.plot0_options_col0)]
         [layouts["right_column"].addWidget(widget, index + 3, 1) for index, widget in enumerate(self.plot0_options_col1)]
         [layouts["right_column"].addWidget(widget, index + 3, 2) for index, widget in enumerate(self.plot0_options_col2)]
-        layouts["right_column"].addWidget(image_widget, 6, 0, 1, 3)
+        layouts["right_column"].addWidget(self.image_widget, 6, 0, 1, 3)
         layouts["right_column"].addWidget(self.line_edits["scan_file_name"], 7, 0, 1, 3)
         [layouts["right_column"].addWidget(widget, index + 8, 0) for index, widget in enumerate(self.plot1_options_col0)]
         [layouts["right_column"].addWidget(widget, index + 8, 1) for index, widget in enumerate(self.plot1_options_col1)]

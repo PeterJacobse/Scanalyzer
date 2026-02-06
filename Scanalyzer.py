@@ -19,6 +19,7 @@ class Scanalyzer(QtCore.QObject):
         if last_file: self.load_folder(last_file)
         
         self.gui.show()
+        self.open_spectralyzer()
 
 
 
@@ -119,11 +120,10 @@ class Scanalyzer(QtCore.QObject):
         radio_buttons["bg_none"].setShortcut(QSeq(QKey.Key_0))
         radio_buttons["bg_plane"].setShortcut(QSeq(QKey.Key_P))
         radio_buttons["bg_linewise"].setShortcut(QSeq(QKey.Key_L))
-        checkboxes["rotation"].setShortcut(QSeq(QKey.Key_R))
-        checkboxes["offset"].setShortcut(QSeq(QKey.Key_O))
+        checkboxes["rot_trans"].setShortcut(QSeq(QKey.Key_R))
 
         # Matrix operations
-        [checkboxes[operation].clicked.connect(self.update_processing_flags) for operation in ["sobel", "gaussian", "normal", "fft", "laplace", "rotation", "offset"]]
+        [checkboxes[operation].clicked.connect(self.update_processing_flags) for operation in ["sobel", "gaussian", "normal", "fft", "laplace", "rot_trans"]] #"rotation", "offset"]]
         checkboxes["sobel"].setShortcut(QSeq(QMod.SHIFT | QKey.Key_S))
         checkboxes["normal"].setShortcut(QSeq(QMod.SHIFT | QKey.Key_N))
         checkboxes["gaussian"].setShortcut(QSeq(QMod.SHIFT | QKey.Key_G))
@@ -410,32 +410,30 @@ class Scanalyzer(QtCore.QObject):
 
         for index, data in enumerate(associated_spectrum_list):
             try:
+                # These are the global coordinates, in the coordinate system of the STM
                 x_nm = data[1]
                 y_nm = data[2]
                 
+                # Calculate the offset of the targets with reference to the scan frame instead of the global coordinates
                 frame = flags.get("frame")
-                if not flags.get("offset"):
-                    offset_nm = frame.get("offset (nm)")
-                    
-                    x_relative_to_frame = x_nm - offset_nm[0]
-                    y_relative_to_frame = y_nm - offset_nm[1]
-                    
-                    x_nm = x_relative_to_frame
-                    y_nm = y_relative_to_frame
-
-                if not flags.get("rotation"):
-                    angle_deg = frame.get("angle (deg)")
-                    
-                    cos_theta = np.cos(angle_deg * np.pi / 180)
-                    sin_theta = np.sin(angle_deg * np.pi / 180)
-
-                    x_rotated = cos_theta * x_nm - sin_theta * y_nm
-                    y_rotated = cos_theta * y_nm + sin_theta * x_nm
+                offset_nm = frame.get("offset (nm)")
+                angle_deg = frame.get("angle (deg)")
                 
+                x_relative_to_frame = x_nm - offset_nm[0]
+                y_relative_to_frame = y_nm - offset_nm[1]
+                
+                cos_theta = np.cos(angle_deg * np.pi / 180)
+                sin_theta = np.sin(angle_deg * np.pi / 180)
+
+                x_rotated = cos_theta * x_relative_to_frame - sin_theta * y_relative_to_frame
+                y_rotated = cos_theta * y_relative_to_frame + sin_theta * x_relative_to_frame
+                
+                # The scan frame is shown in its own coordinates: set the target positions accordingly
+                if not flags.get("rotation") or not flags.get("offset"):
                     x_nm = x_rotated
                     y_nm = y_rotated
 
-                target_item = PJTargetItem(pos = [x_nm, y_nm], size = 10, tip_text = f"{data[0]}\n{data[4]}")
+                target_item = PJTargetItem(pos = [x_nm, y_nm], rel_pos = [x_rotated, y_rotated], size = 10, tip_text = f"{data[0]}\n{data[4]}")
                 
                 self.spec_targets.append(target_item)
             except Exception as e:
@@ -595,7 +593,13 @@ class Scanalyzer(QtCore.QObject):
     # Spectroscopy
     def open_spectralyzer(self) -> None:
         try:
-            self.spectralyzer = Spectralyzer(self.paths["data_folder"], self.scan_file_name, self.processed_scan)
+            # Translate the spec_targets back into the reference frame of the scan if the scan was shown in global coordinates
+            spec_targets = self.spec_targets
+            for target in spec_targets:
+                rel_pos = target.rel_pos
+                target.setPos(rel_pos[0], rel_pos[1])
+                        
+            self.spectralyzer = Spectralyzer(self.paths["data_folder"], self.scan_file_name, self.processed_scan, self.frame, self.spec_targets)
             self.spectralyzer.show()
         except Exception as e:
             print(f"Error. {e}")
@@ -687,7 +691,9 @@ class Scanalyzer(QtCore.QObject):
         bg_methods = ["none", "plane", "linewise"]
         for method in bg_methods:
             if radio_buttons[f"bg_{method}"].isChecked(): flags.update({"background": f"{method}"})
-        [flags.update({operation: checkboxes[operation].isChecked()}) for operation in ["rotation", "offset"]]
+        
+        if checkboxes["rot_trans"].isChecked(): flags.update({"rotation": True, "offset": True})
+        else: flags.update({"rotation": False, "offset": False})
         
         # Limits
         lim_methods = ["full", "percentiles", "deviations", "absolute"]
