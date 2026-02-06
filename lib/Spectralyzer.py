@@ -132,6 +132,7 @@ class Spectralyzer:
         buttons["log_abs_1"].clicked.connect(self.update_processing_flags)
         buttons["differentiate_0"].clicked.connect(self.update_processing_flags)
         buttons["differentiate_1"].clicked.connect(self.update_processing_flags)
+        buttons["smooth"].clicked.connect(self.update_processing_flags)
         buttons["view_mode"].clicked.connect(self.change_view_mode)
         
         chan_sel_boxes = [self.gui.channel_selection_comboboxes[name] for name in ["x_axis", "y_axis_0", "y_axis_1"]]
@@ -150,6 +151,7 @@ class Spectralyzer:
 
         [self.gui.line_edits[name].editingFinished.connect(lambda: self.update_processing_flags(toggle_channelbox = False)) for name in ["line_width", "opacity"]]
         [self.gui.line_edits[name].editingFinished.connect(lambda: self.update_processing_flags(toggle_channelbox = False)) for name in ["offset_0", "offset_1"]]
+        self.gui.line_edits["window"].editingFinished.connect(self.update_processing_flags)
 
         QKey = QtCore.Qt.Key
         QSeq = QtGui.QKeySequence
@@ -398,7 +400,7 @@ class Spectralyzer:
         self.update_file_names()
         self.update_metadata_display()
         
-        # Line width, opacity, offsets
+        # Line width, opacity, offsets, smoothing window
         line_width_str = line_edits["line_width"].text()
         numbers = self.data.extract_numbers_from_str(line_width_str)
         if len(numbers) < 1: line_width = 2
@@ -422,6 +424,13 @@ class Spectralyzer:
         if len(numbers) < 1: offset_1 = 0
         else: offset_1 = numbers[0]
         
+        window_str = line_edits["window"].text()
+        numbers = self.data.extract_numbers_from_str(window_str)
+        if len(numbers) < 1: window = 0
+        else: window = int(numbers[0])
+        
+        moving_average = self.gui.buttons["smooth"].isChecked()
+        
         # More operations
         log_abs_0 = self.gui.buttons["log_abs_0"].isChecked()
         log_abs_1 = self.gui.buttons["log_abs_1"].isChecked()
@@ -433,10 +442,12 @@ class Spectralyzer:
             "opacity": opacity,
             "offset_0": offset_0,
             "offset_1": offset_1,
+            "moving_average": moving_average,
+            "moving_average_window": window,
             "log_abs_0": log_abs_0,
             "log_abs_1": log_abs_1,
             "differentiate_0": differentiate_0,
-            "differentiate_1": differentiate_1            
+            "differentiate_1": differentiate_1
         })
         
         self.redraw_spectra()

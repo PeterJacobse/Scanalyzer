@@ -130,6 +130,7 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
             "direction": make_button("", "Toggle the spectroscopy direction\n(forward and backward)", self.icons.get("fwd_bwd")),
             "differentiate_0": make_toggle_button("", "Differentiate the spectrum", self.icons.get("derivative")),
             "differentiate_1": make_toggle_button("", "Differentiate the spectrum", self.icons.get("derivative")),
+            "smooth": make_toggle_button("", "Smooth by computing the moving average", self.icons.get("smooth")),
             "view_mode": make_toggle_button("", "Toggle between bright mode and dark mode", self.icons.get("dark_mode")),
             
             "open_folder": make_button("", "Load data folder", self.icons.get("folder_yellow")),
@@ -149,8 +150,6 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
             left_arrows.update({f"{number}": make_button("", f"decrease plot number {number} (left arrow when row is highlighted)", self.icons.get("single_arrow"), rotate_icon = 180)})
             right_arrows.update({f"{number}": make_button("", f"increase plot number {number} (right arrow when row is highlighted)", self.icons.get("single_arrow"))})
             consecutives.update({f"{number}": make_button("", "Set consecutive spectra below", self.icons.get("consecutive"))})
-
-        self.option_buttons_0 = [buttons[name] for name in ["direction"]]
 
         return (buttons, left_arrows, right_arrows, consecutives)
 
@@ -198,8 +197,9 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
         line_edits = {
             "offset_0": make_line_edit("0", "Offset between successive spectra"),
             "offset_1": make_line_edit("0", "Offset between successive spectra"),
-            "line_width": make_line_edit("2 px", "Line width", unit = "px"),
-            "opacity": make_line_edit("100 %", "Opacity", unit = "%"),
+            "line_width": make_line_edit("2 px", "Line width", unit = "px", limits = [0, 10], number_type = "int"),
+            "opacity": make_line_edit("100 %", "Opacity", unit = "%", limits = [0, 100], number_type = "int"),
+            "window": make_line_edit("1 px", "Window size for moving average", unit = "px", limits = [1, 20], number_type = "int"),
             
             "file_name_0": make_line_edit("File name 0"),
             "file_name_1": make_line_edit("File name 1"),
@@ -229,6 +229,9 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
         self.plot1_options_col0 = [buttons[name] for name in ["y_axis_1", "offset_1", "save_1"]]
         self.plot1_options_col1 = [self.channel_selection_comboboxes["y_axis_1"], line_edits["offset_1"], line_edits["file_name_1"]]
         self.plot1_options_col2 = [buttons[name] for name in ["differentiate_1", "log_abs_1", "output_folder_1"]]
+        
+        self.option_buttons_0 = [buttons[name] for name in ["direction", "view_mode"]]
+        self.option_buttons_1 = [line_edits["window"], buttons["smooth"]]
 
         return (line_edits, metadata_line_edits)
 
@@ -253,7 +256,8 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
             "plots": make_layout("v"),
             "right_column": make_layout("g"),
             "width_opacity": make_layout("g"),
-            "i/o": make_layout("h")
+            "i/o": make_layout("h"),
+            "global_options": make_layout("h")
         }
         
         return layouts
@@ -362,7 +366,7 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
         [ss_layout.addWidget(self.metadata_line_edits[f"{i}"], i + 1, 5) for i in range(len(self.metadata_line_edits))]
         
         # x axis
-        [layouts["x_axis"].addWidget(widget) for widget in [buttons["x_axis"], self.channel_selection_comboboxes["x_axis"], buttons["view_mode"]]]
+        [layouts["x_axis"].addWidget(widget) for widget in [buttons["x_axis"], self.channel_selection_comboboxes["x_axis"]]]
         layouts["x_axis"].setStretch(1, 3)
         widgets["x"].setLayout(layouts["x_axis"])
         
@@ -377,27 +381,27 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
         
         [layouts["width_opacity"].addWidget(widget, 0, index) for index, widget in enumerate(self.line_width_options)]
         [layouts["width_opacity"].addWidget(widget, 1, index) for index, widget in enumerate(self.opacity_options)]
-
-        # Right column: Image view
-        #self.view_box = self.image_widget.getViewBox()
-        #self.view_box.setAspectLocked(True)
-        #self.view_box.invertY(True)
-        #self.image_item = pg.ImageItem()
-        #self.view_box.addItem(self.image_item)
-                        
-        [layouts["right_column"].addWidget(widget, 0, index) for index, widget in enumerate(self.line_width_options)]
-        [layouts["right_column"].addWidget(widget, 1, index) for index, widget in enumerate(self.opacity_options)]
-        [layouts["right_column"].addWidget(widget, 2, index, 1, 3) for index, widget in enumerate(self.option_buttons_0)]
         
-        [layouts["right_column"].addWidget(widget, index + 3, 0) for index, widget in enumerate(self.plot0_options_col0)]
-        [layouts["right_column"].addWidget(widget, index + 3, 1) for index, widget in enumerate(self.plot0_options_col1)]
-        [layouts["right_column"].addWidget(widget, index + 3, 2) for index, widget in enumerate(self.plot0_options_col2)]
-        layouts["right_column"].addWidget(self.image_widget, 6, 0, 1, 3)
-        layouts["right_column"].addWidget(self.line_edits["scan_file_name"], 7, 0, 1, 3)
-        [layouts["right_column"].addWidget(widget, index + 8, 0) for index, widget in enumerate(self.plot1_options_col0)]
-        [layouts["right_column"].addWidget(widget, index + 8, 1) for index, widget in enumerate(self.plot1_options_col1)]
-        [layouts["right_column"].addWidget(widget, index + 8, 2) for index, widget in enumerate(self.plot1_options_col2)]
-        layouts["right_column"].addWidget(self.buttons["exit"], 11, 0, 1, 3)
+        [layouts["global_options"].addWidget(widget) for widget in self.option_buttons_0]
+        
+        rc_l = layouts["right_column"]
+        rc_l.addLayout(layouts["global_options"], 0, 0, 1, 3)
+        [rc_l.addWidget(widget, 1, index) for index, widget in enumerate(self.line_width_options)]
+        [rc_l.addWidget(widget, 2, index) for index, widget in enumerate(self.opacity_options)]
+        [rc_l.addWidget(widget, 3, index + 1) for index, widget in enumerate(self.option_buttons_1)]
+        
+        vertical_spacer = QtWidgets.QSpacerItem(1, 20, QtWidgets.QSizePolicy.Policy.Minimum, QtWidgets.QSizePolicy.Policy.Expanding)
+        rc_l.addItem(vertical_spacer, 4, 0, 1, 3)
+        
+        [rc_l.addWidget(widget, index + 5, 0) for index, widget in enumerate(self.plot0_options_col0)]
+        [rc_l.addWidget(widget, index + 5, 1) for index, widget in enumerate(self.plot0_options_col1)]
+        [rc_l.addWidget(widget, index + 5, 2) for index, widget in enumerate(self.plot0_options_col2)]
+        rc_l.addWidget(self.image_widget, 8, 0, 1, 3)
+        rc_l.addWidget(self.line_edits["scan_file_name"], 9, 0, 1, 3)
+        [rc_l.addWidget(widget, index + 10, 0) for index, widget in enumerate(self.plot1_options_col0)]
+        [rc_l.addWidget(widget, index + 10, 1) for index, widget in enumerate(self.plot1_options_col1)]
+        [rc_l.addWidget(widget, index + 10, 2) for index, widget in enumerate(self.plot1_options_col2)]
+        rc_l.addWidget(self.buttons["exit"], 13, 0, 1, 3)
         
         # Main
         main_layout = layouts["main"]

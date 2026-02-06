@@ -363,6 +363,8 @@ class PJLineEdit(QtWidgets.QLineEdit):
                 if number > self.limits[1]: number = self.limits[1]
 
             # Add the unit to the number
+            if self.number_type == "int":
+                number = int(number)
             self.setText(f"{number} {self.unit}")
         else:
             self.setText("")

@@ -64,7 +64,9 @@ class DataProcessing():
             "log_abs_0": False,
             "differentiate_0": False,
             "log_abs_1": False,
-            "differentiate_1": False
+            "differentiate_1": False,
+            "moving_average": False,
+            "moving_average_window": 1
         }
         
         return processing_flags
@@ -135,14 +137,17 @@ class DataProcessing():
         try:
             (spectrum, error) = self.crop_unfinished_spectrum(spectrum)
             if error: raise Exception(error)
-            
-            (spectrum, error) = self.choose_direction(spectrum)
+
+            if flags.get("moving_average"): (spectrum, error) = self.moving_average(spectrum, flags.get("moving_average_window", 1))
             if error: raise Exception(error)
-            
+           
             if flags.get(f"differentiate_{index}"): (spectrum, error) = self.differentiate(spectrum)
             if error: raise Exception(error)
             
             if flags.get(f"log_abs_{index}"): (spectrum, error) = self.apply_log_abs(spectrum)
+            if error: raise Exception(error)
+            
+            (spectrum, error) = self.choose_direction(spectrum)
             if error: raise Exception(error)
 
         except Exception as e:
@@ -205,12 +210,15 @@ class DataProcessing():
                     y_fwd_data = spectrum.get("y_data")
                     y_bwd_data = spectrum.get("y_bwd_data")
                     
-                    if isinstance(y_bwd_data, np.ndarray):
+                    if isinstance(x_bwd_data, np.ndarray):
                         len_data = min(len(y_fwd_data), len(y_bwd_data))
                         y_data = [0.5 * y_fwd_data[index] + 0.5 * y_bwd_data[index] for index in range(len_data)]
+                        x_data = [0.5 * x_fwd_data[index] + 0.5 * x_bwd_data[index] for index in range(len_data)]
                     else:
                         y_data = y_fwd_data
                     spectrum.update({"y_data": y_data})
+                    spectrum.update({"x_data": x_data})
+                    spectrum.pop("x_bwd_data")
                     spectrum.pop("y_bwd_data")
                 case "fwd_bwd":
                     pass
@@ -244,23 +252,26 @@ class DataProcessing():
         error = False
 
         try:
-            y_fwd_data = spectrum.get("y_data")
+            y_data = spectrum.get("y_data")
             x_data = spectrum.get("x_data")
             
             dx = x_data[1] - x_data[0]
-            dy = np.diff(y_fwd_data)
+            dy = np.diff(y_data)
             dydx = dy / dx
             x_avg = np.convolve(x_data, np.array([0.5, 0.5]), mode = "valid")
             
-            spectrum.update({"x_data": x_avg})
-            spectrum.update({"y_data": dydx})
+            spectrum.update({"x_data": x_avg, "y_data": dydx})
 
+            x_bwd_data = spectrum.get("x_bwd_data")
             y_bwd_data = spectrum.get("y_bwd_data")
-            if isinstance(y_bwd_data, np.ndarray):
+            
+            if isinstance(x_bwd_data, np.ndarray) and isinstance(y_bwd_data, np.ndarray):
+                x_avg = np.convolve(x_bwd_data, np.array([0.5, 0.5]), mode = "valid")
+                
                 dy_bwd = np.diff(y_bwd_data)
                 dy_bwddx = dy_bwd / dx
                 
-                spectrum.update({"y_bwd_data": dy_bwddx})
+                spectrum.update({"y_bwd_data": x_avg, "y_bwd_data": dy_bwddx})
     
         except Exception as e:
             error = e
@@ -269,7 +280,29 @@ class DataProcessing():
 
     def moving_average(self, spectrum: dict, window: int) -> tuple[dict, bool | str]:
         error = False
-
+        
+        try:            
+            kernel = np.ones(shape = window, dtype = float)
+            kernel /= np.sum(kernel)
+                                    
+            x_data = spectrum.get("x_data")
+            y_data = spectrum.get("y_data")
+            
+            smooth_x_data = np.convolve(x_data, kernel, mode = "valid")
+            smooth_y_data = np.convolve(y_data, kernel, mode = "valid")                        
+            spectrum.update({"x_data": smooth_x_data, "y_data": smooth_y_data})
+            
+            if "x_bwd_data" in spectrum.keys():
+                x_data = spectrum.get("x_bwd_data")
+                y_data = spectrum.get("y_bwd_data")
+                
+                smooth_x_data = np.convolve(x_data, kernel, mode = "valid")
+                smooth_y_data = np.convolve(y_data, kernel, mode = "valid")
+                spectrum.update({"x_bwd_data": smooth_x_data, "y_bwd_data": smooth_y_data})
+        
+        except Exception as e:
+            error = e
+        
         return (spectrum, error)
 
 
