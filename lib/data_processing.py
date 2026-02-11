@@ -800,8 +800,9 @@ class UserData:
         self.frames = [
             {}, {}, {}
         ]
-        (self.scan_parameters, self.tip_prep_parameters) = self.load_parameter_sets()
+        (self.scan_parameters, self.tip_prep_parameters, self.coarse_parameters) = self.load_parameter_sets()
         self.windows = [{}, {}, {}]
+        self.coarse_parameters = [{}, {}, {}]
 
 
     
@@ -832,6 +833,7 @@ class UserData:
         
         scan_parameters = []
         tip_prep_parameters = []
+        coarse_parameters = []
         
         for parameter_set_type, dicts_set in yaml_data.items():
             
@@ -844,10 +846,14 @@ class UserData:
                     for key, parameters_dict in dicts_set.items():
                         tip_prep_parameters.append(parameters_dict)
                 
+                case "coarse_parameters":
+                    for key, parameters_dict in dicts_set.items():
+                        coarse_parameters.append(parameters_dict)
+                
                 case _:
                     pass
 
-        return (scan_parameters, tip_prep_parameters)
+        return (scan_parameters, tip_prep_parameters, coarse_parameters)
     
     def save_parameter_sets(self):
         output_dict = {"scan_parameters": {}, "other_parameters": {}, "tip_prep_parameters": {}}
