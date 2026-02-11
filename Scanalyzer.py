@@ -362,12 +362,15 @@ class Scanalyzer(QtCore.QObject):
         # Extract the image from the scan object using the processing flags available in the data object        
         (image, selected_channel, frame, error) = self.data.pick_image_from_scan_object(scan_object)
         comboboxes["channels"].selectItem(selected_channel)
+        
+        (quantity, unit, backward, error) = self.file_functions.split_physical_quantity(selected_channel)
+        [self.gui.line_edits[name].setUnit(unit) for name in ["min_full", "max_full", "min_absolute", "max_absolute"]]
         if error:
             print(f"{error}")
             return
 
         # Create an output file name using the selected channel and processing flags, then update paths and line_edits
-        bare_name = f"{selected_channel}_{self.file_index + 1:03d}"
+        bare_name = f"{quantity}_{self.file_index + 1:03d}"
         tagged_name = self.data.add_tags_to_file_name(bare_name)
         self.data.processing_flags["file_name"] = tagged_name
         self.paths["output_file_basename"] = tagged_name
@@ -515,8 +518,8 @@ class Scanalyzer(QtCore.QObject):
         # Reset the limits and histogram
         self.hist_levels = list(self.hist_item.getLevels())
         [min_hist, max_hist] = self.hist_levels
-        self.gui.line_edits["min_full"].setText(f"{min_hist:E}")
-        self.gui.line_edits["max_full"].setText(f"{max_hist:E}")
+        self.gui.line_edits["min_full"].setValue(f"{min_hist:.2f}")
+        self.gui.line_edits["max_full"].setValue(f"{max_hist:.2f}")
         
         if isinstance(limits, list) or isinstance(limits, np.ndarray):
             min = limits[0]
@@ -646,12 +649,12 @@ class Scanalyzer(QtCore.QObject):
             [min_old, max_old] = self.hist_levels
 
             if np.abs(max - max_old) > .0000001 * (max_old - min_old): # If the top level was changed (use a tiny threshold)
-                self.gui.line_edits["max_absolute"].setText(f"{round(max, 3)}")
+                self.gui.line_edits["max_absolute"].setValue(f"{max:.2f}")
                 self.gui.radio_buttons["max_absolute"].setChecked(True)
                 self.data.processing_flags["max_selection"] = 3
 
             if np.abs(min - min_old) > .0000001 * (max_old - min_old): # If the bottom level was changed
-                self.gui.line_edits["min_absolute"].setText(f"{round(min, 3)}")
+                self.gui.line_edits["min_absolute"].setValue(f"{min:.2f}")
                 self.gui.radio_buttons["min_absolute"].setChecked(True)
                 self.data.processing_flags["min_selection"] = 3
 
@@ -745,16 +748,6 @@ class Scanalyzer(QtCore.QObject):
         except: pass
         phase = self.gui.phase_slider.value()
         flags.update({"phase": phase})
-
-        # File name
-        bare_name = f"{channel}_{self.file_index + 1:03d}"
-        tagged_name = self.data.add_tags_to_file_name(bare_name)
-        self.data.processing_flags["file_name"] = tagged_name
-        
-        # Update paths and line_edits
-        self.paths["output_file_basename"] = tagged_name
-        self.gui.line_edits["file_name"].setText(os.path.basename(tagged_name))
-        self.gui.buttons["output_folder"].setText(self.paths["output_folder_name"])
 
         # Reload and process the scan with the updated flags
         self.load_process_display(new_scan = True)

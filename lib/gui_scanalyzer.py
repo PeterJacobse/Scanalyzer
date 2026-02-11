@@ -1,7 +1,7 @@
 import os
 from PyQt6 import QtGui, QtWidgets, QtCore
 import pyqtgraph as pg
-from . import GUIItems
+from . import GUIItems, PJComboBox, PJLineEdit
 
 
 
@@ -162,13 +162,13 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
         return checkboxes
 
     def make_comboboxes(self) -> dict:
-        make_combobox = self.gui_items.make_combobox
         buttons = self.buttons
         
         comboboxes = {
-            "channels": make_combobox("Channels", "Available scan channels\n(↑ / ↓)"),
-            "projection": make_combobox("Projection", "Select a projection\n(Shift + ↑ / ↓)", items = ["re", "im", "abs", "arg (b/w)", "arg (hue)", "complex", "abs^2", "log(abs)"]),
-            "spectra": make_combobox("spectra", "Spectra (those associated with the current scan are emphasized)")
+            "channels": PJComboBox(name = "Channels", tooltip = "Available scan channels\n(↑ / ↓)"),
+            "projection": PJComboBox(name = "Projection", tooltip = "Select a projection\n(Shift + ↑ / ↓)",
+                                     items = ["re", "im", "abs", "arg (b/w)", "arg (hue)", "complex", "abs^2", "log(abs)"]),
+            "spectra": PJComboBox(name = "spectra", tooltip = "Spectra\n(\">>\" indicates spectra associated with current scan)")
         }
         
         # Named groups
@@ -177,21 +177,19 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
         
         return comboboxes
 
-    def make_line_edits(self) -> dict:
-        make_line_edit = self.gui_items.make_line_edit
-        
+    def make_line_edits(self) -> dict:        
         line_edits = {
-            "min_full": make_line_edit("", "minimum value of scan data range"),
-            "max_full": make_line_edit("", "maximum value of scan data range"),
-            "min_percentiles": make_line_edit("2", "minimum percentile of data range"),
-            "max_percentiles": make_line_edit("98", "maximum percentile of data range"),
-            "min_deviations": make_line_edit("2", "minimum = mean - n * standard deviation"),
-            "max_deviations": make_line_edit("2", "maximum = mean + n * standard deviation"),
-            "min_absolute": make_line_edit("0", "minimum absolute value"),
-            "max_absolute": make_line_edit("1", "maximum absolute value"),
+            "min_full": PJLineEdit(tooltip = "minimum value of scan data range"),
+            "max_full": PJLineEdit(tooltip = "maximum value of scan data range"),
+            "min_percentiles": PJLineEdit(name = "2", tooltip = "minimum percentile of data range", unit = "%"),
+            "max_percentiles": PJLineEdit(name = "98", tooltip = "maximum percentile of data range", unit = "%"),
+            "min_deviations": PJLineEdit(name = "2", tooltip = "minimum = mean - n * standard deviation", unit = "\u03C3"),
+            "max_deviations": PJLineEdit(name = "2", tooltip = "maximum = mean + n * standard deviation", unit = "\u03C3"),
+            "min_absolute": PJLineEdit(name = "0", tooltip = "minimum absolute value"),
+            "max_absolute": PJLineEdit(name = "1", tooltip = "maximum absolute value"),
 
-            "gaussian_width": make_line_edit("0 nm", "Width in nm for Gaussian blur application", unit = "nm"),
-            "file_name": make_line_edit("", "Base name of the file when saved to png or hdf5")
+            "gaussian_width": PJLineEdit(name = "0", tooltip = "Width for Gaussian blur application", unit = "nm"),
+            "file_name": PJLineEdit(tooltip = "Base name of the file when saved to png or hdf5")
         }
         
         # Named groups

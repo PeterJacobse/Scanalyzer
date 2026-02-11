@@ -85,7 +85,7 @@ class Spectralyzer:
         plot = self.gui.plot_item
         
         img.setImage(scan_image)
-        scan_range_nm = scan_frame.get("scan_range_nm", [100, 100])
+        scan_range_nm = scan_frame.get("scan_range (nm)", [100, 100])
         [w, h] = scan_range_nm
         img.setRect(-0.5 * w, -0.5 * h, w, h)
         plot.addItem(img)

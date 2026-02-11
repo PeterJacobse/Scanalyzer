@@ -1,7 +1,7 @@
 import os
 from PyQt6 import QtGui, QtWidgets, QtCore
 import pyqtgraph as pg
-from . import GUIItems
+from . import GUIItems, PJComboBox, PJLineEdit
 
 
 
@@ -166,20 +166,19 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
         return checkboxes
     
     def make_comboboxes(self) -> dict:
-        make_combobox = self.gui_items.make_combobox
         
         channel_selection_comboboxes = {
-            "x_axis": make_combobox("x_axis", "Channel to display on the x axis (X)"),
-            "y_axis_0": make_combobox("y_axis_0", "Channel to display on the y axis (Y)"),
-            "y_axis_1": make_combobox("y_axis_1", "Channel to display on the y axis (Z)"),
+            "x_axis": PJComboBox(name = "x_axis", tooltip = "Channel to display on the x axis (X)", max_width = 500),
+            "y_axis_0": PJComboBox(name = "y_axis_0", tooltip = "Channel to display on the y axis (Y)", max_width = 300),
+            "y_axis_1": PJComboBox(name = "y_axis_1", tooltip = "Channel to display on the y axis (Z)", max_width = 300),
         }
         
-        focus_row_combobox = make_combobox("Focus row", "Set the focus row\n(↑ / ↓)")
-        metadata_combobox = make_combobox("Metadata", "Select what metadata to display")
+        focus_row_combobox = PJComboBox(name = "Focus row", tooltip = "Set the focus row\n(↑ / ↓)")
+        metadata_combobox = PJComboBox(name = "Metadata", tooltip = "Select what metadata to display")
 
         plot_number_comboboxes = {}
         for number in range(16):
-            plot_number_comboboxes.update({f"{number}": make_combobox(f"{number}", f"data for plot {number}")})
+            plot_number_comboboxes.update({f"{number}": PJComboBox(name = f"{number}", tooltip = f"data for plot {number}")})
         
         row_items = [f"Row {i} ({hex(i)[2]})" for i in range(len(plot_number_comboboxes))]
         focus_row_combobox.renewItems(row_items)
@@ -195,15 +194,15 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
         make_line_edit = self.gui_items.make_line_edit
         
         line_edits = {
-            "offset_0": make_line_edit("0", "Offset between successive spectra"),
-            "offset_1": make_line_edit("0", "Offset between successive spectra"),
-            "line_width": make_line_edit("2 px", "Line width", unit = "px", limits = [0, 10], number_type = "int"),
-            "opacity": make_line_edit("100 %", "Opacity", unit = "%", limits = [0, 100], number_type = "int"),
-            "window": make_line_edit("1 px", "Window size for moving average", unit = "px", limits = [1, 20], number_type = "int"),
+            "offset_0": PJLineEdit(name = "0", tooltip = "Offset between successive spectra", max_width = 300),
+            "offset_1": PJLineEdit(name = "0", tooltip = "Offset between successive spectra", max_width = 300),
+            "line_width": PJLineEdit(name = "2", tooltip = "Line width", unit = "px", limits = [0, 10], number_type = "int", max_width = 300),
+            "opacity": PJLineEdit(name = "100", tooltip = "Opacity", unit = "%", limits = [0, 100], number_type = "int", max_width = 300),
+            "window": PJLineEdit(name = "1", tooltip = "Window size for moving average", unit = "px", limits = [1, 20], number_type = "int", max_width = 300),
             
-            "file_name_0": make_line_edit("File name 0"),
-            "file_name_1": make_line_edit("File name 1"),
-            "scan_file_name": make_line_edit("Scan file name", "Name of the scan file")
+            "file_name_0": PJLineEdit(name = "File name 0", max_width = 300),
+            "file_name_1": PJLineEdit(name = "File name 1", max_width = 300),
+            "scan_file_name": PJLineEdit(name = "Scan file name", tooltip = "Name of the scan file", max_width = 400)
         }
         
         line_edits["scan_file_name"].setReadOnly(True)
@@ -254,6 +253,7 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
             "selector": make_layout("g"),
             "x_axis": make_layout("h"),
             "plots": make_layout("v"),
+            "middle_column": make_layout("v"),
             "right_column": make_layout("g"),
             "width_opacity": make_layout("g"),
             "i/o": make_layout("h"),
@@ -294,6 +294,7 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
             "central": QWgt(),
             "selector": QWgt(),
             "plot": QWgt(),
+            "middle_column": QWgt(),
             "options": QWgt(),
             "left_side": QWgt(),
             "x": QWgt()
@@ -364,16 +365,20 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
         [ss_layout.addWidget(self.plot_number_comboboxes[f"{i}"], i + 1, 3) for i in range(len(self.plot_number_comboboxes))]
         [ss_layout.addWidget(self.right_arrows[f"{i}"], i + 1, 4) for i in range(len(self.right_arrows))]
         [ss_layout.addWidget(self.metadata_line_edits[f"{i}"], i + 1, 5) for i in range(len(self.metadata_line_edits))]
-        
-        # x axis
-        [layouts["x_axis"].addWidget(widget) for widget in [buttons["x_axis"], self.channel_selection_comboboxes["x_axis"]]]
-        layouts["x_axis"].setStretch(1, 3)
-        widgets["x"].setLayout(layouts["x_axis"])
+        widgets["selector"].setLayout(layouts["selector"])
         
         # Plots
         [layouts["plots"].addWidget(widget) for widget in [self.channel_selection_comboboxes["x_axis"], self.plot_widgets["graph_0"], self.plot_widgets["graph_1"]]]
         widgets["plot"].setLayout(layouts["plots"])
         self.plot_items["graph_0"].setFixedWidth(500)
+        
+        [layouts["middle_column"].addWidget(widget) for widget in [widgets["x"], widgets["plot"]]]
+        widgets["middle_column"].setLayout(layouts["middle_column"])
+        
+        # x axis
+        [layouts["x_axis"].addWidget(widget) for widget in [buttons["x_axis"], self.channel_selection_comboboxes["x_axis"]]]
+        # layouts["x_axis"].setStretch(1, 3)
+        widgets["x"].setLayout(layouts["x_axis"])
         
         # Right column
         layouts["i/o"].addWidget(self.buttons["open_folder"], 5)
@@ -406,10 +411,10 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
         # Main
         main_layout = layouts["main"]
         main_layout.addWidget(widgets["selector"], 0, 0, 2, 1) # Spectrum selector buttons
-        main_layout.addWidget(widgets["x"], 0, 1) # x axis channel selection combobox
-        #main_layout.addLayout(layouts["x_axis"], 0, 1, 1, 1) # x axis channel selection combobox
-        main_layout.addWidget(widgets["plot"], 1, 1, 2, 1)
+        #main_layout.addWidget(widgets["x"], 0, 1) # x axis channel selection combobox
+        # main_layout.addLayout(layouts["x_axis"], 0, 1, 1, 2) # x axis channel selection combobox
         main_layout.addLayout(layouts["i/o"], 0, 2)
+        main_layout.addWidget(widgets["middle_column"], 0, 1, 3, 1)
         main_layout.addLayout(layouts["right_column"], 1, 2)
         main_layout.setColumnMinimumWidth(1, 500)
         
@@ -421,9 +426,6 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
     def setup_main_window(self) -> None:
         layouts = self.layouts
         widgets = self.widgets
-
-        # Aesthetics
-        widgets["selector"].setLayout(layouts["selector"])
         
         # Set the central widget of the QMainWindow
         widgets["central"].setLayout(layouts["main"])
