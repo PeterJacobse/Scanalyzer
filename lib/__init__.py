@@ -1,4 +1,4 @@
-from .gui_items import GUIItems, PJTargetItem, PJComboBox, PJLineEdit
+from .gui_items import GUIItems, PJTargetItem, PJComboBox, PhysicsLineEdit
 from .gui_scanalyzer import ScanalyzerGUI
 from .file_functions import FileFunctions
 from .data_processing import DataProcessing

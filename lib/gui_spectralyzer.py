@@ -1,7 +1,7 @@
 import os
 from PyQt6 import QtGui, QtWidgets, QtCore
 import pyqtgraph as pg
-from . import GUIItems, PJComboBox, PJLineEdit
+from . import GUIItems, PJComboBox, PhysicsLineEdit
 
 
 
@@ -191,18 +191,16 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
         return (channel_selection_comboboxes, plot_number_comboboxes, focus_row_combobox, metadata_combobox)
 
     def make_line_edits(self) -> dict:
-        make_line_edit = self.gui_items.make_line_edit
-        
         line_edits = {
-            "offset_0": PJLineEdit(name = "0", tooltip = "Offset between successive spectra", max_width = 300),
-            "offset_1": PJLineEdit(name = "0", tooltip = "Offset between successive spectra", max_width = 300),
-            "line_width": PJLineEdit(name = "2", tooltip = "Line width", unit = "px", limits = [0, 10], number_type = "int", max_width = 300),
-            "opacity": PJLineEdit(name = "100", tooltip = "Opacity", unit = "%", limits = [0, 100], number_type = "int", max_width = 300),
-            "window": PJLineEdit(name = "1", tooltip = "Window size for moving average", unit = "px", limits = [1, 20], number_type = "int", max_width = 300),
+            "offset_0": PhysicsLineEdit(value = 0, tooltip = "Offset between successive spectra", max_width = 300),
+            "offset_1": PhysicsLineEdit(value = 0, tooltip = "Offset between successive spectra", max_width = 300),
+            "line_width": PhysicsLineEdit(value = 2, tooltip = "Line width", unit = "px", limits = [0, 10], number_type = "int", max_width = 300),
+            "opacity": PhysicsLineEdit(value = 100, tooltip = "Opacity", unit = "%", limits = [0, 100], number_type = "int", max_width = 300),
+            "window": PhysicsLineEdit(value = 1, tooltip = "Window size for moving average", unit = "px", limits = [1, 20], number_type = "int", max_width = 300),
             
-            "file_name_0": PJLineEdit(name = "File name 0", max_width = 300),
-            "file_name_1": PJLineEdit(name = "File name 1", max_width = 300),
-            "scan_file_name": PJLineEdit(name = "Scan file name", tooltip = "Name of the scan file", max_width = 400)
+            "file_name_0": PhysicsLineEdit(value = "File name 0", max_width = 300),
+            "file_name_1": PhysicsLineEdit(value = "File name 1", max_width = 300),
+            "scan_file_name": PhysicsLineEdit(value = "Scan file name", tooltip = "Name of the scan file", max_width = 400)
         }
         
         line_edits["scan_file_name"].setReadOnly(True)
@@ -210,7 +208,7 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
         # Make the metadata line edits
         metadata_line_edits = {}
         for number in range(16):
-            l_e = make_line_edit(f"{number}", f"metadata for plot {number}")
+            l_e = PhysicsLineEdit(value = number, tooltip = f"metadata for plot {number}")
             l_e.setReadOnly(True)
             metadata_line_edits.update({f"{number}": l_e})
         

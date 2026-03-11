@@ -67,8 +67,11 @@ class PJPushButton(QtWidgets.QPushButton):
     A QPushButton with extra method changeToolTip
     """
     def __init__(self, *args, **kwargs):
+        tooltip = kwargs.pop("tooltip", None)
         super().__init__(*args, **kwargs)
-    
+
+        if isinstance(tooltip, str): self.setToolTip(tooltip)
+
     def changeToolTip(self, text: str, line: int = 0) -> None:
         """
         Function to change just a single line of a multiline tooltip, instead of the entire tooltip message
@@ -343,42 +346,39 @@ class PJRadioButton(QtWidgets.QRadioButton):
 
 
 
-class PJLineEdit(QtWidgets.QLineEdit):
+class PhysicsLineEdit(QtWidgets.QLineEdit):
     """
-    A QLineEdit with extra method changeToolTip, and which adds a unit after editing is finished
+    A QLineEdit with capabilities to efficiently add units, extract and set values
     """
     def __init__(self, parent = None, **kwargs):
-        self.name = kwargs.pop("name", None)
+        self.value = kwargs.pop("value", None)
         self.tooltip = kwargs.pop("tooltip", None)
         self.unit = kwargs.pop("unit", None)
         self.limits = kwargs.pop("limits", None)
-        self.number_type = kwargs.pop("number_type", "float")
         self.max_width = kwargs.pop("max_width", None)
         self.style_sheet = kwargs.pop("style_sheet", None)
+        self.digits = kwargs.pop("digits", None)
+        self.block = kwargs.pop("block", False)
         
         super().__init__(parent)
         
         self.set_defaults()
-        if isinstance(self.unit, str): self.editingFinished.connect(self.addUnit) 
-
-
+        if not self.block: self.editingFinished.connect(self.addUnit) 
     
     def set_defaults(self) -> None:
-        if isinstance(self.name, str):
-            self.setObjectName(self.name)
-            if isinstance(self.unit, str):
-                self.setText(self.name + " " + self.unit)
-            else:
-                self.setText(self.name)
+        if isinstance(self.value, str) or isinstance(self.value, int) or isinstance(self.value, float): self.setValue(self.value)
         if isinstance(self.tooltip, str): self.setToolTip(self.tooltip)
         if isinstance(self.max_width, int):
             self.setMaximumWidth(self.max_width)
         else:
-            self.setMaximumWidth(150)
+            pass
+            # self.setMaximumWidth(150)
         if isinstance(self.style_sheet, str):
             self.setStyleSheet(self.style_sheet)
         else:
             self.setStyleSheet("QLineEdit{ background-color: #101010 }")
+        
+        return
    
     def changeToolTip(self, text: str, line: int = 0) -> None:
         """
@@ -403,47 +403,121 @@ class PJLineEdit(QtWidgets.QLineEdit):
         except:
             pass
 
+        return
+
+    def setDigits(self, digits: int) -> None:
+        if isinstance(digits, int): self.digits = digits
+        return
+
+    def setLimits(self, limits: list) -> None:
+        if isinstance(limits, list): self.limits = limits
+        return
+
     def setUnit(self, unit: str = "") -> None:
-        self.unit = unit
-        self.addUnit()
+        if isinstance(unit, str):
+            self.unit = unit
+            self.addUnit()
         return
 
     def addUnit(self) -> None:
+        number = self.getValue()
+        
         self.blockSignals(True)
+        if isinstance(self.unit, str): self.setText(f"{number} {self.unit}")
+        else: self.setText(f"{number}")
+        self.blockSignals(False)
+        return
+
+    def getValue(self) -> float | str:
         entered_text = self.text()
         
         # Extract the numeric part of what was entered
         regex_pattern = r"([-+]?(?:[0-9]*\.)?[0-9]+(?:[eE][-+]?[0-9]+)?)(?:\s*[a-zA-Zμ°%]+)?"
         number_matches = re.findall(regex_pattern, entered_text)
-        if self.number_type == "int": numbers = [int(x) for x in number_matches]
+        
+        if isinstance(self.digits, int) and self.digits < 1: numbers = [int(x) for x in number_matches]
         else: numbers = [float(x) for x in number_matches]
         
         if len(numbers) > 0:
             number = numbers[0]
             
             # Apply limits in case the number is too big or small
-            if type(self.limits) == list:
+            if isinstance(self.limits, list):
                 if number < self.limits[0]: number = self.limits[0]
                 if number > self.limits[1]: number = self.limits[1]
 
             # Add the unit to the number
-            if self.number_type == "int":
+            if isinstance(self.digits, int):
+                number = round(number, self.digits)
+            if isinstance(self.digits, int) and self.digits < 1 < 1:
                 number = int(number)
-            self.setText(f"{number} {self.unit}")
-        else:
-            self.setText("")
-        
-        self.blockSignals(False)
-        
-        return
+            
+            return number
+
+        return entered_text
 
     def setValue(self, value) -> None:
-        if isinstance(self.unit, str):
-            self.setText(f"{value} {self.unit}")
+        # Method for programatically setting a value or str
+        if isinstance(value, int) or isinstance(value, float):
+            number = value
+
+            if isinstance(self.digits, int):
+                number = round(number, self.digits)
+                if self.digits < 1: number = int(number)
+
+            if isinstance(self.unit, str):
+                self.setText(f"{number} {self.unit}")
+            else:
+                self.setText(f"{number}")
+        
         else:
             self.setText(f"{value}")
-
         return
+
+    def wheelEvent(self, event) -> None:
+        delta = event.angleDelta().y() # Scroll direction
+
+        if not self.hasFocus(): return
+
+        pos = self.cursorPosition() - 1 # Cursor position
+        if pos < 0: return
+
+        old_pos = pos
+        new_pos = pos
+        
+        for iteration in range(10):
+            new_pos = self.update_number_at_pos(old_pos, new_pos, delta)
+            if isinstance(new_pos, bool): break
+            elif new_pos < 0: break
+        
+    def update_number_at_pos(self, old_pos: int = 0, new_pos: int = 0, delta = 1) -> bool | int:
+        txt = self.text()
+        text_pos = txt[new_pos] # Text at the cursor position
+        if text_pos == ".": return new_pos + 1
+        elif not text_pos.isnumeric(): return False # Only continue if the character at the cursor position is an integer
+        number = int(text_pos) # Integer at the cursor position
+
+        if delta > 0: # Scroll down
+            new_number = number + 1
+            if new_number > 9: new_number = 0
+        else: # Scroll up
+            new_number = number - 1
+            if new_number < 0: new_number = 9
+            
+        new_txt = txt[:new_pos] + str(new_number) + txt[new_pos + 1:]
+        if new_txt[0] == 0: # Delete leading zero if it arises
+            new_txt = new_txt[1:]
+            self.setCursorPosition(old_pos)
+        else:
+            self.setText(new_txt)
+            self.setCursorPosition(old_pos + 1)
+
+        if delta > 0 and new_number == 0: # Roll over to the next digit
+            return new_pos - 1
+        if delta < 0 and new_number == 9: # Roll over to the next digit
+            return new_pos - 1
+
+        return True
 
 
 
@@ -478,6 +552,24 @@ class PJProgressBar(QtWidgets.QProgressBar):
             pass
 
 
+
+class PJGroupBox(QtWidgets.QGroupBox):
+    def __init__(self, title, parent = None, *args, **kwargs):
+        super().__init__(title, parent)
+        
+        if "name" in kwargs: self.setObjectName(kwargs["name"])
+        if "tooltip" in kwargs: self.setToolTip(kwargs["tooltip"])
+        
+        self.setCheckable(True)
+        self.setChecked(True)
+        
+        self.content_container = QtWidgets.QWidget()
+        self.content_layout = QtWidgets.QVBoxLayout(self.content_container)
+                
+        self.toggled.connect(self.content_container.setVisible)
+        self.content_container.setVisible(True)
+    
+    
 
 class PJConsole(QtWidgets.QTextEdit):
     """
@@ -515,13 +607,14 @@ class PJSlider(QtWidgets.QSlider):
     """
     A QSlider with extra method changeToolTip
     """
-    def __init__(self, parent = None, orientation: str = "h"):
+    def __init__(self, parent = None, orientation: str = "h", tooltip: str = ""):
         super().__init__(parent)
         if orientation == "h":
             self.setOrientation(QtCore.Qt.Orientation.Horizontal)
         else:
             self.setOrientation(QtCore.Qt.Orientation.Vertical)
-    
+        if isinstance(tooltip, str): self.setToolTip(tooltip)
+
     def changeToolTip(self, text: str, line: int = 0) -> None:
         """
         Function to change just a single line of a multiline tooltip, instead of the entire tooltip message
@@ -547,31 +640,41 @@ class PJSlider(QtWidgets.QSlider):
 
 
 
-class PJSliderLineEdit(QtWidgets.QWidget):
+class SliderLineEdit(QtWidgets.QWidget):
     """
     A custom widget combining a QSlider and a QLineEdit, linked together.
     """
     valueChanged = QtCore.pyqtSignal(int)
 
-    def __init__(self, parent = None, min_val = -180, max_val = 180, initial_val = 0, max_width = 150, unit = ""):
+    def __init__(self, parent = None, tooltip: str = "", limits: list = [-180, 180], initial_val: float = 0, digits: int = 0, max_width = 150, unit = None, orientation: str = "h", minmax_buttons: bool = False):
         super().__init__(parent)
-        
+        [self.min_val, self.max_val] = limits
+
         # 1: Create the widgets
-        self.slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
-        self.line_edit = PJLineEdit(max_width = max_width, unit = unit)
+        self.slider = PJSlider(orientation = orientation, tooltip = tooltip)
+        self.line_edit = PhysicsLineEdit(max_width = max_width, unit = unit, limits = limits, digits = digits, tooltip = tooltip)
+
+        if minmax_buttons:
+            self.min_button = PJPushButton(tooltip = "set slider to minimum")
+            self.max_button = PJPushButton(tooltip = "set slider to maximum")
 
         # 2: Configure widgets
-        self.slider.setRange(min_val, max_val)
-        self.slider.setValue(initial_val)
-        
-        # Ensure only integer values within range can be typed in the line edit
-        self.line_edit.setValidator(QtGui.QIntValidator(min_val, max_val))
-        self.line_edit.setText(str(initial_val))
+        self.slider.setRange(self.min_val, self.max_val)
+        [widget.setValue(initial_val) for widget in [self.slider, self.line_edit]]
 
         # 3: Set up the layout
-        self.widget_layout = QtWidgets.QHBoxLayout()
+        if orientation == "h": self.widget_layout = QtWidgets.QHBoxLayout()
+        else: self.widget_layout = QtWidgets.QVBoxLayout()
+        
+        if minmax_buttons:
+            if orientation == "v": self.widget_layout.addWidget(self.max_button)
+            else: self.widget_layout.addWidget(self.min_button)
         self.widget_layout.addWidget(self.slider)
         self.widget_layout.addWidget(self.line_edit)
+        if minmax_buttons:
+            if orientation == "v": self.widget_layout.addWidget(self.min_button)
+            else: self.widget_layout.addWidget(self.max_button)
+        
         # Remove extra margins from the layout
         self.widget_layout.setContentsMargins(0, 0, 0, 0) 
         self.setLayout(self.widget_layout)
@@ -579,14 +682,20 @@ class PJSliderLineEdit(QtWidgets.QWidget):
         # 4: Connect signals and slots
         self.slider.valueChanged.connect(self._update_line_edit)
         self.line_edit.editingFinished.connect(self._update_slider)
-        
+
+        if minmax_buttons:
+            self.min_button.clicked.connect(lambda: self.setValue(self.min_val))
+            self.max_button.clicked.connect(lambda: self.setValue(self.max_val))
+
         # Connect to the custom signal
-        self.slider.valueChanged.connect(lambda: self.valueChanged.emit(self.value()))
-        self.line_edit.editingFinished.connect(lambda: self.valueChanged.emit(self.value()))
+        self.slider.valueChanged.connect(lambda: self.valueChanged.emit(self.getValue()))
+        self.line_edit.editingFinished.connect(lambda: self.valueChanged.emit(self.getValue()))
+
+
 
     def _update_line_edit(self, value):
         self.line_edit.blockSignals(True) 
-        self.line_edit.setText(f"{value} deg")
+        self.line_edit.setValue(value)
         self.line_edit.blockSignals(False)
 
     def _update_slider(self):
@@ -603,18 +712,20 @@ class PJSliderLineEdit(QtWidgets.QWidget):
             self.slider.blockSignals(False)
 
             self.line_edit.blockSignals(True) 
-            self.line_edit.setText(f"{value} deg")
+            self.line_edit.setValue(value)
             self.line_edit.blockSignals(False)
         except ValueError:
             # Handle empty or invalid input by resetting to the current slider value
             self.line_edit.setText(str(self.slider.value()))
 
-    def value(self):
+    def getValue(self):
         """Returns the current integer value of the combined widget."""
         return self.slider.value()
     
     def setValue(self, value):
         """Sets the value of the combined widget programmatically."""
+        if value < self.min_val: value = self.min_val
+        elif value > self.max_val: value = self.max_val
         self.slider.setValue(value)
 
     def changeToolTip(self, text: str, line: int = 0) -> None:
@@ -664,12 +775,12 @@ class PJImageView(pg.ImageView):
 
 
 
-class PhaseSlider(PJSliderLineEdit):
+class PhaseSlider(SliderLineEdit):
     """
     A slider line edit with buttons for controlling a phase
     """
     def __init__(self, parent = None, unit = "", phase_0_icon = None, phase_180_icon = None):
-        super().__init__(parent, unit = unit, min_val = -180, max_val = 180, initial_val = 0, max_width = 80)
+        super().__init__(parent, unit = unit, limits = [-180, 180], initial_val = 0, max_width = 80)
         
         self.phase_0_button = PJPushButton()
         self.phase_0_button.setToolTip("Set the phase to 0")
@@ -699,6 +810,8 @@ class PhaseSlider(PJSliderLineEdit):
         self.line_edit.setText(f"180 deg")
         self.line_edit.blockSignals(False)
         self.slider.setValue(180)
+
+
 
 
 
@@ -732,6 +845,8 @@ class StreamRedirector(QtCore.QObject):
 
 
 
+# Class for making the above widgets and setting their defaults simultaneously.
+# May be deprecated by simply setting the defaults in the widgets themselves
 class GUIItems:
     def __init__(self):
         pass
@@ -739,7 +854,7 @@ class GUIItems:
     def make_groupbox(self, name: str = "", tooltip: str = "") -> QtWidgets.QGroupBox:
         box = QtWidgets.QGroupBox(name)
         box.setToolTip(tooltip)
-        box.setCheckable(True)
+        box.setCheckable(False)
         return box
 
     def make_button(self, name: str = "", tooltip: str = "", icon = None, rotate_icon: float = 0) -> PJPushButton:
@@ -816,15 +931,6 @@ class GUIItems:
         
         return box
 
-    def make_line_edit(self, name: str = "", tooltip: str = "", unit = None, limits = None, number_type: str = "float") -> PJLineEdit:
-        line_edit = PJLineEdit(unit = unit, limits = limits, number_type = number_type)
-        line_edit.setObjectName(name)
-        line_edit.setToolTip(tooltip)
-        line_edit.setText(name)
-        line_edit.setStyleSheet("QLineEdit{ background-color: #101010 }")
-        
-        return line_edit
-
     def make_progress_bar(self, name: str = "", tooltip: str = "") -> PJProgressBar:
         bar = PJProgressBar()
         
@@ -845,7 +951,7 @@ class GUIItems:
             case _:
                 layout = QtWidgets.QGridLayout()
         
-        layout.setSpacing(1)
+        layout.setSpacing(0)
         return layout
     
     def make_console(self, name: str = "", tooltip: str = "") -> PJConsole:
@@ -854,23 +960,6 @@ class GUIItems:
         console.setToolTip(tooltip)
         
         return console
-
-    def make_slider_line_edit(self, name: str = "", tooltip: str = "") -> PJSliderLineEdit:
-        slider_line_edit = PJSliderLineEdit()
-        slider_line_edit.setObjectName(name)
-        slider_line_edit.setToolTip(tooltip)
-        
-        return slider_line_edit
-
-    def make_slider(self, name: str = "", tooltip: str = "", orientation: str = "h") -> PJSlider:
-        slider = PJSlider(orientation = orientation)
-        slider.setObjectName(name)
-        slider.setToolTip(tooltip)
-        slider.setMinimum(-10)
-        slider.setMaximum(10)
-        slider.setValue(10)
-        
-        return slider
 
     def make_phase_slider(self, name: str = "", tooltip: str = "", unit: str = "deg", phase_0_icon = None, phase_180_icon = None) -> PhaseSlider:
         phase_slider = PhaseSlider(unit = unit, phase_0_icon = phase_0_icon, phase_180_icon = phase_180_icon)

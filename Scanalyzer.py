@@ -76,6 +76,7 @@ class Scanalyzer(QtCore.QObject):
         self.channels = []
         self.channel = ""
         self.spec_targets = []
+        self.save_mode_index = 0
         self.file_functions = FileFunctions()
         self.data = DataProcessing()
 
@@ -97,7 +98,9 @@ class Scanalyzer(QtCore.QObject):
                        
                        ["spec_info", self.load_process_display], ["spec_locations", self.on_toggle_spec_locations], ["spectralyzer", self.open_spectralyzer],
                        
-                       ["save_png", self.on_save_png], ["save_svg", self.on_save_svg], ["save_hdf5", self.on_save_png], ["output_folder", lambda: self.open_folder("output_folder")], ["info", self.on_info], ["exit", self.on_exit]
+                       ["save_png", self.on_save_png], ["save_svg", self.on_save_svg], ["save_hdf5", self.on_save_png],
+                       ["use_dialog", self.toggle_save_mode],
+                       ["output_folder", lambda: self.open_folder("output_folder")], ["info", lambda: self.gui.info_box.exec()], ["exit", self.on_exit]
                     ]
         
         for connection in connections:
@@ -144,6 +147,7 @@ class Scanalyzer(QtCore.QObject):
         comboboxes["projection"].currentIndexChanged.connect(self.update_processing_flags)
         comboboxes["spectra"].currentIndexChanged.connect(self.change_spec_combobox_item)
         line_edits["gaussian_width"].editingFinished.connect(self.gaussian_width_edited)
+        line_edits["file_name"].editingFinished.connect(self.check_if_saved_files_exist)
         self.gui.phase_slider.valueChanged.connect(self.update_processing_flags)
         
         direction_shortcut = QShc(QSeq(QKey.Key_X), self.gui)
@@ -178,6 +182,25 @@ class Scanalyzer(QtCore.QObject):
 
     def on_receive_filename(self, file_name: str) -> None:
         if os.path.exists(file_name): self.load_folder(file_name)
+        
+        return
+
+    def toggle_save_mode(self) -> None:
+        button = self.gui.buttons["use_dialog"]
+        
+        self.save_mode_index += 1
+        if self.save_mode_index > 2: self.save_mode_index = 0
+        
+        match self.save_mode_index:
+            case 0:
+                button.setToolTip("Save file directly")
+                button.setStyleSheet("QPushButton{ background-color: #101010; icon-size: 22px 22px; }")
+            case 1:
+                button.setToolTip("Use save dialog")
+                button.setStyleSheet("QPushButton{ background-color: #B05010; icon-size: 22px 22px; }")
+            case _:
+                button.setToolTip("Use save dialog only when file already exists")
+                button.setStyleSheet("QPushButton{ background-color: #10C010; icon-size: 22px 22px; }")
         
         return
 
@@ -329,8 +352,8 @@ class Scanalyzer(QtCore.QObject):
 
     def load_scan_file(self) -> tuple[np.ndarray, str, dict, bool | str]:
         # Load the sxm file from the list of sxm files. Make the select file button display the file name
-        labels = self.gui.labels
         comboboxes = self.gui.comboboxes
+        fn_le = self.gui.line_edits["file_name"]
 
         # Scan dict is the subdict of files_dict
         scan_dict = self.files_dict.get("scan_files")
@@ -362,7 +385,7 @@ class Scanalyzer(QtCore.QObject):
         # Extract the image from the scan object using the processing flags available in the data object        
         (image, selected_channel, frame, error) = self.data.pick_image_from_scan_object(scan_object)
         comboboxes["channels"].selectItem(selected_channel)
-        
+
         (quantity, unit, backward, error) = self.file_functions.split_physical_quantity(selected_channel)
         [self.gui.line_edits[name].setUnit(unit) for name in ["min_full", "max_full", "min_absolute", "max_absolute"]]
         if error:
@@ -373,9 +396,10 @@ class Scanalyzer(QtCore.QObject):
         bare_name = f"{quantity}_{self.file_index + 1:03d}"
         tagged_name = self.data.add_tags_to_file_name(bare_name)
         self.data.processing_flags["file_name"] = tagged_name
-        self.paths["output_file_basename"] = tagged_name
-        self.gui.line_edits["file_name"].setText(os.path.basename(tagged_name))
-        self.gui.buttons["output_folder"].setText(self.paths["output_folder_name"])
+        fn_le.setText(os.path.basename(tagged_name))
+        
+        # Warn if the file is already extant
+        self.check_if_saved_files_exist()
 
         # Read the metadata, the metadata file and update if necessary
         try:
@@ -386,6 +410,32 @@ class Scanalyzer(QtCore.QObject):
             print(f"{e}")
 
         return (image, selected_channel, frame, error)
+
+    def check_if_saved_files_exist(self):
+        self.paths["output_file_basename"] = self.gui.line_edits["file_name"].text()
+        
+        save_png = self.gui.buttons["save_png"]
+        save_svg = self.gui.buttons["save_svg"]
+        
+        png_exists = os.path.isfile(os.path.join(self.paths["output_folder"], self.paths["output_file_basename"] + ".png"))
+        svg_exists = os.path.isfile(os.path.join(self.paths["output_folder"], self.paths["output_file_basename"] + ".svg"))
+        
+        if png_exists:
+            save_png.changeToolTip("File already exists")
+            save_png.setStyleSheet("QPushButton{ background-color: #B05010; icon-size: 22px 22px; }")
+            
+        else:
+            save_png.changeToolTip("OK to save")
+            save_png.setStyleSheet("QPushButton{ background-color: #101010; icon-size: 22px 22px; }")
+        
+        if svg_exists:
+            save_svg.changeToolTip("File already exists")
+            save_svg.setStyleSheet("QPushButton{ background-color: #B05010; icon-size: 22px 22px; }")
+        else:
+            save_svg.changeToolTip("OK to save")
+            save_svg.setStyleSheet("QPushButton{ background-color: #101010; icon-size: 22px 22px; }")
+        
+        return
 
     def find_spectra(self) -> None:
         # Get a list of spectra and their locations
@@ -746,7 +796,7 @@ class Scanalyzer(QtCore.QObject):
         # Operations
         try: [flags.update({operation: checkboxes[operation].isChecked()}) for operation in ["sobel", "normal", "laplace", "gaussian", "fft"]]
         except: pass
-        phase = self.gui.phase_slider.value()
+        phase = self.gui.phase_slider.getValue()
         flags.update({"phase": phase})
 
         # Reload and process the scan with the updated flags
@@ -819,6 +869,10 @@ class Scanalyzer(QtCore.QObject):
             msg_box.setText("png file saved")
             QtCore.QTimer.singleShot(1000, msg_box.close)
             msg_box.exec()
+            
+            save_png = self.gui.buttons["save_png"]
+            save_png.changeToolTip("File already exists")
+            save_png.setStyleSheet("QPushButton{ background-color: #B05010; }")
 
         except Exception as e:
             print(f"Error saving the image file: {e}")
@@ -844,6 +898,10 @@ class Scanalyzer(QtCore.QObject):
             msg_box.setText("svg file saved")
             QtCore.QTimer.singleShot(1000, msg_box.close)
             msg_box.exec()
+            
+            save_svg = self.gui.buttons["save_svg"]
+            save_svg.changeToolTip("File already exists")
+            save_svg.setStyleSheet("QPushButton{ background-color: #B05010; }")
         
         except Exception as e:
             print(f"Error saving the image file: {e}")
@@ -856,18 +914,6 @@ class Scanalyzer(QtCore.QObject):
             try: os.startfile(self.paths[paths_entry])
             except: pass        
         return
-
-    # Information popup
-    def on_info(self) -> None:
-        msg_box = QtWidgets.QMessageBox(self.gui)
-        
-        msg_box.setWindowTitle("Info")
-        msg_box.setText("Scanalyzer (2026)\nby Peter H. Jacobse\nRice University; Lawrence Berkeley National Lab")
-        msg_box.setStandardButtons(QtWidgets.QMessageBox.StandardButton.Ok)
-        msg_box.setIcon(QtWidgets.QMessageBox.Icon.Information)
-
-        #QtCore.QTimer.singleShot(5000, msg_box.close)
-        retval = msg_box.exec()
 
     # Exit
     def closeEvent(self, a0) -> None:

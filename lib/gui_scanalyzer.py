@@ -1,7 +1,7 @@
 import os
 from PyQt6 import QtGui, QtWidgets, QtCore
 import pyqtgraph as pg
-from . import GUIItems, PJComboBox, PJLineEdit
+from . import GUIItems, PJComboBox, PhysicsLineEdit
 
 
 
@@ -28,6 +28,7 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
         self.widgets = self.make_widgets()
         self.consoles = self.make_consoles()
         self.shortcuts = self.make_shortcuts()
+        self.info_box = self.make_info_box()
                 
         # 3: Populate layouts with GUI items. Requires GUI items.
         self.populate_layouts()
@@ -130,8 +131,11 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
 
             "save_png": make_button("", "Save as png file\n(Ctrl + S)", self.icons.get("save_png")),
             "save_svg": make_button("", "Save image and markers to svg\n(Ctrl + S)", self.icons.get("svg")),
+            "reset": make_button("", "Reset file name", self.icons.get("reset")),
+            "use_dialog": make_button("", "Save directly", self.icons.get("dialog")),
             "save_hdf5": make_button("", "Save as hdf5 file\n(Ctrl + 5)", self.icons.get("h5")),
-            "output_folder": make_button("Output folder", "Open output folder\n(O)", self.icons.get("view_folder")),
+            
+            "output_folder": make_button("Extracted Files", "Open output folder\n(O)", self.icons.get("view_folder")),
             "exit": make_button("", "Exit scanalyzer\n(Esc / X / E)", self.icons.get("escape")),
             "info": make_button("", "Info", self.icons.get("i"))
         }
@@ -177,26 +181,29 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
         
         return comboboxes
 
-    def make_line_edits(self) -> dict:        
+    def make_line_edits(self) -> dict:
         line_edits = {
-            "min_full": PJLineEdit(tooltip = "minimum value of scan data range"),
-            "max_full": PJLineEdit(tooltip = "maximum value of scan data range"),
-            "min_percentiles": PJLineEdit(name = "2", tooltip = "minimum percentile of data range", unit = "%"),
-            "max_percentiles": PJLineEdit(name = "98", tooltip = "maximum percentile of data range", unit = "%"),
-            "min_deviations": PJLineEdit(name = "2", tooltip = "minimum = mean - n * standard deviation", unit = "\u03C3"),
-            "max_deviations": PJLineEdit(name = "2", tooltip = "maximum = mean + n * standard deviation", unit = "\u03C3"),
-            "min_absolute": PJLineEdit(name = "0", tooltip = "minimum absolute value"),
-            "max_absolute": PJLineEdit(name = "1", tooltip = "maximum absolute value"),
+            "min_full": PhysicsLineEdit(tooltip = "minimum value of scan data range"),
+            "max_full": PhysicsLineEdit(tooltip = "maximum value of scan data range"),
+            "min_percentiles": PhysicsLineEdit(value = 1.0, tooltip = "minimum percentile of data range", unit = "%"),
+            "max_percentiles": PhysicsLineEdit(value = 99.0, tooltip = "maximum percentile of data range", unit = "%"),
+            "min_deviations": PhysicsLineEdit(value = 2, tooltip = "minimum = mean - n * standard deviation", unit = "\u03C3"),
+            "max_deviations": PhysicsLineEdit(value = 2, tooltip = "maximum = mean + n * standard deviation", unit = "\u03C3"),
+            "min_absolute": PhysicsLineEdit(value = 0, tooltip = "minimum absolute value"),
+            "max_absolute": PhysicsLineEdit(value = 1, tooltip = "maximum absolute value"),
 
-            "gaussian_width": PJLineEdit(name = "0", tooltip = "Width for Gaussian blur application", unit = "nm"),
-            "file_name": PJLineEdit(tooltip = "Base name of the file when saved to png or hdf5")
+            "gaussian_width": PhysicsLineEdit(value = 0, tooltip = "Width for Gaussian blur application", unit = "nm"),
+            "file_name": QtWidgets.QLineEdit("Base name of the file when saved to png or hdf5")
         }
+        line_edits["file_name"].setStyleSheet("QLineEdit{ background-color: #101010 }")
         
         # Named groups
         self.min_names = ["min_full", "min_percentiles", "min_deviations", "min_absolute"]
         self.max_names = ["max_full", "max_percentiles", "max_deviations", "max_absolute"]
         self.min_line_edits = [line_edits[name] for name in self.min_names]
         self.max_line_edits = [line_edits[name] for name in self.max_names]
+        
+        self.io_widgets = [self.buttons[name] for name in ["output_folder", "info", "exit"]]
         
         return line_edits
 
@@ -267,6 +274,7 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
             "limits": make_layout("g"),
             "spectra": make_layout("h"),
             "i/o": make_layout("g"),
+            "i/o_widgets": make_layout("h"),
             "empty": make_layout("v")
         }
         
@@ -350,6 +358,14 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
 
         return shortcuts
 
+    def make_info_box(self) -> QtWidgets.QMessageBox:
+        info_box = QtWidgets.QMessageBox()
+        info_box.setWindowTitle("Info")
+        info_box.setText("Scanalyzer (2026)\nby Peter H. Jacobse\nRice University; Lawrence Berkeley National Lab")
+        info_box.setStandardButtons(QtWidgets.QMessageBox.StandardButton.Ok)
+        info_box.setWindowIcon(self.icons.get("i"))
+        return info_box
+
 
 
     # 3: Populate layouts with GUI items. Requires GUI items.
@@ -402,10 +418,11 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
         layouts["spectra"].setStretchFactor(comboboxes["spectra"], 4)
         
         io_layout = layouts["i/o"]
-        [io_layout.addWidget(buttons[name], 0, i + 1) for i, name in enumerate(["save_png", "save_svg", "save_hdf5", "info"])]
-        [io_layout.addWidget(widget, i, 0) for i, widget in enumerate([line_edits["file_name"], labels["in_output_folder"]])]
-        io_layout.addWidget(buttons["output_folder"], 1, 1, 1, 2)
-        io_layout.addWidget(buttons["exit"], 1, 3, 1, 2)
+        io_layout.addWidget(buttons["reset"], 0, 0)
+        io_layout.addWidget(line_edits["file_name"], 0, 1)
+        [io_layout.addWidget(buttons[name], 0, i + 2) for i, name in enumerate(["save_png", "save_svg", "use_dialog"])]
+        [layouts["i/o_widgets"].addWidget(widget) for widget in self.io_widgets]
+        io_layout.addLayout(layouts["i/o_widgets"], 1, 0, 1, 5)
                 
         return
 
