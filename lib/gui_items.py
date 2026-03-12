@@ -4,7 +4,7 @@ import pyqtgraph as pg
 import numpy as np
 
 
-
+    
 class PJTargetItem(pg.TargetItem):
     clicked = QtCore.pyqtSignal(str)
     position_signal = QtCore.pyqtSignal(float, float)
@@ -53,24 +53,29 @@ class PJTargetItem(pg.TargetItem):
 
 
 
-class PJGroupBox(QtWidgets.QGroupBox):
-    """
-    A Collapsible QGroupbox
-    """
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-    
-
-
-class PJPushButton(QtWidgets.QPushButton):
+class STPushButton(QtWidgets.QPushButton):
     """
     A QPushButton with extra method changeToolTip
     """
     def __init__(self, *args, **kwargs):
+        name = kwargs.pop("name", None)
         tooltip = kwargs.pop("tooltip", None)
+        icon = kwargs.pop("icons", None)
+        states = kwargs.pop("states", None)
+        self.state_index = 0
+                
         super().__init__(*args, **kwargs)
+        
+        if isinstance(name, str): self.setObjectName(name)
+        if isinstance(states, list):
+            self.states = states            
+        else:
+            # Default for when no different states are provided
+            self.states = [{"name": "unchecked", "color": "#101010"}]
+            if isinstance(tooltip, str): self.states[0].update({"tooltip": tooltip})
+            if isinstance(icon, QtGui.QIcon): self.states[0].update({"icon": icon})
 
-        if isinstance(tooltip, str): self.setToolTip(tooltip)
+        self.setState(0)
 
     def changeToolTip(self, text: str, line: int = 0) -> None:
         """
@@ -94,6 +99,23 @@ class PJPushButton(QtWidgets.QPushButton):
             self.setToolTip(new_tooltip)
         except:
             pass
+
+    def setState(self, index: int = -1) -> None:
+        if index > -1: self.state_index = index # Valid index given: set
+        else: self.state_index += 1 # No index given: tally
+        if self.state_index > len(self.states) - 1: self.state_index = 0 # Roll over
+        
+        self.state = self.states[self.state_index]
+        self.state_name = self.state.get("name")
+        self.state_tooltip = self.state.get("tooltip")
+        self.state_icon = self.state.get("name")
+        self.state_color = self.state.get("color")
+        
+        if isinstance(self.state_tooltip, str): self.setToolTip(self.state_tooltip)
+        if isinstance(self.state_icon, QtGui.QIcon): self.setIcon(self.state_icon)
+        if isinstance(self.state_color, str): self.setStyleSheet("QPushButton{ background-color: " + self.state_color + "; icon-size: 22px 22px; }")
+
+        return
 
 
 
@@ -379,7 +401,7 @@ class PhysicsLineEdit(QtWidgets.QLineEdit):
             self.setStyleSheet("QLineEdit{ background-color: #101010 }")
         
         return
-   
+
     def changeToolTip(self, text: str, line: int = 0) -> None:
         """
         Function to change just a single line of a multiline tooltip, instead of the entire tooltip message
@@ -568,8 +590,8 @@ class PJGroupBox(QtWidgets.QGroupBox):
                 
         self.toggled.connect(self.content_container.setVisible)
         self.content_container.setVisible(True)
-    
-    
+
+
 
 class PJConsole(QtWidgets.QTextEdit):
     """
@@ -782,10 +804,10 @@ class PhaseSlider(SliderLineEdit):
     def __init__(self, parent = None, unit = "", phase_0_icon = None, phase_180_icon = None):
         super().__init__(parent, unit = unit, limits = [-180, 180], initial_val = 0, max_width = 80)
         
-        self.phase_0_button = PJPushButton()
+        self.phase_0_button = STPushButton()
         self.phase_0_button.setToolTip("Set the phase to 0")
         if isinstance(phase_0_icon, QtGui.QIcon): self.phase_0_button.setIcon(phase_0_icon)
-        self.phase_180_button = PJPushButton()
+        self.phase_180_button = STPushButton()
         self.phase_180_button.setToolTip("Set the phase to 180 deg")
         if isinstance(phase_180_icon, QtGui.QIcon): self.phase_180_button.setIcon(phase_180_icon)
         
@@ -810,8 +832,6 @@ class PhaseSlider(SliderLineEdit):
         self.line_edit.setText(f"180 deg")
         self.line_edit.blockSignals(False)
         self.slider.setValue(180)
-
-
 
 
 
@@ -857,8 +877,8 @@ class GUIItems:
         box.setCheckable(False)
         return box
 
-    def make_button(self, name: str = "", tooltip: str = "", icon = None, rotate_icon: float = 0) -> PJPushButton:
-        button = PJPushButton(name)
+    def make_button(self, name: str = "", tooltip: str = "", icon = None, rotate_icon: float = 0) -> STPushButton:
+        button = STPushButton(name)
         button.setObjectName(name)
         button.setToolTip(tooltip)
         button.setStyleSheet("QPushButton{ background-color: #101010; icon-size: 22px 22px; }")

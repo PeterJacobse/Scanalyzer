@@ -1,7 +1,7 @@
 import os
 from PyQt6 import QtGui, QtWidgets, QtCore
 import pyqtgraph as pg
-from . import GUIItems, PJComboBox, PhysicsLineEdit
+from . import GUIItems, STWidgets
 
 
 
@@ -166,19 +166,20 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
         return checkboxes
     
     def make_comboboxes(self) -> dict:
+        CB = STWidgets.PJComboBox
         
         channel_selection_comboboxes = {
-            "x_axis": PJComboBox(name = "x_axis", tooltip = "Channel to display on the x axis (X)", max_width = 500),
-            "y_axis_0": PJComboBox(name = "y_axis_0", tooltip = "Channel to display on the y axis (Y)", max_width = 300),
-            "y_axis_1": PJComboBox(name = "y_axis_1", tooltip = "Channel to display on the y axis (Z)", max_width = 300),
+            "x_axis": CB(name = "x_axis", tooltip = "Channel to display on the x axis (X)", max_width = 500),
+            "y_axis_0": CB(name = "y_axis_0", tooltip = "Channel to display on the y axis (Y)", max_width = 300),
+            "y_axis_1": CB(name = "y_axis_1", tooltip = "Channel to display on the y axis (Z)", max_width = 300),
         }
         
-        focus_row_combobox = PJComboBox(name = "Focus row", tooltip = "Set the focus row\n(↑ / ↓)")
-        metadata_combobox = PJComboBox(name = "Metadata", tooltip = "Select what metadata to display")
+        focus_row_combobox = CB(name = "Focus row", tooltip = "Set the focus row\n(↑ / ↓)")
+        metadata_combobox = CB(name = "Metadata", tooltip = "Select what metadata to display")
 
         plot_number_comboboxes = {}
         for number in range(16):
-            plot_number_comboboxes.update({f"{number}": PJComboBox(name = f"{number}", tooltip = f"data for plot {number}")})
+            plot_number_comboboxes.update({f"{number}": CB(name = f"{number}", tooltip = f"data for plot {number}")})
         
         row_items = [f"Row {i} ({hex(i)[2]})" for i in range(len(plot_number_comboboxes))]
         focus_row_combobox.renewItems(row_items)

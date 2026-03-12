@@ -2,7 +2,8 @@ import os, sys, yaml
 import numpy as np
 import pyqtgraph as pg
 from PyQt6 import QtCore, QtGui, QtWidgets
-from lib import ScanalyzerGUI, PJTargetItem, DataProcessing, FileFunctions, Spectralyzer
+from lib import ScanalyzerGUI, DataProcessing, FileFunctions, Spectralyzer
+from lib import STWidgets
 
 
 
@@ -98,10 +99,9 @@ class Scanalyzer(QtCore.QObject):
                        
                        ["spec_info", self.load_process_display], ["spec_locations", self.on_toggle_spec_locations], ["spectralyzer", self.open_spectralyzer],
                        
-                       ["save_png", self.on_save_png], ["save_svg", self.on_save_svg], ["save_hdf5", self.on_save_png],
-                       ["use_dialog", self.toggle_save_mode],
+                       ["save_png", self.on_save_png], ["save_svg", self.on_save_svg], ["save_hdf5", self.on_save_png], ["reset", self.create_file_name],
                        ["output_folder", lambda: self.open_folder("output_folder")], ["info", lambda: self.gui.info_box.exec()], ["exit", self.on_exit]
-                    ]
+                       ]
         
         for connection in connections:
             name = connection[0]
@@ -151,7 +151,7 @@ class Scanalyzer(QtCore.QObject):
         self.gui.phase_slider.valueChanged.connect(self.update_processing_flags)
         
         direction_shortcut = QShc(QSeq(QKey.Key_X), self.gui)
-        direction_shortcut.activated.connect(self.toggle_direction)
+        direction_shortcut.activated.connect(buttons["direction"].click)
         
         exit_shortcuts = [QShc(QSeq(keystroke), self.gui) for keystroke in [QKey.Key_Q, QKey.Key_E, QKey.Key_Escape]]
         [exit_shortcut.activated.connect(self.on_exit) for exit_shortcut in exit_shortcuts]
@@ -207,12 +207,6 @@ class Scanalyzer(QtCore.QObject):
     # Channel selection
     def on_chan_index_change(self, index: int = 1) -> None:
         self.gui.comboboxes["channels"].toggleIndex(index)
-        self.update_processing_flags()
-        return
-
-    # Direction
-    def toggle_direction(self) -> None:
-        self.gui.buttons["direction"].setChecked(not self.gui.buttons["direction"].isChecked())
         self.update_processing_flags()
         return
 
@@ -353,7 +347,6 @@ class Scanalyzer(QtCore.QObject):
     def load_scan_file(self) -> tuple[np.ndarray, str, dict, bool | str]:
         # Load the sxm file from the list of sxm files. Make the select file button display the file name
         comboboxes = self.gui.comboboxes
-        fn_le = self.gui.line_edits["file_name"]
 
         # Scan dict is the subdict of files_dict
         scan_dict = self.files_dict.get("scan_files")
@@ -385,21 +378,17 @@ class Scanalyzer(QtCore.QObject):
         # Extract the image from the scan object using the processing flags available in the data object        
         (image, selected_channel, frame, error) = self.data.pick_image_from_scan_object(scan_object)
         comboboxes["channels"].selectItem(selected_channel)
+        self.channel = comboboxes["channels"].currentText()
 
-        (quantity, unit, backward, error) = self.file_functions.split_physical_quantity(selected_channel)
+        (quantity, unit, backward, error) = self.file_functions.split_physical_quantity(self.channel)
         [self.gui.line_edits[name].setUnit(unit) for name in ["min_full", "max_full", "min_absolute", "max_absolute"]]
         if error:
             print(f"{error}")
             return
 
         # Create an output file name using the selected channel and processing flags, then update paths and line_edits
-        bare_name = f"{quantity}_{self.file_index + 1:03d}"
-        tagged_name = self.data.add_tags_to_file_name(bare_name)
-        self.data.processing_flags["file_name"] = tagged_name
-        fn_le.setText(os.path.basename(tagged_name))
-        
-        # Warn if the file is already extant
-        self.check_if_saved_files_exist()
+        self.create_file_name(quantity)
+        self.check_if_saved_files_exist() # Warn if the output files already exist
 
         # Read the metadata, the metadata file and update if necessary
         try:
@@ -414,27 +403,19 @@ class Scanalyzer(QtCore.QObject):
     def check_if_saved_files_exist(self):
         self.paths["output_file_basename"] = self.gui.line_edits["file_name"].text()
         
-        save_png = self.gui.buttons["save_png"]
-        save_svg = self.gui.buttons["save_svg"]
-        
         png_exists = os.path.isfile(os.path.join(self.paths["output_folder"], self.paths["output_file_basename"] + ".png"))
         svg_exists = os.path.isfile(os.path.join(self.paths["output_folder"], self.paths["output_file_basename"] + ".svg"))
         
-        if png_exists:
-            save_png.changeToolTip("File already exists")
-            save_png.setStyleSheet("QPushButton{ background-color: #B05010; icon-size: 22px 22px; }")
-            
-        else:
-            save_png.changeToolTip("OK to save")
-            save_png.setStyleSheet("QPushButton{ background-color: #101010; icon-size: 22px 22px; }")
-        
-        if svg_exists:
-            save_svg.changeToolTip("File already exists")
-            save_svg.setStyleSheet("QPushButton{ background-color: #B05010; icon-size: 22px 22px; }")
-        else:
-            save_svg.changeToolTip("OK to save")
-            save_svg.setStyleSheet("QPushButton{ background-color: #101010; icon-size: 22px 22px; }")
-        
+        self.gui.buttons["save_png"].setState(int(png_exists))
+        self.gui.buttons["save_svg"].setState(int(svg_exists))
+        return
+
+    def create_file_name(self, quantity):
+        if not isinstance(quantity, str): quantity = self.file_functions.split_physical_quantity(self.channel)[0]
+        bare_name = f"{quantity}_{self.file_index + 1:03d}"
+        tagged_name = self.data.add_tags_to_file_name(bare_name)
+        self.data.processing_flags["file_name"] = tagged_name
+        self.gui.line_edits["file_name"].setText(os.path.basename(tagged_name))        
         return
 
     def find_spectra(self) -> None:
@@ -500,7 +481,7 @@ class Scanalyzer(QtCore.QObject):
                     x_nm = x_rotated
                     y_nm = y_rotated
 
-                target_item = PJTargetItem(pos = [x_nm, y_nm], rel_pos = [x_rotated, y_rotated], size = 10, tip_text = f"{data[0]}\n{data[4]}")
+                target_item = STWidgets.PJTargetItem(pos = [x_nm, y_nm], rel_pos = [x_rotated, y_rotated], size = 10, tip_text = f"{data[0]}\n{data[4]}")
                 
                 self.spec_targets.append(target_item)
             except Exception as e:
@@ -568,8 +549,8 @@ class Scanalyzer(QtCore.QObject):
         # Reset the limits and histogram
         self.hist_levels = list(self.hist_item.getLevels())
         [min_hist, max_hist] = self.hist_levels
-        self.gui.line_edits["min_full"].setValue(f"{min_hist:.2f}")
-        self.gui.line_edits["max_full"].setValue(f"{max_hist:.2f}")
+        self.gui.line_edits["min_full"].setValue(min_hist)
+        self.gui.line_edits["max_full"].setValue(max_hist)
         
         if isinstance(limits, list) or isinstance(limits, np.ndarray):
             min = limits[0]
@@ -724,14 +705,14 @@ class Scanalyzer(QtCore.QObject):
             numbers = self.data.extract_numbers_from_str(entry)
             
             if len(numbers) < 1: # Not a number: reset to zero and uncheck the checkbox
-                g_le.setText("0 nm")
+                g_le.setValue(0)
                 g_cb.setChecked(False)
                 flags.update({"gaussian_width (nm)": 0})
 
             else:
                 number = numbers[0]
                 if number < .00001: # The number that was entered was zero
-                    g_le.setText("0 nm")
+                    g_le.setValue(0)
                     g_cb.setChecked(False)
                     flags.update({"gaussian_width (nm)": 0})
                 else: # A non-zero number was entered
@@ -787,7 +768,7 @@ class Scanalyzer(QtCore.QObject):
         # Channel, direction, projection
         try:
             channel = comboboxes["channels"].currentText()
-            direction = "backward" if buttons["direction"].isChecked() else "forward"
+            direction = "backward" if buttons["direction"].state_index == 1 else "forward"
             projection = comboboxes["projection"].currentText()
             flags.update({"channel": channel, "direction": direction, "projection": projection})
         except:
@@ -870,9 +851,7 @@ class Scanalyzer(QtCore.QObject):
             QtCore.QTimer.singleShot(1000, msg_box.close)
             msg_box.exec()
             
-            save_png = self.gui.buttons["save_png"]
-            save_png.changeToolTip("File already exists")
-            save_png.setStyleSheet("QPushButton{ background-color: #B05010; }")
+            self.check_if_saved_files_exist()
 
         except Exception as e:
             print(f"Error saving the image file: {e}")
@@ -899,9 +878,7 @@ class Scanalyzer(QtCore.QObject):
             QtCore.QTimer.singleShot(1000, msg_box.close)
             msg_box.exec()
             
-            save_svg = self.gui.buttons["save_svg"]
-            save_svg.changeToolTip("File already exists")
-            save_svg.setStyleSheet("QPushButton{ background-color: #B05010; }")
+            self.check_if_saved_files_exist()
         
         except Exception as e:
             print(f"Error saving the image file: {e}")

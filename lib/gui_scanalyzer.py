@@ -1,7 +1,8 @@
 import os
 from PyQt6 import QtGui, QtWidgets, QtCore
 import pyqtgraph as pg
-from . import GUIItems, PJComboBox, PhysicsLineEdit
+from . import GUIItems
+from .st_widgets import STWidgets
 
 
 
@@ -78,66 +79,68 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
 
     # 2: Create the specific GUI items using the items from the GUIItems class. Requires icons.
     def make_labels(self) -> dict:
-        make_label = self.gui_items.make_label
-        
+        STL = STWidgets.STLabel
+
         labels = {
-            "scan_summary": make_label("Scanalyzer by Peter H. Jacobse"),
-            "statistics": make_label("Statistics"),
-            "load_file": make_label("Load file:"),
-            "in_folder": make_label("in folder:"),
-            "number_of_files": make_label("which contains 1 sxm file"),
-            "channel_selected": make_label("Channel selected:"),
+            "scan_summary": STL(text = "Scanalyzer by Peter H. Jacobse"),
+            "statistics": STL(text = "Statistics"),
+            "load_file": STL(text = "Load file:"),
+            "in_folder": STL(text = "in folder:"),
+            "number_of_files": STL(text = "which contains 1 sxm file"),
+            "channel_selected": STL(text = "Channel selected:"),
 
-            "background_subtraction": make_label("Background / frame subtraction"),
-            "width": make_label("Width (nm):"),
-            "show": make_label("Show", "Select a projection or toggle with (H)"),
-            "limits": make_label("Set limits", "Toggle the min and max limits with (-) and (=), respectively"),
-            "matrix_operations": make_label("Matrix operations"),
+            "background_subtraction": STL(text = "Background / frame subtraction"),
+            "width": STL(text = "Width (nm):"),
+            "show": STL(text = "Show", tooltip = "Select a projection or toggle with (H)"),
+            "limits": STL(text = "Set limits", tooltip = "Toggle the min and max limits with (-) and (=), respectively"),
+            "matrix_operations": STL(text = "Matrix operations"),
 
-            "in_output_folder": make_label("In output folder")
+            "in_output_folder": STL(text = "In output folder")
         }
-        
-        # Named groups
         
         return labels
 
     def make_buttons(self) -> dict:
-        make_button = self.gui_items.make_button
-        make_toggle_button = self.gui_items.make_toggle_button
+        PB = STWidgets.STPushButton
         icons = self.icons
         labels = self.labels
         arrow = icons.get("single_arrow")
         sivr = "Set the image value range "
+        rotate = self.gui_items.rotate_icon
 
         buttons = {
-            "previous_file": make_button("", "Previous file\n(←)", self.icons.get("single_arrow"), rotate_icon = 180),
-            "select_file": make_button("", "Load scan and corresponding folder\n(Ctrl + L)", self.icons.get("folder_yellow")),
-            "next_file": make_button("", "Next file\n(→)", self.icons.get("single_arrow")),
+            "previous_file": PB(tooltip = "Previous file\n(←)", icon = rotate(self.icons.get("single_arrow"), 180)),
+            "select_file": PB(tooltip = "Load scan and corresponding folder\n(Ctrl + L)", icon = self.icons.get("folder_yellow")),
+            "next_file": PB(tooltip = "Next file\n(→)", icon = self.icons.get("single_arrow")),
 
-            "previous_channel": make_button("", "Previous channel\n(↑)", icon = arrow, rotate_icon = 270),
-            "next_channel": make_button("","Next channel\n(↓)", icon = arrow, rotate_icon = 90),
-            "direction": make_toggle_button("", "Change scan direction\n(X)", self.icons.get("triple_arrow"), flip_icon = True),
+            "previous_channel": PB(tooltip = "Previous channel\n(↑)", icon = rotate(arrow, 270)),
+            "next_channel": PB(tooltip = "Next channel\n(↓)", icon = rotate(arrow, 90)),
+            "direction": PB(states = [{"tooltip": "Scan direction: forward\n(X)", "icon": self.icons.get("triple_arrow"), "color": "#101010"},
+                                      {"tooltip": "Scan direction: backward\n(X)", "icon": rotate(self.icons.get("triple_arrow"), 180), "color": "#2020C0"}]),
 
-            "folder_name": make_button("Open folder", "Open the data folder\n(1)", self.icons.get("view_folder")),
+            "folder_name": PB(name = "Open folder", tooltip = "Open the data folder\n(1)", icon = self.icons.get("view_folder")),
 
-            "full_data_range": make_button("", sivr + "to the full data range\n(Shift + U)", self.icons.get("100")),
-            "percentiles": make_button("", sivr + "by percentiles\n(Shift + P)", self.icons.get("percentiles")),
-            "standard_deviation": make_button("", sivr + "by standard deviations\n(Shift + D)", self.icons.get("deviation")),
-            "absolute_values": make_button("", sivr + "by absolute values\n(Shift + A)", self.icons.get("numbers")),
+            "full_data_range": PB(tooltip = sivr + "to the full data range\n(Shift + U)", icon = self.icons.get("100")),
+            "percentiles": PB(tooltip = sivr + "by percentiles\n(Shift + P)", icon = self.icons.get("percentiles")),
+            "standard_deviation": PB(tooltip = sivr + "by standard deviations\n(Shift + D)", icon = self.icons.get("deviation")),
+            "absolute_values": PB(tooltip = sivr + "by absolute values\n(Shift + A)", icon = self.icons.get("numbers")),
 
-            "spec_info": make_button("", "Spectrum information", self.icons.get("question")),
-            "spec_locations": make_toggle_button("", "View the spectroscopy locations\n(Space)", self.icons.get("spec_locations"), flip_icon = True),
-            "spectralyzer": make_button("", "Open Spectralyzer\n(S)", self.icons.get("graph")),
+            "spec_info": PB(tooltip = "Spectrum information", icon = self.icons.get("question")),
+            "spec_locations": PB(tooltip = "View the spectroscopy locations\n(Space)", icon = self.icons.get("spec_locations")),
+            "spectralyzer": PB(tooltip = "Open Spectralyzer\n(S)", icon = self.icons.get("graph")),
 
-            "save_png": make_button("", "Save as png file\n(Ctrl + S)", self.icons.get("save_png")),
-            "save_svg": make_button("", "Save image and markers to svg\n(Ctrl + S)", self.icons.get("svg")),
-            "reset": make_button("", "Reset file name", self.icons.get("reset")),
-            "use_dialog": make_button("", "Save directly", self.icons.get("dialog")),
-            "save_hdf5": make_button("", "Save as hdf5 file\n(Ctrl + 5)", self.icons.get("h5")),
+            "save_png": PB(states = [{"tooltip": "Save as png file\n(Ctrl + S)", "icon": self.icons.get("save_png"), "color": "#101010"},
+                                     {"tooltip": "File already exists\n(Ctrl + S)", "color": "#2020C0"}]),
+            "save_svg": PB(tooltip = "Save image and markers to svg\n(Ctrl + S)", icon = self.icons.get("svg")),
+            "reset": PB(tooltip = "Reset file name", icon = self.icons.get("reset")),
+            "use_dialog": PB(states = [{"tooltip": "Save directly", "icon": self.icons.get("dialog"), "color": "#101010"},
+                                       {"tooltip": "Use save dialog if file exists", "color": "#20A020"},
+                                       {"tooltip": "Save using dialog", "color": "#2020C0"}]),
+            "save_hdf5": PB(tooltip = "Save as hdf5 file\n(Ctrl + 5)", icon = self.icons.get("h5")),
             
-            "output_folder": make_button("Extracted Files", "Open output folder\n(O)", self.icons.get("view_folder")),
-            "exit": make_button("", "Exit scanalyzer\n(Esc / X / E)", self.icons.get("escape")),
-            "info": make_button("", "Info", self.icons.get("i"))
+            "output_folder": PB(name = "Extracted Files", tooltip = "Open output folder\n(O)", icon = self.icons.get("view_folder")),
+            "exit": PB(tooltip = "Exit scanalyzer\n(Esc / X / E)", icon = self.icons.get("escape")),
+            "info": PB(tooltip = "Info", icon = self.icons.get("i"))
         }
         
         # Named groups
@@ -166,13 +169,14 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
         return checkboxes
 
     def make_comboboxes(self) -> dict:
+        CB = STWidgets.PJComboBox
         buttons = self.buttons
-        
+
         comboboxes = {
-            "channels": PJComboBox(name = "Channels", tooltip = "Available scan channels\n(↑ / ↓)"),
-            "projection": PJComboBox(name = "Projection", tooltip = "Select a projection\n(Shift + ↑ / ↓)",
+            "channels": CB(name = "Channels", tooltip = "Available scan channels\n(↑ / ↓)"),
+            "projection": CB(name = "Projection", tooltip = "Select a projection\n(Shift + ↑ / ↓)",
                                      items = ["re", "im", "abs", "arg (b/w)", "arg (hue)", "complex", "abs^2", "log(abs)"]),
-            "spectra": PJComboBox(name = "spectra", tooltip = "Spectra\n(\">>\" indicates spectra associated with current scan)")
+            "spectra": CB(name = "spectra", tooltip = "Spectra\n(\">>\" indicates spectra associated with current scan)")
         }
         
         # Named groups
@@ -182,20 +186,24 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
         return comboboxes
 
     def make_line_edits(self) -> dict:
+        LE = STWidgets.PhysicsLineEdit
+        
         line_edits = {
-            "min_full": PhysicsLineEdit(tooltip = "minimum value of scan data range"),
-            "max_full": PhysicsLineEdit(tooltip = "maximum value of scan data range"),
-            "min_percentiles": PhysicsLineEdit(value = 1.0, tooltip = "minimum percentile of data range", unit = "%"),
-            "max_percentiles": PhysicsLineEdit(value = 99.0, tooltip = "maximum percentile of data range", unit = "%"),
-            "min_deviations": PhysicsLineEdit(value = 2, tooltip = "minimum = mean - n * standard deviation", unit = "\u03C3"),
-            "max_deviations": PhysicsLineEdit(value = 2, tooltip = "maximum = mean + n * standard deviation", unit = "\u03C3"),
-            "min_absolute": PhysicsLineEdit(value = 0, tooltip = "minimum absolute value"),
-            "max_absolute": PhysicsLineEdit(value = 1, tooltip = "maximum absolute value"),
+            "min_full": LE(tooltip = "minimum value of scan data range", digits = 3),
+            "max_full": LE(tooltip = "maximum value of scan data range", digits = 3),
+            "min_percentiles": LE(value = 1.0, tooltip = "minimum percentile of data range", unit = "%"),
+            "max_percentiles": LE(value = 99.0, tooltip = "maximum percentile of data range", unit = "%"),
+            "min_deviations": LE(value = 2, tooltip = "minimum = mean - n * standard deviation", unit = "\u03C3"),
+            "max_deviations": LE(value = 2, tooltip = "maximum = mean + n * standard deviation", unit = "\u03C3"),
+            "min_absolute": LE(value = 0, tooltip = "minimum absolute value", digits = 3),
+            "max_absolute": LE(value = 1, tooltip = "maximum absolute value", digits = 3),
 
-            "gaussian_width": PhysicsLineEdit(value = 0, tooltip = "Width for Gaussian blur application", unit = "nm"),
+            "gaussian_width": LE(value = 0, tooltip = "Width for Gaussian blur application", unit = "nm"),
             "file_name": QtWidgets.QLineEdit("Base name of the file when saved to png or hdf5")
         }
         line_edits["file_name"].setStyleSheet("QLineEdit{ background-color: #101010 }")
+        
+        [line_edits[name].setEnabled(False) for name in ["min_full", "max_full"]]
         
         # Named groups
         self.min_names = ["min_full", "min_percentiles", "min_deviations", "min_absolute"]
@@ -350,7 +358,6 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
             "spec_locations": QSeq(QKey.Key_Space),
             "spectralyzer": QSeq(QKey.Key_S),
 
-            #"save_png": QSeq(QKey.Key_S),
             "save_png": QSeq(QMod.CTRL | QKey.Key_S),
             "save_hdf5": QSeq(QMod.CTRL | QKey.Key_5),
             "output_folder": QSeq(QKey.Key_O),
