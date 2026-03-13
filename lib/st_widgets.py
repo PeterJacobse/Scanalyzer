@@ -17,7 +17,7 @@ class STWidgets:
             if isinstance(text, str): self.setText(text)
             if isinstance(tooltip, str): self.setToolTip(tooltip)
         
-    class PJTargetItem(pg.TargetItem):
+    class STTargetItem(pg.TargetItem):
         clicked = QtCore.pyqtSignal(str)
         position_signal = QtCore.pyqtSignal(float, float)
         
@@ -31,6 +31,15 @@ class STWidgets:
             self.text_item.setParentItem(self)
             self.text_item.hide()
             self.setZValue(10)
+
+        def setRelPos(self, rel_pos) -> None:
+            self.rel_pos = rel_pos
+            return
+
+        def setTipText(self, text) -> None:
+            self.tip_text = text
+            self.text_item.setText(self.tip_text)
+            return
 
         def hoverEvent(self, event) -> None:
             super().hoverEvent(event)
@@ -63,7 +72,7 @@ class STWidgets:
             else:
                 super().mouseClickEvent(event)
 
-    class STPushButton(QtWidgets.QPushButton):
+    class MultiStateButton(QtWidgets.QPushButton):
         """
         A QPushButton with extra method changeToolTip
         """
@@ -133,73 +142,7 @@ class STWidgets:
             self.setState(-1)
             return
 
-    class PJTogglePushButton(QtWidgets.QPushButton):
-        """
-        A checkable QPushButton with extra method changeToolTip, and which can flip its icon when toggled
-        """
-        def __init__(self, parent = None, **kwargs):
-            super().__init__(parent)
-            self.setCheckable(True)
-            self.flip_icon = kwargs.get("flip_icon", False)
-            self.toggled.connect(self.smartToggle)
-        
-        def newIcon(self, icon):
-            self.new_icon = icon
-            self.flipped_icon = icon
-            
-            try:
-                self.setIcon(icon)
-                
-                if self.flip_icon:            
-                    pixmap = self.new_icon.pixmap(QtCore.QSize(92, 92))
-                    transform = QtGui.QTransform()
-                    transform.scale(-1, 1)
-                
-                    flipped_pixmap = pixmap.transformed(transform)
-                    self.flipped_icon = QtGui.QIcon(flipped_pixmap)
-            except:
-                pass
-            return
-        
-        def changeToolTip(self, text: str, line: int = 0) -> None:
-            """
-            Function to change just a single line of a multiline tooltip, instead of the entire tooltip message
-            """
-            try:
-                old_tooltip = self.toolTip()
-                tooltip_list = old_tooltip.split("\n")
-                
-                if line > len(tooltip_list) - 1: # Add a line to the end if the line number is too big
-                    tooltip_list.append(text)
-                    new_tooltip = "\n".join(tooltip_list)
-                elif line < 0: # Add a line to the front if the line number is negative
-                    new_tooltip_list = [text]
-                    [new_tooltip_list.append(item) for item in tooltip_list]
-                    new_tooltip = "\n".join(new_tooltip_list)
-                else: # Replace a line
-                    tooltip_list[line] = text
-                    new_tooltip = "\n".join(tooltip_list)
-
-                self.setToolTip(new_tooltip)
-            except:
-                pass
-        
-        def smartToggle(self) -> None:
-            self.blockSignals(True)
-            self.toggle()
-            if self.isChecked():
-                self.setIcon(self.new_icon)
-                self.setStyleSheet("QPushButton{ background-color: #101010; icon-size: 22px 22px; }")
-                self.setChecked(False)
-            else:
-                self.setIcon(self.flipped_icon)
-                self.setStyleSheet("QPushButton{ background-color: #2020C0; icon-size: 22px 22px; }")
-                self.setChecked(True)
-            self.blockSignals(False)
-            
-            return
-
-    class PJComboBox(QtWidgets.QComboBox):
+    class STComboBox(QtWidgets.QComboBox):
         """
         A QComboBox with extra method changeToolTip
         """

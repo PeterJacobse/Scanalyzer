@@ -2,188 +2,7 @@ import re
 from PyQt6 import QtGui, QtWidgets, QtCore
 import pyqtgraph as pg
 import numpy as np
-
-
-    
-class PJTargetItem(pg.TargetItem):
-    clicked = QtCore.pyqtSignal(str)
-    position_signal = QtCore.pyqtSignal(float, float)
-    
-    def __init__(self, pos = None, rel_pos = [], size: int = 10, pen = "y", tip_text: str = "", movable = False):
-        super().__init__(pos = pos, size = size, pen = pen, movable = movable)
-        self.size = size
-        self.tip_text = tip_text
-        self.rel_pos = rel_pos # Position relative to the scan frame
-
-        self.text_item = pg.TextItem(tip_text, anchor = (0, 1), fill = 'k')
-        self.text_item.setParentItem(self)
-        self.text_item.hide()
-        self.setZValue(10)
-
-    def hoverEvent(self, event) -> None:
-        super().hoverEvent(event)
-
-        if event.isEnter(): self.activate_tooltip()
-        elif event.isExit(): self.deactivate_tooltip()
-        return
-
-    def activate_tooltip(self) -> None:
-        self.text_item.setPos(0, 0)
-        self.text_item.show()
-        return
-    
-    def deactivate_tooltip(self) -> None:
-        self.text_item.hide()
-        return
-
-    def mouseDragEvent(self, event) -> None:
-        super().mouseReleaseEvent(event)
-        
-        # Check if the drag is finished
-        if event.isFinish():
-            new_pos = self.pos()
-            self.position_signal.emit(new_pos.x(), new_pos.y())
-
-    def mouseClickEvent(self, event) -> None:
-        if event.button() == QtCore.Qt.MouseButton.LeftButton:
-            event.accept()
-            self.clicked.emit(self.tip_text)
-        else:
-            super().mouseClickEvent(event)
-
-
-
-class STPushButton(QtWidgets.QPushButton):
-    """
-    A QPushButton with extra method changeToolTip
-    """
-    def __init__(self, *args, **kwargs):
-        name = kwargs.pop("name", None)
-        tooltip = kwargs.pop("tooltip", None)
-        icon = kwargs.pop("icons", None)
-        states = kwargs.pop("states", None)
-        self.state_index = 0
-                
-        super().__init__(*args, **kwargs)
-        
-        if isinstance(name, str): self.setObjectName(name)
-        if isinstance(states, list):
-            self.states = states            
-        else:
-            # Default for when no different states are provided
-            self.states = [{"name": "unchecked", "color": "#101010"}]
-            if isinstance(tooltip, str): self.states[0].update({"tooltip": tooltip})
-            if isinstance(icon, QtGui.QIcon): self.states[0].update({"icon": icon})
-
-        self.setState(0)
-
-    def changeToolTip(self, text: str, line: int = 0) -> None:
-        """
-        Function to change just a single line of a multiline tooltip, instead of the entire tooltip message
-        """
-        try:
-            old_tooltip = self.toolTip()
-            tooltip_list = old_tooltip.split("\n")
-            
-            if line > len(tooltip_list) - 1: # Add a line to the end if the line number is too big
-                tooltip_list.append(text)
-                new_tooltip = "\n".join(tooltip_list)
-            elif line < 0: # Add a line to the front if the line number is negative
-                new_tooltip_list = [text]
-                [new_tooltip_list.append(item) for item in tooltip_list]
-                new_tooltip = "\n".join(new_tooltip_list)
-            else: # Replace a line
-                tooltip_list[line] = text
-                new_tooltip = "\n".join(tooltip_list)
-
-            self.setToolTip(new_tooltip)
-        except:
-            pass
-
-    def setState(self, index: int = -1) -> None:
-        if index > -1: self.state_index = index # Valid index given: set
-        else: self.state_index += 1 # No index given: tally
-        if self.state_index > len(self.states) - 1: self.state_index = 0 # Roll over
-        
-        self.state = self.states[self.state_index]
-        self.state_name = self.state.get("name")
-        self.state_tooltip = self.state.get("tooltip")
-        self.state_icon = self.state.get("name")
-        self.state_color = self.state.get("color")
-        
-        if isinstance(self.state_tooltip, str): self.setToolTip(self.state_tooltip)
-        if isinstance(self.state_icon, QtGui.QIcon): self.setIcon(self.state_icon)
-        if isinstance(self.state_color, str): self.setStyleSheet("QPushButton{ background-color: " + self.state_color + "; icon-size: 22px 22px; }")
-
-        return
-
-
-
-class PJTogglePushButton(QtWidgets.QPushButton):
-    """
-    A checkable QPushButton with extra method changeToolTip, and which can flip its icon when toggled
-    """
-    def __init__(self, parent = None, **kwargs):
-        super().__init__(parent)
-        self.setCheckable(True)
-        self.flip_icon = kwargs.get("flip_icon", False)
-        self.toggled.connect(self.smartToggle)
-    
-    def newIcon(self, icon):
-        self.new_icon = icon
-        self.flipped_icon = icon
-        
-        try:
-            self.setIcon(icon)
-            
-            if self.flip_icon:            
-                pixmap = self.new_icon.pixmap(QtCore.QSize(92, 92))
-                transform = QtGui.QTransform()
-                transform.scale(-1, 1)
-            
-                flipped_pixmap = pixmap.transformed(transform)
-                self.flipped_icon = QtGui.QIcon(flipped_pixmap)
-        except:
-            pass
-        return
-    
-    def changeToolTip(self, text: str, line: int = 0) -> None:
-        """
-        Function to change just a single line of a multiline tooltip, instead of the entire tooltip message
-        """
-        try:
-            old_tooltip = self.toolTip()
-            tooltip_list = old_tooltip.split("\n")
-            
-            if line > len(tooltip_list) - 1: # Add a line to the end if the line number is too big
-                tooltip_list.append(text)
-                new_tooltip = "\n".join(tooltip_list)
-            elif line < 0: # Add a line to the front if the line number is negative
-                new_tooltip_list = [text]
-                [new_tooltip_list.append(item) for item in tooltip_list]
-                new_tooltip = "\n".join(new_tooltip_list)
-            else: # Replace a line
-                tooltip_list[line] = text
-                new_tooltip = "\n".join(tooltip_list)
-
-            self.setToolTip(new_tooltip)
-        except:
-            pass
-    
-    def smartToggle(self) -> None:
-        self.blockSignals(True)
-        self.toggle()
-        if self.isChecked():
-            self.setIcon(self.new_icon)
-            self.setStyleSheet("QPushButton{ background-color: #101010; icon-size: 22px 22px; }")
-            self.setChecked(False)
-        else:
-            self.setIcon(self.flipped_icon)
-            self.setStyleSheet("QPushButton{ background-color: #2020C0; icon-size: 22px 22px; }")
-            self.setChecked(True)
-        self.blockSignals(False)
-        
-        return
+from . import STWidgets
 
 
 
@@ -804,10 +623,10 @@ class PhaseSlider(SliderLineEdit):
     def __init__(self, parent = None, unit = "", phase_0_icon = None, phase_180_icon = None):
         super().__init__(parent, unit = unit, limits = [-180, 180], initial_val = 0, max_width = 80)
         
-        self.phase_0_button = STPushButton()
+        self.phase_0_button = STWidgets.MultiStateButton()
         self.phase_0_button.setToolTip("Set the phase to 0")
         if isinstance(phase_0_icon, QtGui.QIcon): self.phase_0_button.setIcon(phase_0_icon)
-        self.phase_180_button = STPushButton()
+        self.phase_180_button = STWidgets.MultiStateButton()
         self.phase_180_button.setToolTip("Set the phase to 180 deg")
         if isinstance(phase_180_icon, QtGui.QIcon): self.phase_180_button.setIcon(phase_180_icon)
         
@@ -877,42 +696,6 @@ class GUIItems:
         box.setCheckable(False)
         return box
 
-    def make_button(self, name: str = "", tooltip: str = "", icon = None, rotate_icon: float = 0) -> STPushButton:
-        button = STPushButton(name)
-        button.setObjectName(name)
-        button.setToolTip(tooltip)
-        button.setStyleSheet("QPushButton{ background-color: #101010; icon-size: 22px 22px; }")
-
-        if isinstance(icon, QtGui.QIcon):
-            if type(rotate_icon) == float or type(rotate_icon) == int and rotate_icon != 0:
-                try: icon = self.rotate_icon(icon, rotate_icon)
-                except: pass
-            try: button.setIcon(icon)
-            except: pass
-        return button
-
-    def make_toggle_button(self, name: str = "", tooltip: str = "", icon = None, rotate_icon: float = 0, flip_icon: bool = False) -> PJPushButton:
-        button = PJTogglePushButton(name, flip_icon = flip_icon)
-        button.setObjectName(name)
-        button.setToolTip(tooltip)
-        button.setStyleSheet("QPushButton{ background-color: #101010; icon-size: 22px 22px; }")
-
-        if isinstance(icon, QtGui.QIcon):
-            if type(rotate_icon) == float or type(rotate_icon) == int and rotate_icon != 0:
-                try: icon = self.rotate_icon(icon, rotate_icon)
-                except: pass
-            try: button.newIcon(icon)
-            except: pass
-        return button
-
-    def make_label(self, name: str = "", tooltip: str = "") -> QtWidgets.QLabel:
-        label = QtWidgets.QLabel(name)
-        label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        label.setObjectName(name)
-        label.setToolTip(tooltip)
-
-        return label
-
     def make_radio_button(self, name: str = "", tooltip: str = "", icon = None, rotate_icon: float = 0) -> PJRadioButton:
         button = PJRadioButton(name)
         button.setObjectName(name)
@@ -939,16 +722,6 @@ class GUIItems:
                 except: pass
             try: box.setIcon(icon)
             except: pass
-        return box
-    
-    def make_combobox(self, name: str = "", tooltip: str = "", items: list = []) -> PJComboBox:
-        box = PJComboBox()
-        box.setObjectName(name)
-        box.setToolTip(tooltip)
-        box.setStyleSheet("QCombobox{ background-color: #101010; icon-size: 22px 22px; }")
-
-        if len(items) > 0: box.addItems(items)
-        
         return box
 
     def make_progress_bar(self, name: str = "", tooltip: str = "") -> PJProgressBar:
@@ -987,14 +760,6 @@ class GUIItems:
         phase_slider.setToolTip(tooltip)
         
         return phase_slider        
-
-    def make_image_view(self) -> PJImageView:
-        pg.setConfigOptions(imageAxisOrder = "row-major", antialias = True)
-
-        plot_item = pg.PlotItem()
-        image_view = PJImageView(view = plot_item)      
-        
-        return image_view
     
     def line_widget(self, orientation: str = "v", thickness: int = 1) -> QtWidgets.QFrame:
         line = QtWidgets.QFrame()

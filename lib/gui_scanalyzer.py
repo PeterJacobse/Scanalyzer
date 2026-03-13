@@ -19,17 +19,18 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
         self.gui_items = GUIItems()
         self.labels = self.make_labels()
         self.buttons = self.make_buttons()
-        self.checkboxes = self.make_checkboxes()
         self.comboboxes = self.make_comboboxes()
         self.line_edits = self.make_line_edits()
         self.radio_buttons = self.make_radio_buttons()
-        self.lines = self.make_lines()
         self.layouts = self.make_layouts()
         (self.image_view, self.plot_item) = self.make_image_view()
         self.widgets = self.make_widgets()
         self.consoles = self.make_consoles()
         self.shortcuts = self.make_shortcuts()
-        self.info_box = self.make_info_box()
+        (self.info_box, self.message_box) = self.make_boxes()
+        self.splash_screen = self.make_splash_screen()
+        self.dialog = self.make_file_dialog()
+        self.make_target_item = STWidgets.STTargetItem
                 
         # 3: Populate layouts with GUI items. Requires GUI items.
         self.populate_layouts()
@@ -39,6 +40,11 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
         
         # 5: Set up the main window layout
         self.setup_main_window()
+        
+        # 3: Define interconnected behavior
+        self.interconnect()
+
+
 
     # Drag and drop
     def dragEnterEvent(self, event) -> None:
@@ -59,11 +65,21 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
 
 
     # 1: Read icons from file.
-    def get_icons(self):
+    def get_icons(self) -> dict:
         lib_folder = os.path.dirname(os.path.abspath(__file__))
         project_folder = os.path.dirname(lib_folder)
+        sys_folder = os.path.join(project_folder, "sys")
+        splash_screen_path = os.path.join(sys_folder, "splash_screen.png")
         icon_folder = os.path.join(project_folder, "icons")
         icon_files = os.listdir(icon_folder)
+        
+        self.paths = {
+            "scanalyzer_folder": project_folder,
+            "lib_folder": lib_folder,
+            "sys_folder": sys_folder,
+            "icon_folder": icon_folder,
+            "splash_screen": splash_screen_path
+        }
         
         icons = {}
         for icon_file in icon_files:
@@ -101,7 +117,7 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
         return labels
 
     def make_buttons(self) -> dict:
-        PB = STWidgets.STPushButton
+        MSB = STWidgets.MultiStateButton
         icons = self.icons
         labels = self.labels
         arrow = icons.get("single_arrow")
@@ -109,38 +125,62 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
         rotate = self.gui_items.rotate_icon
 
         buttons = {
-            "previous_file": PB(tooltip = "Previous file\n(←)", icon = rotate(self.icons.get("single_arrow"), 180)),
-            "select_file": PB(tooltip = "Load scan and corresponding folder\n(Ctrl + L)", icon = self.icons.get("folder_yellow")),
-            "next_file": PB(tooltip = "Next file\n(→)", icon = self.icons.get("single_arrow")),
+            "previous_file": MSB(tooltip = "Previous file\n(←)", icon = rotate(self.icons.get("single_arrow"), 180)),
+            "select_file": MSB(tooltip = "Load scan and corresponding folder\n(Ctrl + L)", icon = self.icons.get("folder_yellow")),
+            "next_file": MSB(tooltip = "Next file\n(→)", icon = self.icons.get("single_arrow")),
 
-            "previous_channel": PB(tooltip = "Previous channel\n(↑)", icon = rotate(arrow, 270)),
-            "next_channel": PB(tooltip = "Next channel\n(↓)", icon = rotate(arrow, 90)),
-            "direction": PB(states = [{"tooltip": "Scan direction: forward\n(X)", "icon": self.icons.get("triple_arrow"), "color": "#101010"},
+            "previous_channel": MSB(tooltip = "Previous channel\n(↑)", icon = rotate(arrow, 270)),
+            "next_channel": MSB(tooltip = "Next channel\n(↓)", icon = rotate(arrow, 90)),
+            "direction": MSB(states = [{"tooltip": "Scan direction: forward\n(X)", "icon": self.icons.get("triple_arrow"), "color": "#101010"},
                                       {"tooltip": "Scan direction: backward\n(X)", "icon": rotate(self.icons.get("triple_arrow"), 180), "color": "#2020C0"}]),
 
-            "folder_name": PB(name = "Open folder", tooltip = "Open the data folder\n(1)", icon = self.icons.get("view_folder")),
+            "folder_name": MSB(name = "Open folder", tooltip = "Open the data folder\n(1)", icon = self.icons.get("view_folder")),
 
-            "full_data_range": PB(tooltip = sivr + "to the full data range\n(Shift + U)", icon = self.icons.get("100")),
-            "percentiles": PB(tooltip = sivr + "by percentiles\n(Shift + P)", icon = self.icons.get("percentiles")),
-            "standard_deviation": PB(tooltip = sivr + "by standard deviations\n(Shift + D)", icon = self.icons.get("deviation")),
-            "absolute_values": PB(tooltip = sivr + "by absolute values\n(Shift + A)", icon = self.icons.get("numbers")),
+            "full_data_range": MSB(tooltip = sivr + "to the full data range\n(Shift + U)", icon = self.icons.get("100")),
+            "percentiles": MSB(tooltip = sivr + "by percentiles\n(Shift + P)", icon = self.icons.get("percentiles")),
+            "standard_deviation": MSB(tooltip = sivr + "by standard deviations\n(Shift + D)", icon = self.icons.get("deviation")),
+            "absolute_values": MSB(tooltip = sivr + "by absolute values\n(Shift + A)", icon = self.icons.get("numbers")),
+            
+            "bg_none": MSB(states = [{"tooltip": "None\n(0)", "icon": self.icons.get("0_2"), "color": "#101010"},
+                                    {"color": "#2020C0"}]),
+            "bg_plane": MSB(states = [{"tooltip": "Plane\n(0)", "icon": self.icons.get("plane_subtract"), "color": "#101010"},
+                                    {"color": "#2020C0"}]),
+            "bg_linewise": MSB(states = [{"tooltip": "Linewise\n(0)", "icon": self.icons.get("lines"), "color": "#101010"},
+                                    {"color": "#2020C0"}]),
+            "bg_inferred": MSB(states = [{"tooltip": "None\n(0)", "icon": self.icons.get("0_2"), "color": "#101010"},
+                                    {"color": "#2020C0"}]),
+            
+            "sobel": MSB(text = "Sobel", tooltip = "Compute the complex gradient d/dx + i d/dy\n(Shift + S)", icon = self.icons.get("sobel"),
+                         states = [{"color": "#101010"}, {"color": "#2020C0"}]),
+            "laplace": MSB(text = "Laplace", tooltip = "Compute the Laplacian (d/dx)^2 + (d/dy)^2\n(Shift + L)", icon = self.icons.get("laplacian"),
+                           states = [{"color": "#101010"}, {"color": "#2020C0"}]),
+            "fft": MSB(text = "Fft", tooltip = "Compute the 2D Fourier transform\n(Shift + F)", icon = self.icons.get("fourier"),
+                       states = [{"color": "#101010"}, {"color": "#2020C0"}]),
+            "normal": MSB(text = "Normal", tooltip = "Compute the z component of the surface normal\n(Shift + N)", icon = self.icons.get("surface_normal"),
+                          states = [{"color": "#101010"}, {"color": "#2020C0"}]),
+            "gaussian": MSB(text = "Gauss", tooltip = "Gaussian blur applied\n(Shift + G) or provide a width to toggle", icon = self.icons.get("gaussian"),
+                            states = [{"color": "#101010"}, {"color": "#2020C0"}]),
+            "rot_trans": MSB(tooltip = "Show the scan in the scan window coordinates\nwith rotation and translation\n(R)", icon = self.icons.get("rot_trans"),
+                             states = [{"color": "#101010"}, {"color": "#2020C0"}]),
+            
+            "spec_info": MSB(tooltip = "Spectrum information", icon = self.icons.get("question")),
+            "spec_locations": MSB(states = [{"tooltip": "Spectroscopy locations: not visible\n(Space)", "icon": self.icons.get("spec_locations"), "color": "#101010"},
+                                           {"tooltip": "Spectroscopy locations: visible\n(Space)", "color": "#2020C0"}]),
+            "spectralyzer": MSB(tooltip = "Open Spectralyzer\n(S)", icon = self.icons.get("graph")),
 
-            "spec_info": PB(tooltip = "Spectrum information", icon = self.icons.get("question")),
-            "spec_locations": PB(tooltip = "View the spectroscopy locations\n(Space)", icon = self.icons.get("spec_locations")),
-            "spectralyzer": PB(tooltip = "Open Spectralyzer\n(S)", icon = self.icons.get("graph")),
-
-            "save_png": PB(states = [{"tooltip": "Save as png file\n(Ctrl + S)", "icon": self.icons.get("save_png"), "color": "#101010"},
+            "save_png": MSB(states = [{"tooltip": "Save as png file\n(Ctrl + S)", "icon": self.icons.get("save_png"), "color": "#101010"},
                                      {"tooltip": "File already exists\n(Ctrl + S)", "color": "#2020C0"}]),
-            "save_svg": PB(tooltip = "Save image and markers to svg\n(Ctrl + S)", icon = self.icons.get("svg")),
-            "reset": PB(tooltip = "Reset file name", icon = self.icons.get("reset")),
-            "use_dialog": PB(states = [{"tooltip": "Save directly", "icon": self.icons.get("dialog"), "color": "#101010"},
+            "save_svg": MSB(states = [{"tooltip": "Save image and markers to svg", "icon": self.icons.get("svg"), "color": "#101010"},
+                                     {"tooltip": "File already exists", "color": "#2020C0"}]),
+            "reset": MSB(tooltip = "Reset file name", icon = self.icons.get("reset")),
+            "use_dialog": MSB(states = [{"tooltip": "Save directly", "icon": self.icons.get("dialog"), "color": "#101010"},
                                        {"tooltip": "Use save dialog if file exists", "color": "#20A020"},
                                        {"tooltip": "Save using dialog", "color": "#2020C0"}]),
-            "save_hdf5": PB(tooltip = "Save as hdf5 file\n(Ctrl + 5)", icon = self.icons.get("h5")),
+            "save_hdf5": MSB(tooltip = "Save as hdf5 file\n(Ctrl + 5)", icon = self.icons.get("h5")),
             
-            "output_folder": PB(name = "Extracted Files", tooltip = "Open output folder\n(O)", icon = self.icons.get("view_folder")),
-            "exit": PB(tooltip = "Exit scanalyzer\n(Esc / X / E)", icon = self.icons.get("escape")),
-            "info": PB(tooltip = "Info", icon = self.icons.get("i"))
+            "output_folder": MSB(name = "Extracted Files", tooltip = "Open output folder\n(O)", icon = self.icons.get("view_folder")),
+            "exit": MSB(tooltip = "Exit scanalyzer\n(Esc / X / E)", icon = self.icons.get("escape")),
+            "info": MSB(tooltip = "Info", icon = self.icons.get("i"))
         }
         
         # Named groups
@@ -148,28 +188,15 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
         self.limits_names = ["full_data_range", "percentiles", "standard_deviation", "absolute_values"]
         self.scale_buttons = [buttons[name] for name in self.limits_names]
         self.fcd_widgets = [labels["in_folder"], buttons["folder_name"], labels["number_of_files"], labels["channel_selected"]]
+        self.background_buttons = [buttons[name] for name in ["bg_none", "bg_plane", "bg_linewise"]]
+
+        # Initialize
+        buttons["bg_none"].setState(1)
 
         return buttons
 
-    def make_checkboxes(self) -> dict:
-        make_checkbox = self.gui_items.make_checkbox
-        
-        checkboxes = {
-            "sobel": make_checkbox("Sobel", "Compute the complex gradient d/dx + i d/dy\n(Shift + S)", self.icons.get("sobel")),
-            "laplace": make_checkbox("Laplace", "Compute the Laplacian (d/dx)^2 + (d/dy)^2\n(Shift + L)", self.icons.get("laplacian")),
-            "fft": make_checkbox("Fft", "Compute the 2D Fourier transform\n(Shift + F)", self.icons.get("fourier")),
-            "normal": make_checkbox("Normal", "Compute the z component of the surface normal\n(Shift + N)", self.icons.get("surface_normal")),
-            "gaussian": make_checkbox("Gauss", "Gaussian blur applied\n(Shift + G) or provide a width to toggle", self.icons.get("gaussian")),
-            
-            "rotation": make_checkbox("", "Show the scan frame rotation\n(R)", self.icons.get("rotation")),
-            "offset": make_checkbox("", "Show the scan frame offset(O)", self.icons.get("offset")),
-            "rot_trans": make_checkbox("", "Show the scan in the scan window coordinates\nwith rotation and translation\n(R)", self.icons.get("rot_trans"))
-        }
-
-        return checkboxes
-
     def make_comboboxes(self) -> dict:
-        CB = STWidgets.PJComboBox
+        CB = STWidgets.STComboBox
         buttons = self.buttons
 
         comboboxes = {
@@ -220,11 +247,6 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
         QGroup = QtWidgets.QButtonGroup
         
         radio_buttons = {
-            "bg_none": make_radio_button("", "None\n(0)", self.icons.get("0_2")),
-            "bg_plane": make_radio_button("", "Plane\n(P)", self.icons.get("plane_subtract")),
-            "bg_linewise": make_radio_button("", "Linewise\n(L)", self.icons.get("lines")),
-            "bg_inferred": make_radio_button("", "None\n(0)", self.icons.get("0")),
-
             "min_full": make_radio_button("", "set to minimum value of scan data range\n(-) to toggle"),
             "max_full": make_radio_button("", "set to maximum value of scan data range\n(=) to toggle"),
             "min_percentiles": make_radio_button("", "set to minimum percentile of data range\n(-) to toggle"),
@@ -236,35 +258,20 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
         }
         
         # Named groups
-        self.background_buttons = [radio_buttons[name] for name in ["bg_none", "bg_plane", "bg_linewise"]]
         self.min_radio_buttons = [radio_buttons[name] for name in self.min_names]
         self.max_radio_buttons = [radio_buttons[name] for name in self.max_names]
                 
-        # Add buttons to QButtonGroups for exclusive selection and check the defaults
-        self.background_button_group = QGroup()
-        [self.background_button_group.addButton(button) for button in self.background_buttons]
-        
+        # Add buttons to QButtonGroups for exclusive selection and check the defaults        
         self.min_button_group = QGroup()
         self.max_button_group = QGroup()
         [self.min_button_group.addButton(button) for button in self.min_radio_buttons]
         [self.max_button_group.addButton(button) for button in self.max_radio_buttons]
         
         # Initialize
-        checked_buttons = [radio_buttons[name] for name in ["min_full", "max_full", "bg_none"]]
+        checked_buttons = [radio_buttons[name] for name in ["min_full", "max_full"]]
         [button.setChecked(True) for button in checked_buttons]
 
         return radio_buttons
-
-    def make_lines(self) -> dict:
-        make_line = self.gui_items.line_widget
-        
-        lines = {
-            "scan_control": make_line("h"),
-            "background": make_line("h"),
-            "matrix_operations": make_line("h")
-        }
-        
-        return lines
 
     def make_layouts(self) -> dict:
         make_layout = self.gui_items.make_layout
@@ -288,7 +295,7 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
         
         return layouts
 
-    def make_image_view(self) -> pg.ImageView:
+    def make_image_view(self) -> tuple[pg.ImageView, pg.PlotItem]:
         pg.setConfigOptions(imageAxisOrder = "row-major", antialias = True)
         
         plot_item = pg.PlotItem()        
@@ -349,6 +356,17 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
             "next_channel": QSeq(QKey.Key_Down),
             
             "folder_name": QSeq(QKey.Key_1),
+            
+            "bg_none": QSeq(QKey.Key_0),
+            "bg_plane": QSeq(QKey.Key_P),
+            "bg_linewise": QSeq(QKey.Key_L),
+            
+            "sobel": QSeq(QMod.SHIFT | QKey.Key_S),
+            "normal": QSeq(QMod.SHIFT | QKey.Key_N),
+            "gaussian": QSeq(QMod.SHIFT | QKey.Key_G),
+            "fft": QSeq(QMod.SHIFT | QKey.Key_F),
+            "laplace": QSeq(QMod.SHIFT | QKey.Key_L),
+            "rot_trans": QSeq(QKey.Key_R),
 
             "full_data_range": QSeq(QMod.SHIFT | QKey.Key_U),
             "percentiles": QSeq(QMod.SHIFT | QKey.Key_P),
@@ -365,13 +383,27 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
 
         return shortcuts
 
-    def make_info_box(self) -> QtWidgets.QMessageBox:
-        info_box = QtWidgets.QMessageBox()
+    def make_boxes(self) -> tuple[QtWidgets.QMessageBox, QtWidgets.QMessageBox]:
+        info_box = QtWidgets.QMessageBox(self)
         info_box.setWindowTitle("Info")
         info_box.setText("Scanalyzer (2026)\nby Peter H. Jacobse\nRice University; Lawrence Berkeley National Lab")
         info_box.setStandardButtons(QtWidgets.QMessageBox.StandardButton.Ok)
         info_box.setWindowIcon(self.icons.get("i"))
-        return info_box
+        
+        message_box = QtWidgets.QMessageBox(self)
+        message_box.setWindowTitle("Success")
+        message_box.setText("png file saved")
+        return (info_box, message_box)
+
+    def make_splash_screen(self) -> QtWidgets.QSplashScreen:
+        pixmap = QtGui.QPixmap()
+        pixmap.load(self.paths["splash_screen"])
+        splash_screen = QtWidgets.QSplashScreen(pixmap, QtCore.Qt.WindowType.WindowStaysOnTopHint)
+        return splash_screen
+
+    def make_file_dialog(self) -> QtWidgets.QFileDialog:
+        dialog = QtWidgets.QFileDialog()        
+        return dialog
 
 
 
@@ -379,7 +411,6 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
     def populate_layouts(self) -> None:
         layouts = self.layouts
         buttons = self.buttons
-        checkboxes = self.checkboxes
         comboboxes = self.comboboxes
         line_edits = self.line_edits
         labels = self.labels
@@ -398,12 +429,12 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
         fcd_layout.addLayout(layouts["channel_navigation"])
         
         [layouts["background_buttons"].addWidget(button) for button in self.background_buttons]
-        [layouts["background_buttons"].addWidget(checkboxes[name]) for name in ["rot_trans"]] #["rotation", "offset"]]
+        layouts["background_buttons"].addWidget(buttons["rot_trans"])
         p_layout = layouts["matrix_processing"]
-        [p_layout.addWidget(checkboxes[checkbox_name], 0, index) for index, checkbox_name in enumerate(["sobel", "normal", "laplace"])]
-        p_layout.addWidget(checkboxes["gaussian"], 1, 1)
+        [p_layout.addWidget(buttons[name], 0, index) for index, name in enumerate(["sobel", "normal", "laplace"])]
+        p_layout.addWidget(buttons["gaussian"], 1, 1)
         p_layout.addWidget(line_edits["gaussian_width"], 1, 2)
-        p_layout.addWidget(checkboxes["fft"], 1, 0)
+        p_layout.addWidget(buttons["fft"], 1, 0)
         p_layout.addWidget(comboboxes["projection"], 2, 0)
         p_layout.addWidget(self.phase_slider, 2, 1, 1, 2)
         
@@ -487,3 +518,25 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
         
         return
 
+
+
+    # 6: Interconnected behavior
+    def interconnect(self) -> None:
+        self.buttons["bg_none"].clicked.connect(lambda: self.background_mutex("none"))
+        self.buttons["bg_plane"].clicked.connect(lambda: self.background_mutex("plane"))
+        self.buttons["bg_linewise"].clicked.connect(lambda: self.background_mutex("linewise"))
+        return
+        
+    def background_mutex(self, method: str = "none") -> None:
+        [none, plane, linewise] = [self.buttons[name] for name in ["bg_none", "bg_plane", "bg_linewise"]]
+        match method:
+            case "none":
+                [button.setState(0) for button in [plane, linewise]]
+                none.setState(1)
+            case "plane":
+                [button.setState(0) for button in [none, linewise]]
+                plane.setState(1)
+            case _:
+                [button.setState(0) for button in [none, plane]]
+                linewise.setState(1)
+        return

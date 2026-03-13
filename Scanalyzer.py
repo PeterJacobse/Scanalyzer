@@ -1,9 +1,9 @@
 import os, sys, yaml
 import numpy as np
 import pyqtgraph as pg
-from PyQt6 import QtCore, QtGui, QtWidgets
+from PyQt6 import QtCore, QtGui
 from lib import ScanalyzerGUI, DataProcessing, FileFunctions, Spectralyzer
-from lib import STWidgets
+from PyQt6.QtWidgets import QApplication as QApp
 
 
 
@@ -83,7 +83,6 @@ class Scanalyzer(QtCore.QObject):
 
     def connect_buttons(self) -> None:
         buttons = self.gui.buttons
-        checkboxes = self.gui.checkboxes
         radio_buttons = self.gui.radio_buttons
         comboboxes = self.gui.comboboxes
         line_edits = self.gui.line_edits
@@ -94,8 +93,13 @@ class Scanalyzer(QtCore.QObject):
                        ["previous_channel", lambda: self.on_chan_index_change(-1)], ["next_channel", lambda: self.on_chan_index_change(1)], ["direction", self.update_processing_flags],
                        ["folder_name", lambda: self.open_folder("data_folder")],
                        
+                       ["bg_none", self.update_processing_flags], ["bg_plane", self.update_processing_flags], ["bg_linewise", self.update_processing_flags],
+                       ["direction", self.update_processing_flags],
+                       
                        ["full_data_range", lambda: self.on_limits_set("full", "both")], ["percentiles", lambda: self.on_limits_set("percentiles", "both")],
                        ["standard_deviation", lambda: self.on_limits_set("deviations", "both")], ["absolute_values", lambda: self.on_limits_set("absolute", "both")],
+                       ["sobel", self.update_processing_flags], ["normal", self.update_processing_flags], ["laplace", self.update_processing_flags],
+                       ["gaussian", self.update_processing_flags], ["fft", self.update_processing_flags], ["rot_trans", self.update_processing_flags], 
                        
                        ["spec_info", self.load_process_display], ["spec_locations", self.on_toggle_spec_locations], ["spectralyzer", self.open_spectralyzer],
                        
@@ -117,20 +121,8 @@ class Scanalyzer(QtCore.QObject):
         QSeq = QtGui.QKeySequence
         QShc = QtGui.QShortcut
         
-        # Background
-        [radio_buttons[name].clicked.connect(self.update_processing_flags) for name in ["bg_none", "bg_plane", "bg_linewise", "min_absolute", "min_deviations", "min_percentiles", "min_full", "max_absolute", "max_deviations", "max_percentiles", "max_full"]]
-        radio_buttons["bg_none"].setShortcut(QSeq(QKey.Key_0))
-        radio_buttons["bg_plane"].setShortcut(QSeq(QKey.Key_P))
-        radio_buttons["bg_linewise"].setShortcut(QSeq(QKey.Key_L))
-        checkboxes["rot_trans"].setShortcut(QSeq(QKey.Key_R))
-
-        # Matrix operations
-        [checkboxes[operation].clicked.connect(self.update_processing_flags) for operation in ["sobel", "gaussian", "normal", "fft", "laplace", "rot_trans"]] #"rotation", "offset"]]
-        checkboxes["sobel"].setShortcut(QSeq(QMod.SHIFT | QKey.Key_S))
-        checkboxes["normal"].setShortcut(QSeq(QMod.SHIFT | QKey.Key_N))
-        checkboxes["gaussian"].setShortcut(QSeq(QMod.SHIFT | QKey.Key_G))
-        checkboxes["fft"].setShortcut(QSeq(QMod.SHIFT | QKey.Key_F))
-        checkboxes["laplace"].setShortcut(QSeq(QMod.SHIFT | QKey.Key_L))
+        # Radio buttons
+        [radio_buttons[name].clicked.connect(self.update_processing_flags) for name in ["min_absolute", "min_deviations", "min_percentiles", "min_full", "max_absolute", "max_deviations", "max_percentiles", "max_full"]]
 
         # Limits control group
         toggle_min_shortcut = QShc(QSeq(QKey.Key_Minus), self.gui)
@@ -149,10 +141,7 @@ class Scanalyzer(QtCore.QObject):
         line_edits["gaussian_width"].editingFinished.connect(self.gaussian_width_edited)
         line_edits["file_name"].editingFinished.connect(self.check_if_saved_files_exist)
         self.gui.phase_slider.valueChanged.connect(self.update_processing_flags)
-        
-        direction_shortcut = QShc(QSeq(QKey.Key_X), self.gui)
-        direction_shortcut.activated.connect(buttons["direction"].click)
-        
+
         exit_shortcuts = [QShc(QSeq(keystroke), self.gui) for keystroke in [QKey.Key_Q, QKey.Key_E, QKey.Key_Escape]]
         [exit_shortcut.activated.connect(self.on_exit) for exit_shortcut in exit_shortcuts]
 
@@ -176,7 +165,7 @@ class Scanalyzer(QtCore.QObject):
         return
 
     def on_select_file(self) -> None:
-        file_path, _ = QtWidgets.QFileDialog.getOpenFileName(None, "Open file", self.paths["data_folder"], "SXM files (*.sxm);;Dat files (*.dat);;HDF5 files (*.hdf5)")
+        file_path, _ = self.gui.dialog.getOpenFileName(None, "Open file", self.paths["data_folder"], "SXM files (*.sxm);;Dat files (*.dat);;HDF5 files (*.hdf5)")
         if file_path: self.load_folder(file_path)
         return
 
@@ -229,14 +218,12 @@ class Scanalyzer(QtCore.QObject):
         if not os.path.isdir(folder_name):
             print("Error loading files")
             return
-        
-        # Splash screen
-        pixmap = QtGui.QPixmap()
-        pixmap.load(self.paths["splash_screen"])
-        self.splash = QtWidgets.QSplashScreen(pixmap, QtCore.Qt.WindowType.WindowStaysOnTopHint)
-        self.splash.show()
+
+        self.gui.splash_screen.show() # Splash screen
 
         self.files_dict = {}
+        loaded_scan_file_names = []
+        loaded_spec_file_names = []
         try:
             # Set the paths according to what file was selected
             self.paths["data_folder"] = folder_name
@@ -245,53 +232,70 @@ class Scanalyzer(QtCore.QObject):
 
 
 
-            loaded_files_dict = {}
-            try:
-                if os.path.exists(self.paths["metadata_file"]): # Metadata file already exists. Load metadata from file
-                    (loaded_files_dict, error) = self.file_functions.load_yaml(self.paths["metadata_file"])
-            except:
-                pass
+            # 1. Initialize a files dictionary on the basis of all files present in the data_folder
+            (files_dict, error) = self.file_functions.create_empty_files_dict(folder_name)
+            if error:
+                print(f"Error creating the files dictionary: {error}")
+            [scan_file_names, spec_file_names] = self.file_functions.get_file_name_lists(files_dict)
             
+            # 2. Try to find the files dictionary already present in the metadata.yml file, considering it exists
+            (loaded_files_dict, error) = self.file_functions.load_metadata_file(self.paths["metadata_file"])
             if "spectroscopy_files" in loaded_files_dict.keys() and "scan_files" in loaded_files_dict.keys(): # File loaded successfully. Roll with it
-                files_dict = loaded_files_dict
+                [loaded_scan_file_names, loaded_spec_file_names] = self.file_functions.get_file_name_lists(loaded_files_dict)
                 print(f"Found the scan and spectroscopy metadata in file {self.paths["metadata_file"]}")
+            if error:
+                print(f"Error loading the files dictionary: {error}")
             
-            else: # No file exists, is loaded or file did not load successfully. Create from scratch by reading all the files in the folder
+            new_scan_files = list(set(scan_file_names) - set(loaded_scan_file_names))
+            new_spec_files = list(set(spec_file_names) - set(loaded_spec_file_names))
+
+            corrupt_scan_files = list(set(loaded_scan_file_names) - set(scan_file_names))
+            corrupt_spec_files = list(set(loaded_spec_file_names) - set(spec_file_names))
             
-                # 1: Create an empty files dictionary
-                (files_dict, error) = self.file_functions.create_empty_files_dict(folder_name)
-                if error:
-                    print(f"Error creating the files_dict: {error}")
-                    return
+            rebuild_metadata = False
+            if len(new_scan_files) > 0 or len(new_spec_files) > 0:
+                print("I found new files in the data folder that are not yet present in the metadata file")
+                print(f"Scans: {new_scan_files}")
+                print(f"Spectroscopy files: {new_spec_files}")
+                rebuild_metadata = True
+            if len(corrupt_scan_files) > 0 or len(corrupt_spec_files) > 0:
+                print("I found entries in the metadata file that point to files not present in the folder")
+                print(f"Scan entries: {corrupt_scan_files}")
+                print(f"Spectroscopy entries: {corrupt_spec_files}")
+                rebuild_metadata = True
                 
-                # 2: Populate it with spectroscopy headers
-                (files_dict, error) = self.file_functions.populate_spectroscopy_headers(files_dict)
+            # 3. Update the metadata.yml file if new files are found
+            if rebuild_metadata:
+                # 3a: Populate it with spectroscopy headers
+                (files_dict, error) = self.file_functions.populate_spectroscopy_headers(files_dict, folder_name)
                 if error:
                     print(f"Error populating spectroscopy headers: {error}")
                     return
                 
-                # 3: Populate it with scan headers
-                (files_dict, error) = self.file_functions.populate_scan_headers(files_dict)
+                # 3b: Populate it with scan headers
+                (files_dict, error) = self.file_functions.populate_scan_headers(files_dict, folder_name)
                 if error:
                     print(f"Error populating scan headers: {error}")
                     return
                 
-                # 4: Use the scan headers and spectroscopy headers to associate spectra with scans, and update the dictionary accordingly
+                # 3c: Use the scan headers and spectroscopy headers to associate spectra with scans, and update the dictionary accordingly
                 (files_dict, error) = self.file_functions.populate_associated_scans(files_dict)
                 if error:
                     print(f"Error associating spectra and scans: {error}")
                     return
                 
-                # 5: Save the fully populated dicts to a metadata.yml file
+                # 3d: Save the fully populated dicts to a metadata.yml file
                 error = self.file_functions.save_files_dict(files_dict, folder_name)
                 if error:
                     print(f"Error saving the files_dict to the metadata.yml file: {error}")
                     return
                 
                 print(f"Loaded all scan and spectroscopy metadata and saved to file {self.paths["metadata_file"]}")
-            
-            # 6: All operations successful. Save the populated files_dict as Scanalyzer attribute.
-            self.files_dict = files_dict
+
+                # 4: All operations successful. Save the populated files_dict as Scanalyzer attribute.
+                self.files_dict = files_dict
+            else:
+                self.files_dict = loaded_files_dict
 
 
             
@@ -301,7 +305,9 @@ class Scanalyzer(QtCore.QObject):
             for key, single_file_dict in scan_dict.items():
                 if not isinstance(single_file_dict, dict): continue
                 
-                if os.path.samefile(single_file_dict.get("path"), file_path):
+                dict_file_path = os.path.join(self.paths["data_folder"], single_file_dict.get("file_name"))
+                
+                if os.path.samefile(dict_file_path, file_path):
                     self.file_index = key
                     break
             if self.file_index > len(scan_dict) - 2: self.file_index = 0 # Roll over if the selected file index is too large
@@ -324,8 +330,8 @@ class Scanalyzer(QtCore.QObject):
             print(f"Error loading folder: {e}")
             buttons["select_file"].setText("Select file")
         finally:
-            self.splash.close()
-            self.splash.finish(self.gui)
+            self.gui.splash_screen.close()
+            self.gui.splash_screen.finish(self.gui)
         
         return
 
@@ -360,8 +366,9 @@ class Scanalyzer(QtCore.QObject):
         # Use the global variable file_index to extract the path of the requested scan from the dict
         if self.file_index < 0: self.file_index = len(scan_dict) - 1
         if self.file_index > len(scan_dict) - 1: self.file_index = 0
-        scan_file_path = scan_file_entry.get("path")
+        # scan_file_path = scan_file_entry.get("path")
         self.scan_file_name = scan_file_entry.get("file_name")
+        scan_file_path = os.path.join(self.paths["data_folder"], self.scan_file_name)
 
 
 
@@ -402,10 +409,10 @@ class Scanalyzer(QtCore.QObject):
 
     def check_if_saved_files_exist(self):
         self.paths["output_file_basename"] = self.gui.line_edits["file_name"].text()
-        
+
         png_exists = os.path.isfile(os.path.join(self.paths["output_folder"], self.paths["output_file_basename"] + ".png"))
         svg_exists = os.path.isfile(os.path.join(self.paths["output_folder"], self.paths["output_file_basename"] + ".svg"))
-        
+
         self.gui.buttons["save_png"].setState(int(png_exists))
         self.gui.buttons["save_svg"].setState(int(svg_exists))
         return
@@ -481,7 +488,11 @@ class Scanalyzer(QtCore.QObject):
                     x_nm = x_rotated
                     y_nm = y_rotated
 
-                target_item = STWidgets.PJTargetItem(pos = [x_nm, y_nm], rel_pos = [x_rotated, y_rotated], size = 10, tip_text = f"{data[0]}\n{data[4]}")
+                target_item = self.gui.make_target_item()
+                target_item.setPos([x_nm, y_nm])
+                target_item.setRelPos([x_rotated, y_rotated])
+                target_item.setTipText(f"{data[0]}\n{data[4]}")
+                #(pos = [x_nm, y_nm], rel_pos = [x_rotated, y_rotated], size = 10, tip_text = f"{data[0]}\n{data[4]}")
                 
                 self.spec_targets.append(target_item)
             except Exception as e:
@@ -693,30 +704,32 @@ class Scanalyzer(QtCore.QObject):
 
         return
 
+
+
     # Update all the processing flags
     def gaussian_width_edited(self) -> None:
         flags = self.data.processing_flags
         g_le = self.gui.line_edits["gaussian_width"]
-        g_cb = self.gui.checkboxes["gaussian"]
+        g_cb = self.gui.buttons["gaussian"]
         
-        # Gaussian line edit / checkbox interconnected behavior
+        # Gaussian line edit / button interconnected behavior
         try:
             entry = g_le.text()
             numbers = self.data.extract_numbers_from_str(entry)
             
-            if len(numbers) < 1: # Not a number: reset to zero and uncheck the checkbox
+            if len(numbers) < 1: # Not a number: reset to zero and uncheck the button
                 g_le.setValue(0)
-                g_cb.setChecked(False)
+                g_cb.setState(0)
                 flags.update({"gaussian_width (nm)": 0})
 
             else:
                 number = numbers[0]
                 if number < .00001: # The number that was entered was zero
                     g_le.setValue(0)
-                    g_cb.setChecked(False)
+                    g_cb.setState(0)
                     flags.update({"gaussian_width (nm)": 0})
                 else: # A non-zero number was entered
-                    g_cb.setChecked(True)
+                    g_cb.setState(0)
                     flags.update({"gaussian_width (nm)": number})
         except:
             pass
@@ -727,7 +740,6 @@ class Scanalyzer(QtCore.QObject):
     def update_processing_flags(self) -> None:
         flags = self.data.processing_flags
         
-        checkboxes = self.gui.checkboxes
         buttons = self.gui.buttons
         comboboxes = self.gui.comboboxes
         radio_buttons = self.gui.radio_buttons
@@ -738,9 +750,9 @@ class Scanalyzer(QtCore.QObject):
         # Background
         bg_methods = ["none", "plane", "linewise"]
         for method in bg_methods:
-            if radio_buttons[f"bg_{method}"].isChecked(): flags.update({"background": f"{method}"})
+            if buttons[f"bg_{method}"].state_index == 1: flags.update({"background": f"{method}"})
         
-        if checkboxes["rot_trans"].isChecked(): flags.update({"rotation": True, "offset": True})
+        if buttons["rot_trans"].state_index == 1: flags.update({"rotation": True, "offset": True})
         else: flags.update({"rotation": False, "offset": False})
         
         # Limits
@@ -775,7 +787,7 @@ class Scanalyzer(QtCore.QObject):
             print("Error updating the image processing flags.")
         
         # Operations
-        try: [flags.update({operation: checkboxes[operation].isChecked()}) for operation in ["sobel", "normal", "laplace", "gaussian", "fft"]]
+        try: [flags.update({operation: bool(buttons[operation].state_index)}) for operation in ["sobel", "normal", "laplace", "gaussian", "fft"]]
         except: pass
         phase = self.gui.phase_slider.getValue()
         flags.update({"phase": phase})
@@ -789,7 +801,7 @@ class Scanalyzer(QtCore.QObject):
 
     # Spectroscopy
     def on_toggle_spec_locations(self) -> None:
-        self.data.processing_flags["spec_locations"] = self.gui.buttons["spec_locations"].isChecked()
+        self.data.processing_flags["spec_locations"] = bool(self.gui.buttons["spec_locations"].state_index)
         self.load_process_display(new_scan = True)    
         return
 
@@ -843,14 +855,28 @@ class Scanalyzer(QtCore.QObject):
 
             output_file_name = os.path.join(self.paths["output_folder"], self.paths["output_file_basename"] + ".png")
             os.makedirs(self.paths["output_folder"], exist_ok = True)
-            qimg.save(output_file_name)
+            
+            match self.gui.buttons["use_dialog"].state_index:
+                case 0:
+                    qimg.save(output_file_name)
+                case 1:
+                    if os.path.isfile(output_file_name):
+                        file_name, _ = self.gui.dialog.getSaveFileName(self.gui, "Save file", output_file_name, "png files (*.png)")
+                        if isinstance(file_name, str) and not file_name == "": qimg.save(file_name)
+                        else: return
+                    else:
+                        qimg.save(output_file_name)
+                case _:
+                    file_name, _ = self.gui.dialog.getSaveFileName(self.gui, "Save file", output_file_name, "png files (*.png)")
+                    if isinstance(file_name, str) and not file_name == "": qimg.save(file_name)
+                    else: return
 
-            msg_box = QtWidgets.QMessageBox(self.gui)
+            msg_box = self.gui.message_box
             msg_box.setWindowTitle("Success")
             msg_box.setText("png file saved")
             QtCore.QTimer.singleShot(1000, msg_box.close)
             msg_box.exec()
-            
+
             self.check_if_saved_files_exist()
 
         except Exception as e:
@@ -868,11 +894,24 @@ class Scanalyzer(QtCore.QObject):
             
             exporter = pg.exporters.SVGExporter(view)
             output_file_name = os.path.join(self.paths["output_folder"], self.paths["output_file_basename"] + ".svg")
-            
             os.makedirs(self.paths["output_folder"], exist_ok = True)
-            exporter.export(output_file_name)
 
-            msg_box = QtWidgets.QMessageBox(self.gui)
+            match self.gui.buttons["use_dialog"].state_index:
+                case 0:
+                    exporter.export(output_file_name)
+                case 1:
+                    if os.path.isfile(output_file_name):
+                        file_name, _ = self.gui.dialog.getSaveFileName(self.gui, "Save file", output_file_name, "svg files (*.svg)")
+                        if isinstance(file_name, str) and not file_name == "": exporter.export(file_name)
+                        else: return
+                    else:
+                        exporter.export(output_file_name)
+                case _:
+                    file_name, _ = self.gui.dialog.getSaveFileName(self.gui, "Save file", output_file_name, "svg files (*.svg)")
+                    if isinstance(file_name, str) and not file_name == "": exporter.export(file_name)
+                    else: return
+
+            msg_box = self.gui.message_box
             msg_box.setWindowTitle("Success")
             msg_box.setText("svg file saved")
             QtCore.QTimer.singleShot(1000, msg_box.close)
@@ -899,17 +938,19 @@ class Scanalyzer(QtCore.QObject):
     def on_exit(self) -> None:
         try:
             scan_dict = self.files_dict.get("scan_files")
-            data = {"last_file": str(scan_dict[self.file_index].get("path"))}
+            last_file_name = scan_dict[self.file_index].get("file_name")
+            last_file_path = os.path.join(self.paths["data_folder"], last_file_name)
+            data = {"last_file": last_file_path}
             save_path = self.paths["config_path"]
             error = self.file_functions.save_yaml(data, save_path)
         except:
             pass
         print("Thank you for using Scanalyzer!")
-        QtWidgets.QApplication.instance().quit()
+        QApp.instance().quit()
 
 
 
 if __name__ == "__main__":
-    app = QtWidgets.QApplication(sys.argv)
+    app = QApp(sys.argv)
     window = Scanalyzer()
     sys.exit(app.exec())

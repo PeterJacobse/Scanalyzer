@@ -1,4 +1,4 @@
-import os, sys, re, yaml, pint
+import os
 import numpy as np
 from PyQt6 import QtCore, QtGui, QtWidgets
 import pyqtgraph as pg
@@ -196,7 +196,7 @@ class Spectralyzer:
         return
 
     def change_view_mode(self) -> None:
-        checked = self.gui.buttons["view_mode"].isChecked()
+        checked = bool(self.gui.buttons["view_mode"].state_index)
         if checked:
             self.view_mode = "bright"
             self.gui.buttons["view_mode"].setIcon(self.icons.get("bright_mode"))
@@ -222,70 +222,96 @@ class Spectralyzer:
         else:
             print("Error. Invalid file/folder.")
             return
-        
-        self.paths["data_folder"] = folder_name
-        self.paths["output_folder"] = os.path.join(folder_name, self.paths["output_folder_name"])
-        self.paths["metadata_file"] = os.path.join(folder_name, "metadata.yml")
-        self.gui.buttons["open_folder"].setText(folder_name)
 
-
-
-        loaded_files_dict = {}
+        self.files_dict = {}
+        loaded_scan_file_names = []
+        loaded_spec_file_names = []
         try:
-            if os.path.exists(self.paths["metadata_file"]): # Metadata file already exists. Load metadata from file
-                (loaded_files_dict, error) = self.file_functions.load_yaml(self.paths["metadata_file"])
-        except:
-            pass
-        
-        if "spectroscopy_files" in loaded_files_dict.keys() and "scan_files" in loaded_files_dict.keys(): # File loaded successfully. Roll with it
-            files_dict = loaded_files_dict
-            print(f"Found the scan and spectroscopy metadata in file {self.paths["metadata_file"]}")
-        
-        else: # No file exists, is loaded or file did not load successfully. Create from scratch by reading all the files in the folder
-        
-            # 1: Create an empty files dictionary
+            # Set the paths according to what file was selected
+            self.paths["data_folder"] = folder_name
+            self.paths["metadata_file"] = os.path.join(folder_name, "metadata.yml") # Set the metadata.yml file accordingly as well
+            self.paths["output_folder"] = os.path.join(folder_name, self.paths["output_folder_name"]) # Set the output folder name
+            self.gui.buttons["open_folder"].setText(folder_name)
+
+
+
+            # 1. Initialize a files dictionary on the basis of all files present in the data_folder
             (files_dict, error) = self.file_functions.create_empty_files_dict(folder_name)
             if error:
-                print(f"Error creating the files_dict: {error}")
-                return
+                print(f"Error creating the files dictionary: {error}")
+            [scan_file_names, spec_file_names] = self.file_functions.get_file_name_lists(files_dict)
             
-            # 2: Populate it with spectroscopy headers
-            (files_dict, error) = self.file_functions.populate_spectroscopy_headers(files_dict)
+            # 2. Try to find the files dictionary already present in the metadata.yml file, considering it exists
+            (loaded_files_dict, error) = self.file_functions.load_metadata_file(self.paths["metadata_file"])
+            if "spectroscopy_files" in loaded_files_dict.keys() and "scan_files" in loaded_files_dict.keys(): # File loaded successfully. Roll with it
+                [loaded_scan_file_names, loaded_spec_file_names] = self.file_functions.get_file_name_lists(loaded_files_dict)
+                print(f"Found the scan and spectroscopy metadata in file {self.paths["metadata_file"]}")
             if error:
-                print(f"Error populating spectroscopy headers: {error}")
-                return
+                print(f"Error loading the files dictionary: {error}")
             
-            # 3: Populate it with scan headers
-            (files_dict, error) = self.file_functions.populate_scan_headers(files_dict)
-            if error:
-                print(f"Error populating scan headers: {error}")
-                return
-            
-            # 4: Use the scan headers and spectroscopy headers to associate spectra with scans, and update the dictionary accordingly
-            (files_dict, error) = self.file_functions.populate_associated_scans(files_dict)
-            if error:
-                print(f"Error associating spectra and scans: {error}")
-                return
-            
-            # 5: Save the fully populated dicts to a metadata.yml file
-            error = self.file_functions.save_files_dict(files_dict, folder_name)
-            if error:
-                print(f"Error saving the files_dict to the metadata.yml file: {error}")
-                return
-            
-            print(f"Loaded all scan and spectroscopy metadata and saved to file {self.paths["metadata_file"]}")
+            new_scan_files = list(set(scan_file_names) - set(loaded_scan_file_names))
+            new_spec_files = list(set(spec_file_names) - set(loaded_spec_file_names))
 
+            corrupt_scan_files = list(set(loaded_scan_file_names) - set(scan_file_names))
+            corrupt_spec_files = list(set(loaded_spec_file_names) - set(spec_file_names))
+            
+            rebuild_metadata = False
+            if len(new_scan_files) > 0 or len(new_spec_files) > 0:
+                print("I found new files in the data folder that are not yet present in the metadata file")
+                print(f"Scans: {new_scan_files}")
+                print(f"Spectroscopy files: {new_spec_files}")
+                rebuild_metadata = True
+            if len(corrupt_scan_files) > 0 or len(corrupt_spec_files) > 0:
+                print("I found entries in the metadata file that point to files not present in the folder")
+                print(f"Scan entries: {corrupt_scan_files}")
+                print(f"Spectroscopy entries: {corrupt_spec_files}")
+                rebuild_metadata = True
+                
+            # 3. Update the metadata.yml file if new files are found
+            if rebuild_metadata:
+                # 3a: Populate it with spectroscopy headers
+                (files_dict, error) = self.file_functions.populate_spectroscopy_headers(files_dict, folder_name)
+                if error:
+                    print(f"Error populating spectroscopy headers: {error}")
+                    return
+            
+                # 3b: Populate it with scan headers
+                (files_dict, error) = self.file_functions.populate_scan_headers(files_dict, folder_name)
+                if error:
+                    print(f"Error populating scan headers: {error}")
+                    return
+                
+                # 3c: Use the scan headers and spectroscopy headers to associate spectra with scans, and update the dictionary accordingly
+                (files_dict, error) = self.file_functions.populate_associated_scans(files_dict)
+                if error:
+                    print(f"Error associating spectra and scans: {error}")
+                    return
+                
+                # 3d. Save the fully populated dicts to a metadata.yml file
+                error = self.file_functions.save_files_dict(files_dict, folder_name)
+                if error:
+                    print(f"Error saving the files_dict to the metadata.yml file: {error}")
+                    return
+                
+                print(f"Loaded all scan and spectroscopy metadata and saved to file {self.paths["metadata_file"]}")
 
+                # 4: All operations successful. Save the populated files_dict as Scanalyzer attribute.
+                self.files_dict = files_dict
+            else:
+                self.files_dict = loaded_files_dict
 
-        # 6: Populate the spectroscopy dictionary with spectroscopy objects, from which the spectra can be extracted
-        (files_dict, error) = self.file_functions.populate_spec_objects(files_dict)
-        if error:
-            print(f"Error retrieving spectroscopy objects: {error}")
-            return
-   
-        # 7: All operations successful. Save the populated files_dict as Spectralyzer attribute. Then move on with reading the spectroscopy files/objects
-        self.files_dict = files_dict
-        self.read_spectroscopy_files()
+            # 5: Populate the spectroscopy dictionary with spectroscopy objects, from which the spectra can be extracted
+            (self.files_dict, error) = self.file_functions.populate_spec_objects(self.files_dict, folder_name)
+            if error:
+                print(f"Error retrieving spectroscopy objects: {error}")
+                return
+    
+            # 6: All operations successful. Save the populated files_dict as Spectralyzer attribute. Then move on with reading the spectroscopy files/objects
+            self.read_spectroscopy_files()
+        
+        except Exception as e:
+            print(f"Error loading folder: {e}")
+            self.gui.buttons["select_file"].setText("Select file")
         
         return
 
@@ -445,13 +471,13 @@ class Spectralyzer:
         if len(numbers) < 1: window = 0
         else: window = int(numbers[0])
         
-        moving_average = self.gui.buttons["smooth"].isChecked()
+        moving_average = bool(self.gui.buttons["smooth"].state_index)
         
         # More operations
-        log_abs_0 = self.gui.buttons["log_abs_0"].isChecked()
-        log_abs_1 = self.gui.buttons["log_abs_1"].isChecked()
-        differentiate_0 = self.gui.buttons["differentiate_0"].isChecked()
-        differentiate_1 = self.gui.buttons["differentiate_1"].isChecked()
+        log_abs_0 = bool(self.gui.buttons["log_abs_0"].state_index)
+        log_abs_1 = bool(self.gui.buttons["log_abs_1"].state_index)
+        differentiate_0 = bool(self.gui.buttons["differentiate_0"].state_index)
+        differentiate_1 = bool(self.gui.buttons["differentiate_1"].state_index)
         
         flags.update({
             "line_width": line_width,
@@ -849,13 +875,32 @@ class Spectralyzer:
             else:
                 scene = self.gui.plot_widgets["graph_0"].scene()
                 file_name = self.gui.line_edits["file_name_1"].text()
-            export_path = os.path.join(export_folder, file_name + ".svg")
             
+            os.makedirs(export_folder, exist_ok = True)
+            export_path = os.path.join(export_folder, file_name + ".svg")
             exporter = expts.SVGExporter(scene)
-            file_path, _ = QtWidgets.QFileDialog.getSaveFileName(self.gui, "Save file", export_path, "svg files (*.svg)")
-            if file_path:
-                exporter.export(file_path)
-        
+            
+            match self.gui.buttons["use_dialog"].state_index:
+                case 0:
+                    exporter.export(export_path)
+                case 1:
+                    if os.path.isfile(export_path):
+                        file_name, _ = self.gui.dialog.getSaveFileName(self.gui, "Save file", export_path, "svg files (*.svg)")
+                        if isinstance(file_name, str) and not file_name == "": exporter.export(file_name)
+                        else: return
+                    else:
+                        exporter.export(export_path)
+                case _:
+                    file_name, _ = self.gui.dialog.getSaveFileName(self.gui, "Save file", export_path, "svg files (*.svg)")
+                    if isinstance(file_name, str) and not file_name == "": exporter.export(file_name)
+                    else: return
+
+            msg_box = self.gui.message_box
+            msg_box.setWindowTitle("Success")
+            msg_box.setText("svg file saved")
+            QtCore.QTimer.singleShot(1000, msg_box.close)
+            msg_box.exec()
+
         except Exception as e:
             print(f"Error saving file: {e}")
         
@@ -870,11 +915,3 @@ class Spectralyzer:
             except: pass        
         return
 
-
-
-"""
-if __name__ == "__main__":
-    app = QtWidgets.QApplication(sys.argv)
-    window = Spectralyzer()
-    sys.exit(app.exec())
-"""

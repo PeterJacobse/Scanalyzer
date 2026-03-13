@@ -50,7 +50,7 @@ class FileFunctions():
             for key, single_file_dict in scan_dict.items():
                 if not isinstance(single_file_dict, dict): continue # Pass the dict_name entry; only parse single_file dictionaries
                 
-                allowed_entries = ["frame", "date_time_str", "path", "file_name"] # Allowed entries for saving to yaml
+                allowed_entries = ["frame", "date_time_str", "file_name"] # Allowed entries for saving to yaml
                 clean_single_file_dict = {entry: single_file_dict.get(entry) for entry in allowed_entries}
                 clean_single_file_dict.update({"dict_name": "single_file_dict"})
                 
@@ -60,7 +60,7 @@ class FileFunctions():
             for key, single_file_dict in spec_dict.items():
                 if not isinstance(single_file_dict, dict): continue # Pass the dict_name entry; only parse single_file dictionaries
                 
-                allowed_entries = ["x (nm)", "y (nm)", "z (nm)", "date_time_str", "path", "file_name", "associated_scan_name", "associated_scan_path"] # Allowed entries for saving to yaml
+                allowed_entries = ["x (nm)", "y (nm)", "z (nm)", "date_time_str", "file_name", "associated_scan_name", "associated_scan_path"] # Allowed entries for saving to yaml
                 clean_single_file_dict = {entry: single_file_dict.get(entry) for entry in allowed_entries}
                 clean_single_file_dict.update({"dict_name": "single_file_dict"})
                 
@@ -291,6 +291,38 @@ class FileFunctions():
 
 
     # Files dict (metadata) logic
+    def get_file_name_lists(self, files_dict: dict = {}) -> tuple[list, list]:
+        [scan_files, spec_files] = [files_dict.get(dict_name) for dict_name in ["scan_files", "spectroscopy_files"]]
+        scan_file_names = []
+        spec_file_names = []
+        
+        for scan_file, single_file_dict in scan_files.items():
+            if not isinstance(single_file_dict, dict): continue
+            file_name = single_file_dict.get("file_name")
+            scan_file_names.append(file_name)
+
+        for spec_file, single_file_dict in spec_files.items():
+            if not isinstance(single_file_dict, dict): continue
+            file_name = single_file_dict.get("file_name")
+            spec_file_names.append(file_name)
+
+        return scan_file_names, spec_file_names
+
+    def load_metadata_file(self, metadata_path: str) -> tuple[dict, bool | str]:
+        error = False
+        files_dict = {}
+
+        try:
+            if os.path.isfile(metadata_path): # Metadata file already exists. Load metadata from file
+                (loaded_files_dict, error) = self.load_yaml(metadata_path)
+                if "spectroscopy_files" in loaded_files_dict.keys() and "scan_files" in loaded_files_dict.keys(): # File loaded successfully. Roll with it
+                    print(f"Found the scan and spectroscopy metadata in file {metadata_path}")
+                    files_dict = loaded_files_dict
+        except Exception as e:
+            error = e
+        
+        return (files_dict, error)
+
     def create_empty_files_dict(self, directory_name: str) -> tuple[dict, bool | str]:
         error = False
         files_dict = {"dict_name": "files_dict"} # Self reference to facilitate the app recognizing what kind of dictionary this is
@@ -341,15 +373,14 @@ class FileFunctions():
         
         return (files_dict, error)
 
-    def get_spectroscopy_header(self, file_name: str) -> tuple[dict, bool | str]:
+    def get_spectroscopy_header(self, file_path: str) -> tuple[dict, bool | str]:
         error = False
         header = {}
         [x, y, z, dt_object] = [False for _ in range(4)]
         
         try:
             # Read the file line by line until the tags are found
-            line_count = 0
-            with open(file_name, "rb") as file:
+            with open(file_path, "rb") as file:
                 for line in file:
                     decoded = line.decode()
 
@@ -418,7 +449,7 @@ class FileFunctions():
             
             return (header, error)
 
-    def populate_spectroscopy_headers(self, files_dict: dict) -> tuple[dict, bool | str]:
+    def populate_spectroscopy_headers(self, files_dict: dict, folder_path: str) -> tuple[dict, bool | str]:
         error = False
         new_files_dict = {"dict_name": "files_dict"}
         new_spec_dict = {"dict_name": "spectroscopy_files"}
@@ -429,8 +460,8 @@ class FileFunctions():
             
             for key, value in spec_dict.items():
                 if not isinstance(value, dict): continue # The dict_name entry is of type str and should be ignored
-                file_name = value.get("path")
-                (header, error) = self.get_spectroscopy_header(file_name)
+                file_name = value.get("file_name")
+                (header, error) = self.get_spectroscopy_header(os.path.join(folder_path, file_name))
                                 
                 if not error:
                     value.update(header)
@@ -442,16 +473,16 @@ class FileFunctions():
         
         except Exception as e:
             error = e
-
+        
         return (new_files_dict, error)
 
-    def get_raw_sxm_header(self, file_name: str) -> tuple[list, bool | str]:
+    def get_raw_sxm_header(self, file_path: str) -> tuple[list, bool | str]:
         error = False
         header_end_tag = ":SCANIT_END:"
         raw_header = []
         
         try:
-            with open(file_name, "rb") as file:
+            with open(file_path, "rb") as file:
                 for line in file:
                     decoded = line.decode()
                     
@@ -546,7 +577,7 @@ class FileFunctions():
         
         return (header, error)
 
-    def populate_scan_headers(self, files_dict: dict) -> tuple[dict, bool | str]:
+    def populate_scan_headers(self, files_dict: dict, folder_path: str) -> tuple[dict, bool | str]:
         new_files_dict = {"dict_name": "files_dict"}
         new_scan_dict = {"dict_name": "scan_files"}
         
@@ -556,8 +587,8 @@ class FileFunctions():
             
             for key, value in scan_dict.items():
                 if not isinstance(value, dict): continue # The dict_name entry is of type str and should be ignored
-                file_name = value.get("path")
-                (raw_header, error) = self.get_raw_sxm_header(file_name)
+                file_name = value.get("file_name")
+                (raw_header, error) = self.get_raw_sxm_header(os.path.join(folder_path, file_name))
                 if error:
                     continue
                 else:
@@ -616,12 +647,12 @@ class FileFunctions():
         
         return (new_files_dict, error)
 
-    def get_spectroscopy_object(self, file_name: str) -> tuple[object, bool | str]:
+    def get_spectroscopy_object(self, file_path: str) -> tuple[object, bool | str]:
         error = False
         spec_object = None
         
         try:
-            spec_object = nap.read.Spec(file_name)
+            spec_object = nap.read.Spec(file_path)
             spec_spectra = spec_object.signals
             spec_header = spec_object.header
             new_spec_header = spec_header.copy()
@@ -683,19 +714,19 @@ class FileFunctions():
         
         return (spec_object, error)
 
-    def populate_spec_objects(self, files_dict: dict) -> tuple[dict, bool | str]:
+    def populate_spec_objects(self, files_dict: dict, folder_path: str) -> tuple[dict, bool | str]:
         error = False
         new_files_dict = files_dict
 
         try:
-            scan_dict = files_dict.get("scan_files")
             spec_dict = files_dict.get("spectroscopy_files")
 
             for spec_key, spec_file_dict in spec_dict.items():
                 if not isinstance(spec_file_dict, dict): continue
                 
-                spec_path = spec_file_dict.get("path")
-                (spec_object, error) = self.get_spectroscopy_object(spec_path)
+                file_name = spec_file_dict.get("file_name")
+                file_path = os.path.join(folder_path, file_name)
+                (spec_object, error) = self.get_spectroscopy_object(file_path)
                 
                 if not error:
                     channels = spec_object.channels

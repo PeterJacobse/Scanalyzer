@@ -25,6 +25,8 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
         self.image_widget = self.make_image_widget()
         (self.plot_widgets, self.plot_items) = self.make_plot_widgets()
         self.widgets = self.make_widgets()
+        (self.info_box, self.message_box) = self.make_boxes()
+        self.dialog = self.make_file_dialog()
                 
         # 3: Populate layouts with GUI items. Requires GUI items.
         self.populate_layouts()
@@ -88,20 +90,20 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
 
     # 2: Create the specific GUI items using the items from the GUIItems class. Requires icons.
     def make_labels(self) -> dict:
-        make_label = self.gui_items.make_label
+        STL = STWidgets.STLabel
         
         labels = {
-            "save_0": make_label("save (plot 0)", "Save plot 0 to svg (S)"),
-            "save_1": make_label("save (plot 1)", "Save plot 1 to svg (Z)"),
-            "x_axis": make_label("x axis", "Toggle with (X)"),
-            "y_axis_0": make_label("y axis (plot 0)", "Toggle with (Y)"),
-            "y_axis_1": make_label("y axis (plot 1)", "Toggle with (Z)"),
-            "offset_0": make_label("Offset", "Offset between successive spectra"),
-            "offset_1": make_label("Offset", "Offset between successive spectra"),
-            "line_width": make_label("Line width", "Line width"),
-            "opacity": make_label("Opacity", "Opacity"),
-            "empty_0": make_label(""),
-            "empty_1": make_label("")
+            "save_0": STL(text = "save (plot 0)", tooltip = "Save plot 0 to svg (S)"),
+            "save_1": STL(text = "save (plot 1)", tooltip = "Save plot 1 to svg (Z)"),
+            "x_axis": STL(text = "x axis", tooltip = "Toggle with (X)"),
+            "y_axis_0": STL(text = "y axis (plot 0)", tooltip = "Toggle with (Y)"),
+            "y_axis_1": STL(text = "y axis (plot 1)", tooltip = "Toggle with (Z)"),
+            "offset_0": STL(text = "Offset", tooltip = "Offset between successive spectra"),
+            "offset_1": STL(text = "Offset", tooltip = "Offset between successive spectra"),
+            "line_width": STL(text = "Line width", tooltip = "Line width"),
+            "opacity": STL(text = "Opacity", tooltip = "Opacity"),
+            "empty_0": STL(),
+            "empty_1": STL()
         }
         
         labels["x_axis"].setWindowIcon(self.icons.get("x_axis"))
@@ -109,37 +111,48 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
         return labels
     
     def make_buttons(self) -> dict:
-        make_button = self.gui_items.make_button
-        make_toggle_button = self.gui_items.make_toggle_button
+        MSB = STWidgets.MultiStateButton
+        rotate = self.gui_items.rotate_icon
 
         buttons = {
-            "x_axis": make_button("", "Toggle the x axis\n(X)", self.icons.get("x_axis")),
-            "y_axis_0": make_button("", "Toggle the y axis of plot 0\n(Y)", self.icons.get("y_axis")),
-            "y_axis_1": make_button("", "Toggle the y axis of plot 1\n(Y)", self.icons.get("y_axis")),
-            "offset_0": make_button("", "Set the offset between successive spectra in plot 0", self.icons.get("line_offset")),
-            "offset_1": make_button("", "Set the offset between successive spectra in plot 1", self.icons.get("line_offset")),
-            "save_0": make_button("", "Save graph 0 to svg", self.icons.get("save_0")),
-            "save_1": make_button("", "Save graph 1 to svg", self.icons.get("save_1")),
+            "x_axis": MSB(tooltip = "Toggle the x axis\n(X)", icon = self.icons.get("x_axis")),
+            "y_axis_0": MSB(tooltip = "Toggle the y axis of plot 0\n(Y)", icon = self.icons.get("y_axis")),
+            "y_axis_1": MSB(tooltip = "Toggle the y axis of plot 1\n(Y)", icon = self.icons.get("y_axis")),
+            "offset_0": MSB(tooltip = "Set the offset between successive spectra in plot 0", icon = self.icons.get("line_offset")),
+            "offset_1": MSB(tooltip = "Set the offset between successive spectra in plot 1", icon = self.icons.get("line_offset")),
+            "save_0": MSB(tooltip = "Save graph 0 to svg", icon = self.icons.get("save_0")),
+            "save_1": MSB(tooltip = "Save graph 1 to svg", icon = self.icons.get("save_1")),
             
-            "dec_line_width": make_button("", "Decrease the line width\n(L)", self.icons.get("decrease_width")),
-            "inc_line_width": make_button("", "Increase the line width\n(L)", self.icons.get("increase_width")),
-            "dec_opacity": make_button("", "Decrease the line opacity\n(O)", self.icons.get("decrease_opacity")),
-            "inc_opacity": make_button("", "Increase the line opacity\n(O)", self.icons.get("increase_opacity")),
-            "log_abs_0": make_toggle_button("", "Show the data on a log scale", self.icons.get("log_abs")),
-            "log_abs_1": make_toggle_button("", "Show the data on a log scale", self.icons.get("log_abs")),
-            "direction": make_button("", "Toggle the spectroscopy direction\n(forward and backward)", self.icons.get("fwd_bwd")),
-            "differentiate_0": make_toggle_button("", "Differentiate the spectrum", self.icons.get("derivative")),
-            "differentiate_1": make_toggle_button("", "Differentiate the spectrum", self.icons.get("derivative")),
-            "smooth": make_toggle_button("", "Smooth by computing the moving average", self.icons.get("smooth")),
-            "view_mode": make_toggle_button("", "Toggle between bright mode and dark mode", self.icons.get("dark_mode")),
+            "dec_line_width": MSB(tooltip = "Decrease the line width\n(L)", icon = self.icons.get("decrease_width")),
+            "inc_line_width": MSB(tooltip = "Increase the line width\n(L)", icon = self.icons.get("increase_width")),
+            "dec_opacity": MSB(tooltip = "Decrease the line opacity\n(O)", icon = self.icons.get("decrease_opacity")),
+            "inc_opacity": MSB(tooltip = "Increase the line opacity\n(O)", icon = self.icons.get("increase_opacity")),
+            "log_abs_0": MSB(tooltip = "Show the data on a log scale", icon = self.icons.get("log_abs"),
+                             states = [{"color": "#101010"}, {"color": "#2020C0"}]),
+            "log_abs_1": MSB(tooltip = "Show the data on a log scale", icon = self.icons.get("log_abs"),
+                             states = [{"color": "#101010"}, {"color": "#2020C0"}]),
+            "direction": MSB(tooltip = "Toggle the spectroscopy direction\n(forward and backward)", icon = self.icons.get("fwd_bwd"),
+                             states = [{"color": "#101010"}, {"color": "#2020C0"}]),
+            "differentiate_0": MSB(tooltip = "Differentiate the spectrum", icon = self.icons.get("derivative"),
+                                   states = [{"color": "#101010"}, {"color": "#2020C0"}]),
+            "differentiate_1": MSB(tooltip = "Differentiate the spectrum", icon = self.icons.get("derivative"),
+                                   states = [{"color": "#101010"}, {"color": "#2020C0"}]),
+            "smooth": MSB(tooltip = "Smooth by computing the moving average", icon = self.icons.get("smooth"),
+                          states = [{"color": "#101010"}, {"color": "#2020C0"}]),
+            "view_mode": MSB(tooltip = "Toggle between bright mode and dark mode", icon = self.icons.get("dark_mode"),
+                             states = [{"color": "#101010"}, {"color": "#2020C0"}]),
             
-            "open_folder": make_button("", "Load data folder", self.icons.get("folder_yellow")),
-            "view_folder": make_button("", "View data folder", self.icons.get("view_folder")),
-            "output_folder_0": make_button("", "View output folder", self.icons.get("view_folder")),
-            "output_folder_1": make_button("", "View output folder", self.icons.get("view_folder")),
-            "exit": make_button("", "Exit Spectrum Viewer\n(Q / Esc)", self.icons.get("escape")),
-            "dec_focus_row": make_button("", "Decrease the focus row index\n(↑)", self.icons.get("dec_focus_row")),
-            "inc_focus_row": make_button("", "Increase the focus row index\n(↓)", self.icons.get("inc_focus_row")),
+            "use_dialog": MSB(states = [{"tooltip": "Save directly", "icon": self.icons.get("dialog"), "color": "#101010"},
+                                       {"tooltip": "Use save dialog if file exists", "color": "#20A020"},
+                                       {"tooltip": "Save using dialog", "color": "#2020C0"}]),
+            
+            "open_folder": MSB(tooltip = "Load data folder", icon = self.icons.get("folder_yellow")),
+            "view_folder": MSB(tooltip = "View data folder", icon = self.icons.get("view_folder")),
+            "output_folder_0": MSB(tooltip = "View output folder", icon = self.icons.get("view_folder")),
+            "output_folder_1": MSB(tooltip = "View output folder", icon = self.icons.get("view_folder")),
+            "exit": MSB(tooltip = "Exit Spectrum Viewer\n(Q / Esc)", icon = self.icons.get("escape")),
+            "dec_focus_row": MSB(tooltip = "Decrease the focus row index\n(↑)", icon = self.icons.get("dec_focus_row")),
+            "inc_focus_row": MSB(tooltip = "Increase the focus row index\n(↓)", icon = self.icons.get("inc_focus_row")),
         }
         
         # Named groups
@@ -147,9 +160,11 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
         right_arrows = {}
         consecutives = {}
         for number in range(16):
-            left_arrows.update({f"{number}": make_button("", f"decrease plot number {number} (left arrow when row is highlighted)", self.icons.get("single_arrow"), rotate_icon = 180)})
-            right_arrows.update({f"{number}": make_button("", f"increase plot number {number} (right arrow when row is highlighted)", self.icons.get("single_arrow"))})
-            consecutives.update({f"{number}": make_button("", "Set consecutive spectra below", self.icons.get("consecutive"))})
+            left_arrows.update({f"{number}": MSB(tooltip = f"decrease plot number {number} (left arrow when row is highlighted)", icon = rotate(self.icons.get("single_arrow"), 180))})
+            right_arrows.update({f"{number}": MSB(tooltip = f"increase plot number {number} (right arrow when row is highlighted)", icon = self.icons.get("single_arrow"))})
+            consecutives.update({f"{number}": MSB(tooltip = "Set consecutive spectra below", icon = self.icons.get("consecutive"))})
+
+        buttons["use_dialog"].setState(2)
 
         return (buttons, left_arrows, right_arrows, consecutives)
 
@@ -164,9 +179,9 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
         checkboxes.update({"all": make_checkbox("all", f"toggle visibility of all plots")})
         
         return checkboxes
-    
+
     def make_comboboxes(self) -> dict:
-        CB = STWidgets.PJComboBox
+        CB = STWidgets.STComboBox
         
         channel_selection_comboboxes = {
             "x_axis": CB(name = "x_axis", tooltip = "Channel to display on the x axis (X)", max_width = 500),
@@ -192,16 +207,18 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
         return (channel_selection_comboboxes, plot_number_comboboxes, focus_row_combobox, metadata_combobox)
 
     def make_line_edits(self) -> dict:
+        PLE = STWidgets.PhysicsLineEdit
+        
         line_edits = {
-            "offset_0": PhysicsLineEdit(value = 0, tooltip = "Offset between successive spectra", max_width = 300),
-            "offset_1": PhysicsLineEdit(value = 0, tooltip = "Offset between successive spectra", max_width = 300),
-            "line_width": PhysicsLineEdit(value = 2, tooltip = "Line width", unit = "px", limits = [0, 10], number_type = "int", max_width = 300),
-            "opacity": PhysicsLineEdit(value = 100, tooltip = "Opacity", unit = "%", limits = [0, 100], number_type = "int", max_width = 300),
-            "window": PhysicsLineEdit(value = 1, tooltip = "Window size for moving average", unit = "px", limits = [1, 20], number_type = "int", max_width = 300),
+            "offset_0": PLE(value = 0, tooltip = "Offset between successive spectra", max_width = 300),
+            "offset_1": PLE(value = 0, tooltip = "Offset between successive spectra", max_width = 300),
+            "line_width": PLE(value = 2, tooltip = "Line width", unit = "px", limits = [0, 10], number_type = "int", max_width = 300),
+            "opacity": PLE(value = 100, tooltip = "Opacity", unit = "%", limits = [0, 100], number_type = "int", max_width = 300),
+            "window": PLE(value = 1, tooltip = "Window size for moving average", unit = "px", limits = [1, 20], number_type = "int", max_width = 300),
             
-            "file_name_0": PhysicsLineEdit(value = "File name 0", max_width = 300),
-            "file_name_1": PhysicsLineEdit(value = "File name 1", max_width = 300),
-            "scan_file_name": PhysicsLineEdit(value = "Scan file name", tooltip = "Name of the scan file", max_width = 400)
+            "file_name_0": PLE(value = "File name 0", max_width = 300),
+            "file_name_1": PLE(value = "File name 1", max_width = 300),
+            "scan_file_name": PLE(value = "Scan file name", tooltip = "Name of the scan file", max_width = 400)
         }
         
         line_edits["scan_file_name"].setReadOnly(True)
@@ -209,7 +226,7 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
         # Make the metadata line edits
         metadata_line_edits = {}
         for number in range(16):
-            l_e = PhysicsLineEdit(value = number, tooltip = f"metadata for plot {number}")
+            l_e = PLE(value = number, tooltip = f"metadata for plot {number}")
             l_e.setReadOnly(True)
             metadata_line_edits.update({f"{number}": l_e})
         
@@ -228,7 +245,7 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
         self.plot1_options_col1 = [self.channel_selection_comboboxes["y_axis_1"], line_edits["offset_1"], line_edits["file_name_1"]]
         self.plot1_options_col2 = [buttons[name] for name in ["differentiate_1", "log_abs_1", "output_folder_1"]]
         
-        self.option_buttons_0 = [buttons[name] for name in ["direction", "view_mode"]]
+        self.option_buttons_0 = [buttons[name] for name in ["direction", "view_mode", "use_dialog"]]
         self.option_buttons_1 = [line_edits["window"], buttons["smooth"]]
 
         return (line_edits, metadata_line_edits)
@@ -346,6 +363,22 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
         }
 
         return shortcuts
+
+    def make_boxes(self) -> tuple[QtWidgets.QMessageBox, QtWidgets.QMessageBox]:
+        info_box = QtWidgets.QMessageBox(self)
+        info_box.setWindowTitle("Info")
+        info_box.setText("Scanalyzer (2026)\nby Peter H. Jacobse\nRice University; Lawrence Berkeley National Lab")
+        info_box.setStandardButtons(QtWidgets.QMessageBox.StandardButton.Ok)
+        info_box.setWindowIcon(self.icons.get("i"))
+        
+        message_box = QtWidgets.QMessageBox(self)
+        message_box.setWindowTitle("Success")
+        message_box.setText("png file saved")
+        return (info_box, message_box)
+
+    def make_file_dialog(self) -> QtWidgets.QFileDialog:
+        dialog = QtWidgets.QFileDialog()        
+        return dialog
 
 
 
