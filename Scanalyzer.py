@@ -934,7 +934,7 @@ class Scanalyzer(QtCore.QObject):
     # Exit
     def closeEvent(self, a0) -> None:
         self.on_exit
-    
+
     def on_exit(self) -> None:
         try:
             scan_dict = self.files_dict.get("scan_files")

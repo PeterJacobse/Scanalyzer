@@ -1,8 +1,7 @@
 import os
 from PyQt6 import QtGui, QtWidgets, QtCore
 import pyqtgraph as pg
-from . import GUIItems
-from .st_widgets import STWidgets
+from . import STWidgets, rotate_icon, make_layout, make_line
 
 
 
@@ -16,7 +15,6 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
         self.icons = self.get_icons()
         
         # 2: Create the specific GUI items using the items from the GUIItems class. Requires icons.
-        self.gui_items = GUIItems()
         self.labels = self.make_labels()
         self.buttons = self.make_buttons()
         self.comboboxes = self.make_comboboxes()
@@ -30,7 +28,7 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
         (self.info_box, self.message_box) = self.make_boxes()
         self.splash_screen = self.make_splash_screen()
         self.dialog = self.make_file_dialog()
-        self.make_target_item = STWidgets.STTargetItem
+        self.make_target_item = STWidgets.TargetItem
                 
         # 3: Populate layouts with GUI items. Requires GUI items.
         self.populate_layouts()
@@ -95,7 +93,7 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
 
     # 2: Create the specific GUI items using the items from the GUIItems class. Requires icons.
     def make_labels(self) -> dict:
-        STL = STWidgets.STLabel
+        STL = STWidgets.Label
 
         labels = {
             "scan_summary": STL(text = "Scanalyzer by Peter H. Jacobse"),
@@ -122,17 +120,16 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
         labels = self.labels
         arrow = icons.get("single_arrow")
         sivr = "Set the image value range "
-        rotate = self.gui_items.rotate_icon
 
         buttons = {
-            "previous_file": MSB(tooltip = "Previous file\n(←)", icon = rotate(self.icons.get("single_arrow"), 180)),
+            "previous_file": MSB(tooltip = "Previous file\n(←)", icon = rotate_icon(self.icons.get("single_arrow"), 180)),
             "select_file": MSB(tooltip = "Load scan and corresponding folder\n(Ctrl + L)", icon = self.icons.get("folder_yellow")),
             "next_file": MSB(tooltip = "Next file\n(→)", icon = self.icons.get("single_arrow")),
 
-            "previous_channel": MSB(tooltip = "Previous channel\n(↑)", icon = rotate(arrow, 270)),
-            "next_channel": MSB(tooltip = "Next channel\n(↓)", icon = rotate(arrow, 90)),
+            "previous_channel": MSB(tooltip = "Previous channel\n(↑)", icon = rotate_icon(arrow, 270)),
+            "next_channel": MSB(tooltip = "Next channel\n(↓)", icon = rotate_icon(arrow, 90)),
             "direction": MSB(states = [{"tooltip": "Scan direction: forward\n(X)", "icon": self.icons.get("triple_arrow"), "color": "#101010"},
-                                      {"tooltip": "Scan direction: backward\n(X)", "icon": rotate(self.icons.get("triple_arrow"), 180), "color": "#2020C0"}]),
+                                      {"tooltip": "Scan direction: backward\n(X)", "icon": rotate_icon(self.icons.get("triple_arrow"), 180), "color": "#2020C0"}]),
 
             "folder_name": MSB(name = "Open folder", tooltip = "Open the data folder\n(1)", icon = self.icons.get("view_folder")),
 
@@ -196,7 +193,7 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
         return buttons
 
     def make_comboboxes(self) -> dict:
-        CB = STWidgets.STComboBox
+        CB = STWidgets.ComboBox
         buttons = self.buttons
 
         comboboxes = {
@@ -218,14 +215,14 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
         line_edits = {
             "min_full": LE(tooltip = "minimum value of scan data range", digits = 3),
             "max_full": LE(tooltip = "maximum value of scan data range", digits = 3),
-            "min_percentiles": LE(value = 1.0, tooltip = "minimum percentile of data range", unit = "%"),
-            "max_percentiles": LE(value = 99.0, tooltip = "maximum percentile of data range", unit = "%"),
-            "min_deviations": LE(value = 2, tooltip = "minimum = mean - n * standard deviation", unit = "\u03C3"),
-            "max_deviations": LE(value = 2, tooltip = "maximum = mean + n * standard deviation", unit = "\u03C3"),
+            "min_percentiles": LE(value = 1.0, tooltip = "minimum percentile of data range", unit = "%", digits = 1),
+            "max_percentiles": LE(value = 99.0, tooltip = "maximum percentile of data range", unit = "%", digits = 1),
+            "min_deviations": LE(value = 2.0, tooltip = "minimum = mean - n * standard deviation", unit = "\u03C3", digits = 1),
+            "max_deviations": LE(value = 2.0, tooltip = "maximum = mean + n * standard deviation", unit = "\u03C3", digits = 1),
             "min_absolute": LE(value = 0, tooltip = "minimum absolute value", digits = 3),
             "max_absolute": LE(value = 1, tooltip = "maximum absolute value", digits = 3),
 
-            "gaussian_width": LE(value = 0, tooltip = "Width for Gaussian blur application", unit = "nm"),
+            "gaussian_width": LE(value = 0.000, tooltip = "Width for Gaussian blur application", unit = "nm", digits = 3),
             "file_name": QtWidgets.QLineEdit("Base name of the file when saved to png or hdf5")
         }
         line_edits["file_name"].setStyleSheet("QLineEdit{ background-color: #101010 }")
@@ -243,18 +240,18 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
         return line_edits
 
     def make_radio_buttons(self) -> dict:
-        make_radio_button = self.gui_items.make_radio_button
+        RBN = STWidgets.RadioButton
         QGroup = QtWidgets.QButtonGroup
         
         radio_buttons = {
-            "min_full": make_radio_button("", "set to minimum value of scan data range\n(-) to toggle"),
-            "max_full": make_radio_button("", "set to maximum value of scan data range\n(=) to toggle"),
-            "min_percentiles": make_radio_button("", "set to minimum percentile of data range\n(-) to toggle"),
-            "max_percentiles": make_radio_button("", "set to maximum percentile of data range\n(=) to toggle"),
-            "min_deviations": make_radio_button("", "set to minimum = mean - n * standard deviation\n(-) to toggle"),
-            "max_deviations": make_radio_button("", "set to maximum = mean + n * standard deviation\n(=) to toggle"),
-            "min_absolute": make_radio_button("", "set minimum to an absolute value\n(-) to toggle"),
-            "max_absolute": make_radio_button("", "set maximum to an absolute value\n(=) to toggle"),
+            "min_full": RBN(tooltip = "set to minimum value of scan data range\n(-) to toggle"),
+            "max_full": RBN(tooltip = "set to maximum value of scan data range\n(=) to toggle"),
+            "min_percentiles": RBN(tooltip = "set to minimum percentile of data range\n(-) to toggle"),
+            "max_percentiles": RBN(tooltip = "set to maximum percentile of data range\n(=) to toggle"),
+            "min_deviations": RBN(tooltip = "set to minimum = mean - n * standard deviation\n(-) to toggle"),
+            "max_deviations": RBN(tooltip = "set to maximum = mean + n * standard deviation\n(=) to toggle"),
+            "min_absolute": RBN(tooltip = "set minimum to an absolute value\n(-) to toggle"),
+            "max_absolute": RBN(tooltip = "set maximum to an absolute value\n(=) to toggle"),
         }
         
         # Named groups
@@ -273,9 +270,7 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
 
         return radio_buttons
 
-    def make_layouts(self) -> dict:
-        make_layout = self.gui_items.make_layout
-        
+    def make_layouts(self) -> dict:        
         layouts = {
             "main": make_layout("h"),
             "toolbar": make_layout("v"),
@@ -305,10 +300,9 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
         return (im_view, plot_item)
 
     def make_widgets(self) -> dict:
-        make_sle = self.gui_items.make_phase_slider
         layouts = self.layouts
         QWgt = QtWidgets.QWidget
-        
+
         widgets = {
             "central": QWgt(),
             "left_side": QWgt(),
@@ -320,18 +314,18 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
 
         layouts.update({"main": QtWidgets.QHBoxLayout(widgets["central"])})
         
-        self.phase_slider = make_sle("0 deg", "Set complex phase phi\n(= multiplication by exp(i * pi * phi rad / (180 deg)))", unit = "deg", phase_0_icon = self.icons.get("0"), phase_180_icon = self.icons.get("180"))
+        self.phase_slider = STWidgets.PhaseSlider(tooltip = "Set complex phase phi\n(= multiplication by exp(i * pi * phi rad / (180 deg)))", unit = "deg", phase_0_icon = self.icons.get("0"), phase_180_icon = self.icons.get("180"))
         
         return widgets
 
     def make_consoles(self) -> dict:
-        make_console = self.gui_items.make_console
-        
+        STC = STWidgets.Console
+
         consoles = {
-            "output": make_console("", "Output console"),
-            "input": make_console("", "Input console")
+            "output": STC("", "Output console"),
+            "input": STC("", "Input console")
         }
-        
+
         consoles["output"].setReadOnly(True)
         consoles["input"].setReadOnly(False)
         consoles["input"].setMaximumHeight(30)
@@ -445,10 +439,10 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
         ip_layout = layouts["image_processing"]
         ip_layout.addWidget(labels["background_subtraction"])
         ip_layout.addLayout(layouts["background_buttons"])
-        ip_layout.addWidget(self.gui_items.line_widget("h", 1))
+        ip_layout.addWidget(make_line("h", 1))
         ip_layout.addWidget(labels["matrix_operations"])
         ip_layout.addLayout(p_layout)
-        ip_layout.addWidget(self.gui_items.line_widget("h", 1))
+        ip_layout.addWidget(make_line("h", 1))
         ip_layout.addWidget(labels["limits"])         
         ip_layout.addLayout(l_layout)
         
@@ -468,15 +462,15 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
 
     # 4: Make widgets and groupboxes and set their layouts. Requires layouts.
     def make_groupboxes(self) -> dict:
-        make_groupbox = self.gui_items.make_groupbox
+        SGB = STWidgets.GroupBox
         layouts = self.layouts
         
         groupboxes = {
-            "scan_summary": make_groupbox("Scan summary", "Information about the currently selected scan"),
-            "file_chan_dir": make_groupbox("File / Channel / Direction", "Select and toggle through scan files and channels"),
-            "image_processing": make_groupbox("Image processing", "Select the background subtraction, matrix operations and set the image range limits"),
-            "spectra": make_groupbox("Spectra", "Associated spectra (those recorded after the acquisition of the selected scan) are shown with an asterisk"),
-            "i/o": make_groupbox("Output", "Save or find the processed image, or exit the app")
+            "scan_summary": SGB("Scan summary", tooltip = "Information about the currently selected scan"),
+            "file_chan_dir": SGB("File / Channel / Direction", tooltip = "Select and toggle through scan files and channels"),
+            "image_processing": SGB("Image processing", tooltip = "Select the background subtraction, matrix operations and set the image range limits"),
+            "spectra": SGB("Spectra", tooltip = "Associated spectra (those recorded after the acquisition of the selected scan) are shown with an asterisk"),
+            "i/o": SGB("Output", tooltip = "Save or find the processed image, or exit the app")
         }
 
         # Set layouts for the groupboxes

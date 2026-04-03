@@ -3,8 +3,7 @@ import numpy as np
 from PyQt6 import QtCore, QtGui, QtWidgets
 import pyqtgraph as pg
 import pyqtgraph.exporters as expts
-from . import DataProcessing, FileFunctions
-from .gui_spectralyzer import SpectralyzerGUI
+from . import DataProcessing, FileFunctions, SpectralyzerGUI
 from datetime import datetime
 
 

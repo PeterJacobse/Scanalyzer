@@ -1,7 +1,7 @@
 import os
 from PyQt6 import QtGui, QtWidgets, QtCore
 import pyqtgraph as pg
-from . import GUIItems, STWidgets
+from . import STWidgets, rotate_icon, make_layout
 
 
 
@@ -15,7 +15,6 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
         self.icons = self.get_icons()
         
         # 2: Create the specific GUI items using the items from the GUIItems class. Requires icons.
-        self.gui_items = GUIItems()
         self.labels = self.make_labels()
         (self.buttons, self.left_arrows, self.right_arrows, self.consecutives) = self.make_buttons()
         self.checkboxes = self.make_checkboxes()
@@ -90,7 +89,7 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
 
     # 2: Create the specific GUI items using the items from the GUIItems class. Requires icons.
     def make_labels(self) -> dict:
-        STL = STWidgets.STLabel
+        STL = STWidgets.Label
         
         labels = {
             "save_0": STL(text = "save (plot 0)", tooltip = "Save plot 0 to svg (S)"),
@@ -112,7 +111,6 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
     
     def make_buttons(self) -> dict:
         MSB = STWidgets.MultiStateButton
-        rotate = self.gui_items.rotate_icon
 
         buttons = {
             "x_axis": MSB(tooltip = "Toggle the x axis\n(X)", icon = self.icons.get("x_axis")),
@@ -160,7 +158,7 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
         right_arrows = {}
         consecutives = {}
         for number in range(16):
-            left_arrows.update({f"{number}": MSB(tooltip = f"decrease plot number {number} (left arrow when row is highlighted)", icon = rotate(self.icons.get("single_arrow"), 180))})
+            left_arrows.update({f"{number}": MSB(tooltip = f"decrease plot number {number} (left arrow when row is highlighted)", icon = rotate_icon(self.icons.get("single_arrow"), 180))})
             right_arrows.update({f"{number}": MSB(tooltip = f"increase plot number {number} (right arrow when row is highlighted)", icon = self.icons.get("single_arrow"))})
             consecutives.update({f"{number}": MSB(tooltip = "Set consecutive spectra below", icon = self.icons.get("consecutive"))})
 
@@ -169,19 +167,19 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
         return (buttons, left_arrows, right_arrows, consecutives)
 
     def make_checkboxes(self) -> dict:
-        make_checkbox = self.gui_items.make_checkbox
+        CB = STWidgets.CheckBox
         
         checkboxes = {}
         for number in range(16):
-            checkboxes.update({f"{number}": make_checkbox(f"{number}", f"toggle visibility of plot {number} (space when row is in focus)")})
+            checkboxes.update({f"{number}": CB(value = f"{number}", tooltip = f"toggle visibility of plot {number} (space when row is in focus)")})
             checkboxes[f"{number}"].setStyleSheet(f"QCheckBox {{color: {self.color_list[number]}; font-weight: bold}}")
         
-        checkboxes.update({"all": make_checkbox("all", f"toggle visibility of all plots")})
+        checkboxes.update({"all": CB(value = "all", tooltip = f"toggle visibility of all plots")})
         
         return checkboxes
 
     def make_comboboxes(self) -> dict:
-        CB = STWidgets.STComboBox
+        CB = STWidgets.ComboBox
         
         channel_selection_comboboxes = {
             "x_axis": CB(name = "x_axis", tooltip = "Channel to display on the x axis (X)", max_width = 500),
@@ -231,7 +229,6 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
             metadata_line_edits.update({f"{number}": l_e})
         
         # Named groups
-        labels = self.labels
         buttons = self.buttons
         
         self.plot0_options_col0 = [buttons[name] for name in ["y_axis_0", "offset_0", "save_0"]]
@@ -250,20 +247,7 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
 
         return (line_edits, metadata_line_edits)
 
-    def make_lines(self) -> dict:
-        make_line = self.gui_items.line_widget
-        
-        lines = {
-            "scan_control": make_line("h"),
-            "background": make_line("h"),
-            "matrix_operations": make_line("h")
-        }
-        
-        return lines
-
-    def make_layouts(self) -> dict:
-        make_layout = self.gui_items.make_layout
-        
+    def make_layouts(self) -> dict:        
         layouts = {
             "main": make_layout("g"),
             "selector": make_layout("g"),
@@ -303,7 +287,6 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
         return (plot_widgets, plot_items)
 
     def make_widgets(self) -> dict:
-        layouts = self.layouts
         QWgt = QtWidgets.QWidget
         
         widgets = {
@@ -321,11 +304,11 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
         return widgets
 
     def make_consoles(self) -> dict:
-        make_console = self.gui_items.make_console
+        STC = STWidgets.Console
         
         consoles = {
-            "output": make_console("", "Output console"),
-            "input": make_console("", "Input console")
+            "output": STC("", "Output console"),
+            "input": STC("", "Input console")
         }
         
         consoles["output"].setReadOnly(True)
@@ -389,7 +372,7 @@ class SpectralyzerGUI(QtWidgets.QMainWindow):
         buttons = self.buttons
         
         # Plot selector
-        ss_layout = self.layouts["selector"]
+        ss_layout = layouts["selector"]
         [ss_layout.addWidget(widget, 0, i + 1) for i, widget in enumerate(self.selector_header)]
         [ss_layout.addWidget(self.consecutives[f"{i}"], i + 1, 0) for i in range(len(self.left_arrows))]
         [ss_layout.addWidget(self.checkboxes[f"{i}"], i + 1, 1) for i in range(len(self.left_arrows))]

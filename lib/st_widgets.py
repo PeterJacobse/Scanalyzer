@@ -6,7 +6,8 @@ import numpy as np
 
 
 class STWidgets:
-    class STLabel(QtWidgets.QLabel):
+
+    class Label(QtWidgets.QLabel):
         def __init__(self, *args, **kwargs):
             text = kwargs.pop("text", None)
             tooltip = kwargs.pop("tooltip", None)
@@ -17,7 +18,7 @@ class STWidgets:
             if isinstance(text, str): self.setText(text)
             if isinstance(tooltip, str): self.setToolTip(tooltip)
         
-    class STTargetItem(pg.TargetItem):
+    class TargetItem(pg.TargetItem):
         clicked = QtCore.pyqtSignal(str)
         position_signal = QtCore.pyqtSignal(float, float)
         
@@ -87,12 +88,13 @@ class STWidgets:
             
             if isinstance(name, str): self.setObjectName(name)
             if isinstance(states, list):
-                self.states = states            
+                self.states = states
             else:
                 # Default for when no different states are provided
                 self.states = [{"name": "unchecked", "color": "#101010"}]
-                if isinstance(tooltip, str): self.states[0].update({"tooltip": tooltip})
-                if isinstance(icon, QtGui.QIcon): self.states[0].update({"icon": icon})
+            
+            if isinstance(tooltip, str): self.states[0].update({"tooltip": tooltip}) # If a global tooltip is provided, it is assigned to be the tooltip of state 0
+            if isinstance(icon, QtGui.QIcon): self.states[0].update({"icon": icon}) # If a global icon is provided, it is assigned to be the icon of state 0
 
             self.setState(0)
             
@@ -142,7 +144,7 @@ class STWidgets:
             self.setState(-1)
             return
 
-    class STComboBox(QtWidgets.QComboBox):
+    class ComboBox(QtWidgets.QComboBox):
         """
         A QComboBox with extra method changeToolTip
         """
@@ -245,12 +247,20 @@ class STWidgets:
             self.blockSignals(False)
             return
 
-    class PJCheckBox(QtWidgets.QCheckBox):
+    class CheckBox(QtWidgets.QCheckBox):
         """
         A QCheckBox with extra method changeToolTip
         """
         def __init__(self, *args, **kwargs):
+            value = kwargs.pop("value", None)
+            tooltip = kwargs.pop("tooltip", None)
+            icon = kwargs.pop("icons", None)
+
             super().__init__(*args, **kwargs)
+
+            if isinstance(tooltip, str): self.setToolTip(tooltip)
+            if isinstance(icon, QtGui.QIcon): self.setIcon(icon)
+            if isinstance(value, str): self.setText(value)
         
         def changeToolTip(self, text: str, line: int = 0) -> None:
             """
@@ -281,13 +291,23 @@ class STWidgets:
             self.blockSignals(False)
             return
 
-    class PJRadioButton(QtWidgets.QRadioButton):
+    class RadioButton(QtWidgets.QRadioButton):
         """
         A QRadioButton with extra method changeToolTip
         """
         def __init__(self, *args, **kwargs):
+            tooltip = kwargs.pop("tooltip", None)
+            icon = kwargs.pop("icon", None)
+
             super().__init__(*args, **kwargs)
-        
+
+            self.setStyleSheet("QRadioButton{ icon-size: 22px 22px; }")
+            if isinstance(tooltip, str): self.setToolTip(tooltip)
+            
+            if isinstance(icon, QtGui.QIcon):
+                try: self.setIcon(icon)
+                except: pass
+
         def changeToolTip(self, text: str, line: int = 0) -> None:
             """
             Function to change just a single line of a multiline tooltip, instead of the entire tooltip message
@@ -448,10 +468,10 @@ class STWidgets:
         def wheelEvent(self, event) -> None:
             delta = event.angleDelta().y() # Scroll direction
 
-            if not self.hasFocus(): return
+            if not self.hasFocus(): return # Only accept scrolling if it is selected
 
             pos = self.cursorPosition() - 1 # Cursor position
-            if pos < 0: return
+            if pos < 0: pos = 0
 
             old_pos = pos
             new_pos = pos
@@ -460,18 +480,18 @@ class STWidgets:
                 new_pos = self.update_number_at_pos(old_pos, new_pos, delta)
                 if isinstance(new_pos, bool): break
                 elif new_pos < 0: break
-            
+
         def update_number_at_pos(self, old_pos: int = 0, new_pos: int = 0, delta = 1) -> bool | int:
             txt = self.text()
             text_pos = txt[new_pos] # Text at the cursor position
-            if text_pos == ".": return new_pos + 1
-            elif not text_pos.isnumeric(): return False # Only continue if the character at the cursor position is an integer
+            # if text_pos == ".": return new_pos - 1
+            if not text_pos.isnumeric(): return new_pos - 1 # Only continue if the character at the cursor position is an integer
             number = int(text_pos) # Integer at the cursor position
 
-            if delta > 0: # Scroll down
+            if delta > 0: # Scroll up
                 new_number = number + 1
                 if new_number > 9: new_number = 0
-            else: # Scroll up
+            else: # Scroll down
                 new_number = number - 1
                 if new_number < 0: new_number = 9
                 
@@ -490,7 +510,7 @@ class STWidgets:
 
             return True
 
-    class PJProgressBar(QtWidgets.QProgressBar):
+    class ProgressBar(QtWidgets.QProgressBar):
         """
         A QProgressBar with extra method changeToolTip
         """
@@ -520,7 +540,7 @@ class STWidgets:
             except:
                 pass
 
-    class PJGroupBox(QtWidgets.QGroupBox):
+    class GroupBox(QtWidgets.QGroupBox):
         def __init__(self, title, parent = None, *args, **kwargs):
             super().__init__(title, parent)
             
@@ -536,13 +556,17 @@ class STWidgets:
             self.toggled.connect(self.content_container.setVisible)
             self.content_container.setVisible(True)
 
-    class PJConsole(QtWidgets.QTextEdit):
+    class Console(QtWidgets.QTextEdit):
         """
         A QTextEdit with extra method changeToolTip
         """
-        def __init__(self):
+        def __init__(self, *args, **kwargs):
+            tooltip = kwargs.pop("tooltip", None)
+
             super().__init__()
-        
+
+            if isinstance(tooltip, str): self.setToolTip(tooltip)
+
         def changeToolTip(self, text: str, line: int = 0) -> None:
             """
             Function to change just a single line of a multiline tooltip, instead of the entire tooltip message
@@ -566,7 +590,7 @@ class STWidgets:
             except:
                 pass
 
-    class PJSlider(QtWidgets.QSlider):
+    class Slider(QtWidgets.QSlider):
         """
         A QSlider with extra method changeToolTip
         """
@@ -612,12 +636,12 @@ class STWidgets:
             [self.min_val, self.max_val] = limits
 
             # 1: Create the widgets
-            self.slider = PJSlider(orientation = orientation, tooltip = tooltip)
-            self.line_edit = PhysicsLineEdit(max_width = max_width, unit = unit, limits = limits, digits = digits, tooltip = tooltip)
+            self.slider = STWidgets.Slider(orientation = orientation, tooltip = tooltip)
+            self.line_edit = STWidgets.PhysicsLineEdit(max_width = max_width, unit = unit, limits = limits, digits = digits, tooltip = tooltip)
 
             if minmax_buttons:
-                self.min_button = PJPushButton(tooltip = "set slider to minimum")
-                self.max_button = PJPushButton(tooltip = "set slider to maximum")
+                self.min_button = STWidgets.MultiStateButton(tooltip = "set slider to minimum")
+                self.max_button = STWidgets.MultiStateButton(tooltip = "set slider to maximum")
 
             # 2: Configure widgets
             self.slider.setRange(self.min_val, self.max_val)
@@ -712,7 +736,7 @@ class STWidgets:
             except:
                 pass
 
-    class PJImageView(pg.ImageView):
+    class ImageView(pg.ImageView):
         position_signal = QtCore.pyqtSignal(float, float)
         
         def __init__(self, *args, **kwargs):
@@ -736,13 +760,13 @@ class STWidgets:
         """
         A slider line edit with buttons for controlling a phase
         """
-        def __init__(self, parent = None, unit = "", phase_0_icon = None, phase_180_icon = None):
+        def __init__(self, parent = None, unit = "", phase_0_icon = None, phase_180_icon = None, tooltip = None):
             super().__init__(parent, unit = unit, limits = [-180, 180], initial_val = 0, max_width = 80)
             
-            self.phase_0_button = STWidgets.STPushButton()
+            self.phase_0_button = STWidgets.MultiStateButton()
             self.phase_0_button.setToolTip("Set the phase to 0")
             if isinstance(phase_0_icon, QtGui.QIcon): self.phase_0_button.setIcon(phase_0_icon)
-            self.phase_180_button = STWidgets.STPushButton()
+            self.phase_180_button = STWidgets.MultiStateButton()
             self.phase_180_button.setToolTip("Set the phase to 180 deg")
             if isinstance(phase_180_icon, QtGui.QIcon): self.phase_180_button.setIcon(phase_180_icon)
             
@@ -753,6 +777,8 @@ class STWidgets:
             
             self.phase_0_button.clicked.connect(self.set_phase_0)
             self.phase_180_button.clicked.connect(self.set_phase_180)
+
+            if isinstance(tooltip, str): self.setToolTip(tooltip)
             
             self.set_phase_0()
             
@@ -795,4 +821,50 @@ class STWidgets:
                 self._buffer = ""
             
             return
+
+    class GroupBox(QtWidgets.QGroupBox):
+        def __init__(self, *args, **kwargs):
+            tooltip = kwargs.pop("tooltip", None)
+            
+            super().__init__(*args, **kwargs)
+
+            if isinstance(tooltip, str): self.setToolTip(tooltip)
+
+
+
+def rotate_icon(icon: QtGui.QIcon, angle) -> QtGui.QIcon:
+    try:
+        pixmap = icon.pixmap(QtCore.QSize(92, 92))
+        transform = QtGui.QTransform()
+        transform.rotate(angle)
+
+        rotated_pixmap = pixmap.transformed(transform)
+
+        return QtGui.QIcon(rotated_pixmap)
+
+    except Exception as e:
+        print(f"Error: {e}")
+        return False
+
+def make_layout(orientation: str = "h") -> QtWidgets.QBoxLayout:
+    match orientation:
+        case "h":
+            layout = QtWidgets.QHBoxLayout()
+        case "v":
+            layout = QtWidgets.QVBoxLayout()
+        case _:
+            layout = QtWidgets.QGridLayout()
+
+    layout.setSpacing(0)    
+    return layout
+
+def make_line(orientation: str = "h", thickness: int = 1) -> QtWidgets.QFrame:
+    line = QtWidgets.QFrame()
+    match orientation:
+        case "h":
+            line.setFrameShape(QtWidgets.QFrame.Shape.HLine)
+        case _:
+            line.setFrameShape(QtWidgets.QFrame.Shape.VLine)
+    line.setLineWidth(thickness)
+    return line
 
