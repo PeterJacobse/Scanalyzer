@@ -82,6 +82,7 @@ class STWidgets:
             tooltip = kwargs.pop("tooltip", None)
             icon = kwargs.pop("icons", None)
             states = kwargs.pop("states", None)
+            click_to_toggle = kwargs.pop("click_to_toggle", True)
             self.state_index = 0
                     
             super().__init__(*args, **kwargs)
@@ -95,11 +96,12 @@ class STWidgets:
             
             if isinstance(tooltip, str): self.states[0].update({"tooltip": tooltip}) # If a global tooltip is provided, it is assigned to be the tooltip of state 0
             if isinstance(icon, QtGui.QIcon): self.states[0].update({"icon": icon}) # If a global icon is provided, it is assigned to be the icon of state 0
+            if not isinstance(click_to_toggle, bool): click_to_toggle = True # click_to_toggle = True means that clicking the button automatically toggles its state
 
             self.setState(0)
             
             # If multiple states are defined for the button, turn it into a toggle button
-            if len(self.states) > 1: self.clicked.connect(self.toggleState)
+            if len(self.states) > 1 and click_to_toggle: self.clicked.connect(self.toggleState)
 
         def changeToolTip(self, text: str, line: int = 0) -> None:
             """
@@ -124,10 +126,18 @@ class STWidgets:
             except:
                 pass
 
-        def setState(self, index = 0) -> None:
-            if isinstance(index, int) and index > -1: self.state_index = index # Valid index given: set
-            else: self.state_index += 1 # No index given: tally
-            if self.state_index > len(self.states) - 1: self.state_index = 0 # Roll over
+        def setState(self, value = 0) -> None:
+            if isinstance(value, int): # Index given
+                if value > -1: self.state_index = value # Valid index given: set
+                else: self.state_index += 1 # No index given: tally
+            elif isinstance(value, str): # Name given: find index
+                for index, state in enumerate(self.states):
+                    state_name = state.get("name")
+                    if value == state_name:
+                        self.state_index = index
+                        break
+            else: return
+            if self.state_index > len(self.states) - 1: self.state_index = 0 # Roll over if necessary
 
             self.state = self.states[self.state_index]
             self.state_name = self.state.get("name")
@@ -510,12 +520,32 @@ class STWidgets:
 
             return True
 
+        def keyPressEvent(self, event):
+            # Check if Tab is pressed and a completer is set up and visible. If so, use tab to autocomplete
+            if event.key() == QtCore.Qt.Key.Key_Tab:
+                print("Tab was pressed") # Not working yet
+                if self.completer() and self.completer().popup().isVisible():
+                    # Get the current completion from the popup
+                    completion = self.completer().currentCompletion()
+                    self.setText(completion)
+                    self.completer().popup().hide()
+                    event.accept()
+                else:
+                    super().keyPressEvent(event)
+            else:
+                # For all other keys, use default QLineEdit behavior
+                super().keyPressEvent(event)
+
     class ProgressBar(QtWidgets.QProgressBar):
         """
         A QProgressBar with extra method changeToolTip
         """
-        def __init__(self):
+        def __init__(self, **kwargs):            
+            tooltip = kwargs.pop("ttoltip", None)
+            
             super().__init__()
+            
+            if isinstance(tooltip, str): self.setToolTip(tooltip)
         
         def changeToolTip(self, text: str, line: int = 0) -> None:
             """
@@ -824,11 +854,18 @@ class STWidgets:
 
     class GroupBox(QtWidgets.QGroupBox):
         def __init__(self, *args, **kwargs):
+            title = kwargs.pop("title", None)
             tooltip = kwargs.pop("tooltip", None)
             
             super().__init__(*args, **kwargs)
-
+            
+            if isinstance(title, str): self.setTitle(title)
             if isinstance(tooltip, str): self.setToolTip(tooltip)
+
+    class Completer(QtWidgets.QCompleter):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+
 
 
 

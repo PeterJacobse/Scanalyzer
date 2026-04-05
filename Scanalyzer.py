@@ -104,7 +104,7 @@ class Scanalyzer(QtCore.QObject):
                        ["spec_info", self.load_process_display], ["spec_locations", self.on_toggle_spec_locations], ["spectralyzer", self.open_spectralyzer],
                        
                        ["save_png", self.on_save_png], ["save_svg", self.on_save_svg], ["save_hdf5", self.on_save_png], ["reset", self.create_file_name],
-                       ["output_folder", lambda: self.open_folder("output_folder")], ["info", lambda: self.gui.info_box.exec()], ["exit", self.on_exit]
+                       ["output_folder", lambda: self.open_folder("output_folder")], ["info", self.gui.info_box.exec], ["exit", self.on_exit]
                        ]
         
         for connection in connections:
