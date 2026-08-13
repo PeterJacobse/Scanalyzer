@@ -157,8 +157,8 @@ class ScanalyzerGUI(QtWidgets.QMainWindow):
                           states = [{"color": "#101010"}, {"color": "#2020C0"}]),
             "gaussian": MSB(text = "Gauss", tooltip = "Gaussian blur applied\n(Shift + G) or provide a width to toggle", icon = self.icons.get("gaussian"),
                             states = [{"color": "#101010"}, {"color": "#2020C0"}]),
-            "rot_trans": MSB(tooltip = "Show the scan in the scan window coordinates\nwith rotation and translation\n(R)", icon = self.icons.get("rot_trans"),
-                             states = [{"color": "#101010"}, {"color": "#2020C0"}]),
+            "rot_trans": MSB(tooltip = "Show the scan in the scan window coordinates\nwith rotation and translation\n(R)",
+                             states = [{"color": "#101010", "icon": self.icons.get("global_coords")}, {"color": "#2020C0", "icon": self.icons.get("local_coords")}]),
             
             "spec_info": MSB(tooltip = "Spectrum information", icon = self.icons.get("question")),
             "spec_locations": MSB(states = [{"tooltip": "Spectroscopy locations: not visible\n(Space)", "icon": self.icons.get("spec_locations"), "color": "#101010"},
