@@ -11,11 +11,355 @@ class HDF5Functions:
     def __init__(self, parent):
         self.parent = parent
 
+    def find_groups(self, root_or_group: h5py.File | h5py.Group) -> list:
+        return [key for key, value in root_or_group.items() if isinstance(value, h5py.Group)]
+
+    def find_datasets(self, root_or_group: h5py.File | h5py.Group) -> list:
+        return [key for key, value in root_or_group.items() if isinstance(value, h5py.Dataset)]
+
+    def create_attributes(self, h5object: h5py.Group | h5py.Dataset, attributes: dict = {}) -> None:
+        for key, value in attributes.items():
+            try:
+                if isinstance(value, str): h5object.attrs.create(key, value, dtype = h5py.string_dtype(encoding = "utf-8"))
+                else: h5object.attrs[key] = value
+            except: pass
+        return
+
+    def create_group(self, root_or_group: h5py.File | h5py.Group, name: str = "", attributes: dict = {}) -> h5py.Group:
+        try:
+            new_group = root_or_group.create_group(name)
+            self.create_attributes(new_group, attributes)
+            return new_group
+        except:
+            raise Exception(f"Error encountered while attempting to create a new h5py group called {name} under {root_or_group}")
+        return
+
+    def setup_file(self, root: h5py.File, channel_names: list | str = "Channel_000", nsid_version: str = "0.0.2") -> tuple[h5py.Group, list[h5py.Group]]:
+        """ Set up a HDF5 file to make it NSID (Gwyddion) and H5web compliant """
+        entry_group = None
+        channel_groups = []
+        if isinstance(channel_names, str): channel_names = [channel_names]        
+        
+        try:
+            self.create_attributes(root, {"nsid_version": nsid_version, "default": "Measurement_000"})
+            entry_group = self.create_group(root, "Measurement_000", attributes = {"NX_class": "NXentry", "default": channel_names[0]})
+            
+            for channel_name in channel_names:
+                group = self.create_group(entry_group, channel_name, attributes = {"NX_class": "NXdata", "signal": "data"})
+                channel_groups.append(group)            
+        
+        except Exception as e:
+            print(f"Error encountered while setting up HDF5 file: {e}")
+        return entry_group, channel_groups
+
+    def create_dataset(self, root_or_group: h5py.File | h5py.Group, name: str = "", attributes: dict = {}, *, data: np.ndarray = None, dtype: h5py.Datatype | np.dtype = None, shape: tuple = None, **kwargs) -> h5py.Dataset:
+        try:
+            if isinstance(data, np.ndarray): dataset = root_or_group.create_dataset(name, data = data, *kwargs)
+            else: dataset = root_or_group.create_dataset(name, dtype = dtype, shape = shape, *kwargs)
+            
+            attributes.update({"title": name, "long_name": name})
+            self.create_attributes(dataset, attributes)
+            return dataset
+        except:
+            raise Exception(f"Error encountered while attempting to create a new h5py dataset called {name} under {root_or_group}")
+        return
+
+    def attach_axes_to_dataset(self, target_dataset: h5py.Dataset, axes_datasets: list[h5py.Dataset] = [], axes: int | list = None) -> None:
+        try:
+            target_dataset_name = os.path.basename(target_dataset.name)
+            target_dataset_group = target_dataset.parent
+            
+            if isinstance(axes, int): axes = [axes]
+            if not isinstance(axes, list): axes = range(min(len(axes_datasets), target_dataset.ndim))
+            
+            axis_labels = []
+            axes_units = []
+            for dimension in axes:
+                axis_dataset: h5py.Dataset = axes_datasets[dimension]
+                axis_dataset_name = os.path.basename(axis_dataset.name)
+                axis_units = axis_dataset.attrs.get("units", "none")
+                axis_labels.append(axis_dataset_name)
+                axes_units.append(axis_units)
+                
+                # Make scale and attach scale for NSID compliance
+                axis_dataset.make_scale(axis_dataset_name)
+                target_dataset.dims[dimension].attach_scale(axis_dataset)
+            
+            # Declaration of axes and units for Nexus compliance
+            self.create_attributes(target_dataset, {"DIMENSION_LABELS": axis_labels})
+            self.create_attributes(target_dataset_group, {"axes": axis_labels, "units": axes_units})
+        except:
+            print(f"Failed to attach dataset {axis_dataset_name} to axis {dimension} of {target_dataset_name}")
+        return
 
 
-class FileFunctions:
+
+    def read_file(self, file_path: str) -> dict:
+        if not os.path.isfile(file_path):
+            print("Invalid file path provided to read_hdf5")
+            return {}
+        
+        output_dict = {"file_path": file_path}
+        frame = None
+        dataset = None
+        main_group = None
+        axes_names = []
+        axis_data = {}
+
+        try:
+            with h5py.File(file_path, "r") as root:
+                """
+                Parsing the root
+                """
+                # Write root-level attributes to output dictionary
+                root_attrs = {key: value for key, value in root.attrs.items()}
+                output_dict.update(root_attrs)
+                
+                # Open groups at the root level
+                root_items = {key: value for key, value in root.items()}
+                groups = self.find_groups(root)
+                print(f"{groups = }")
+                                
+                # Try to find the frame (or grid) at the root level
+                for obj in ["frame", "grid"]:
+                    if not obj in root_items.keys(): continue
+                    
+                    input_frame = {key: value for key, value in root_items[obj].attrs.items()}
+                    frame = self.convert_to_sct_frame(input_frame)
+                    if not "domain (nm)" in frame.keys(): frame = None
+
+                # Read the attributes from all groups. At the same time, try to find the main (Nexus) measurement group while reading the different groups.
+                for group_name, group in root_items.items():                
+                    if "NX_class" in group.attrs:
+                        main_group = root_items[group_name]
+                        continue
+                    
+                    group_dict = {key: value for key, value in group.attrs.items() if not key in ["frame", "grid"]}
+                    output_dict.update({group_name: group_dict})
+                
+                # Fall back to recognizing group tags. If nothing works: break
+                if not main_group:
+                    recognized_tags = ["session", "session_group", "main", "main_group", "sweep", "sweep_group", "scan", "scan_group",
+                                       "measurement", "measurement_group", "spectrum", "spectrum_group", "spectroscopy", "spectroscopy_group", "data", "data_group"]
+                    for group_tag in recognized_tags:
+                        if group_tag in root_items.keys():
+                            main_group = root_items[group_tag]
+                            break
+                
+                if not main_group:
+                    print("Could not determine the main group in HDF5 file")
+                    return(output_dict)
+                
+                
+                
+                """
+                Parsing the main group
+                """
+                # If the frame was not yet found at the root level, try to find it at the main group level
+                if not frame and main_group:
+                    for obj in ["frame", "grid"]:
+                        if not obj in main_group.keys(): continue
+                        
+                        input_frame = {key: value for key, value in main_group[obj].attrs.items()}
+                        frame = self.convert_to_sct_frame(input_frame)
+                        if not "domain (nm)" in frame.keys(): frame = None
+                if isinstance(frame, dict): output_dict.update({"frame": frame})
+
+                # Retrieve the signal and axes
+                if "signal" in main_group.attrs:
+                    signal_name = main_group.attrs.get("signal", "")
+                    if isinstance(signal_name, bytes): signal_name = signal_name.decode("utf-8")
+
+                    dataset = main_group[signal_name][:]
+                    output_dict.update({"signal": signal_name, "dataset": dataset})
+
+                if "axes" in main_group.attrs:
+                    axes_attr = main_group.attrs.get("axes")
+                    if isinstance(axes_attr, bytes): axes_names.append(axes_attr.decode("utf-8"))
+                    elif isinstance(axes_attr, (list, tuple)): axes_names = [ax.decode("utf-8") if isinstance(ax, bytes) else ax for ax in axes_attr]
+                    elif hasattr(axes_attr, "tolist"): axes_names = [ax.decode("utf-8") if isinstance(ax, bytes) else ax for ax in axes_attr.tolist()]
+
+                    # Try to swap out indices of axes for names wherever possible
+                    for axis_index, axis_name in enumerate(axes_names): # Loop over axis names
+                        split_name = axis_name.split()
+                        if not "indices" in split_name[-1]:
+                            axis_data.update({axis_name: main_group[axis_name][:]})
+                            continue
+                        
+                        quantity = " ".join(split_name[:-1]) # Discard 'indices' from the name
+                        for new_name in main_group.keys(): # Loop over main group items and find data whose name matches the quantity without 'indices'
+                            if new_name == axis_name or not quantity in new_name: continue
+                            
+                            new_axis_data = main_group[new_name].asstr()[:]
+                            axis_data.update({new_name: new_axis_data})
+                            axes_names[axis_index] = new_name
+                
+                    output_dict.update({"axes": axes_names, "axes_data": axis_data})
+
+
+
+                # If Nexus parsing failed: extract the scan or spectroscopy data
+                if not isinstance(dataset, np.ndarray):
+                    recognized_tags = ["main", "sweep", "scan", "measurement", "spectrum", "spectroscopy", "data", "array"]
+                    for tag in recognized_tags:
+                        if tag in main_group.keys():
+                            dataset = main_group[tag][:]
+                            output_dict.update({"dataset": dataset})
+                            break
+                
+                shape = dataset.shape
+                rank = len(shape)
+                """
+                match rank:
+                    case 2: # The data represents a flat image or 1D input-output sweep
+                        pass
+                    case 3: # The data represents a multi-channel dataset or 2D spectroscopy experiment
+                        for channel_index, channel_name in enumerate(channels):
+                            (channel_quantity, channel_unit, backward, error) = file_functions.split_physical_quantity(channel_name)
+                            target_unit = "nm"
+                            match channel_unit[-1]:
+                                case "m": target_unit = "nm"
+                                case "A": target_unit = "pA"                                
+                                case "S": target_unit = "nS"
+                                case "F": target_unit = "fF"
+                                case _: target_unit = channel_unit
+                            (converted_slice, new_quantity) = file_functions.convert_data_to_unit(data[direction_index, channel_index], channel_name, target_unit)
+                            data[direction_index, channel_index, :, :] = converted_slice
+                            channels[channel_index] = new_quantity
+                    case 4: # The data represents multiple 3D datasets, possibly one for each scan direction or spin direction
+                        for direction_index, data_slice_3D in enumerate(data):
+                            for channel_index, channel_name in enumerate(channels):
+                                (channel_quantity, channel_unit, backward, error) = file_functions.split_physical_quantity(channel_name)
+                                target_unit = "nm"
+                                match channel_unit[-1]:
+                                    case "m": target_unit = "nm"
+                                    case "A": target_unit = "pA"                                
+                                    case "S": target_unit = "nS"
+                                    case "F": target_unit = "fF"
+                                    case _: target_unit = channel_unit
+                                (converted_slice, new_quantity) = file_functions.convert_data_to_unit(data[direction_index, channel_index], channel_name, target_unit)
+                                data[direction_index, channel_index, :, :] = converted_slice
+                                channels[channel_index] = new_quantity
+                    case _: # I am not sure how to interpret these data
+                        pass
+                """
+        except Exception as e: print(f"Problem encountered while reading HDF5 file: {e}")
+        finally:
+            pass
+        return output_dict
+
+
+
+class SXMFunctions:
+    def __init__(self, parent):
+        self.parent: IOFunctions = parent
+
+    def get_raw_header(self, file_path: str) -> list:
+        header_end_tag = ":SCANIT_END:"
+        raw_header = []
+        
+        try:
+            with open(file_path, "rb") as file:
+                for line in file:
+                    decoded = line.decode()
+                    
+                    raw_header.append(decoded)
+                    if header_end_tag in decoded: break
+        except Exception as e:
+            print(f"Unable to retrieve raw sxm header: {e}")
+        return raw_header
+
+    def read_header_quick(self, file_path: str) -> tuple[np.ndarray, dict]:
+        try:
+            raw_header = self.get_raw_header(file_path)
+            header = np.array(raw_header, dtype = np.str_)
+
+            nanonis_tags = [":SCAN_RANGE:\n", ":SCAN_ANGLE:\n", ":SCAN_OFFSET:\n", ":REC_TIME:\n", ":REC_DATE:\n", ":SCAN_PIXELS:\n", ":SCAN_DIR:\n", ":BIAS:\n"]
+            sct_tags = ["scan_range (m)", "angle (deg)", "offset (m)", "start_time", "scan_date", "grid_size", "up_or_down", "V_nanonis (V)"]
+
+            sct_dict = {}
+            for nanonis_tag, sct_tag in zip(nanonis_tags, sct_tags):
+                try:
+                    index = np.where(header == nanonis_tag)[0][0]
+                    values_split = header[index + 1].split()
+
+                    if nanonis_tag in [":REC_TIME:\n", ":REC_DATE:\n", ":SCAN_DIR:\n"]:
+                        sct_dict.update({sct_tag: values_split[0]})
+                    else:
+                        values_num = [self.parent.get_scientific_numbers(value)[0] for value in values_split]
+                        if len(values_num) < 2: values_num = values_num[0]
+                        sct_dict.update({sct_tag: values_num})
+                except Exception as e:
+                    print(f"Problem reading tag {nanonis_tag.split()[0]} from .sxm file")
+        except Exception as e:
+            print(f"Error getting the SXM file header: {e}")
+        return (header, sct_dict)
+
+    def read_header_full(self, file_path: str) -> tuple[np.ndarray, dict]:
+        try:
+            (header_array, sct_dict) = self.read_header_quick(file_path)
+            [pixels, lines] = [int(sct_dict.get("grid_size", [1, 1])[i]) for i in range(2)]
+            sct_dict.update({"pixels": pixels, "lines": lines})
+            
+            frame = self.parent.convert_to_sct_frame(sct_dict)
+            sct_dict.update({"frame": frame})
+        except Exception as e:
+            print(f"Problem reading the SXM file header: {e}")
+        
+        # Z_controller
+        try:
+            z_controller_index = np.where(header_array == ":Z-CONTROLLER:\n")[0][0]
+            z_controller_data = header_array[z_controller_index + 2].split("\t")
+            [_, z_controller_name, feedback, setpoint, p_gain, i_gain, t_const] = z_controller_data
+            sct_dict.update({"z_controller": {"name": z_controller_name, "feedback": bool(feedback), "setpoint": setpoint, "p_gain": p_gain, "i_gain": i_gain, "t_const": t_const}})
+        except Exception as e:
+            print(f"Problem retrieving z-controller data from .sxm file: {e}")
+
+        # Channels
+        try:
+            channel_data_index = np.where(header_array == ":DATA_INFO:\n")[0][0]
+            channel_names = []
+            for channel_index in range(100):
+                channel_data = header_array[channel_data_index + 2 + channel_index].split()
+                if len(channel_data) < 1: break
+                [channel_index, quantity, unit, direction, calibration, offset] = channel_data
+                channel_names.append(" ".join((quantity, f"({unit})")))
+            
+            sct_dict.update({"channels": channel_names})
+        except Exception as e:
+            print(f"Problem retrieving channel data from .sxm file: {e}")
+        return (header_array, sct_dict)
+
+
+
+class YAMLFunctions:
+    def __init__(self, parent):
+        self.parent = parent
+
+    def save(self, data, path: str) -> bool:
+        try: # Save the currently opened scan folder to the config yaml file so it opens automatically on startup next time
+            with open(path, "w") as file:
+                yaml.safe_dump(data, file)
+            return True
+        except Exception as e:
+            print(f"Error saving data to YAML: {e}")
+            return False
+
+    def load_yaml(self, path: str) -> object:
+        try: # Read the last scan file from the config yaml file
+            with open(path, "r") as file:
+                yaml_data = yaml.safe_load(file)
+        except Exception as e:
+            print(f"Error retrieving data from YAML file: {e}")
+        return yaml_data
+
+
+
+class IOFunctions:
     def __init__(self):
-        self.h5 = HDF5Functions()
+        self.h5 = HDF5Functions(self)
+        self.sxm = SXMFunctions(self)
+        self.yaml = YAMLFunctions(self)
         self.ureg = pint.UnitRegistry()
         self.data = DataProcessing()
 
@@ -312,7 +656,7 @@ class FileFunctions:
         
         return error
 
-    def find_experiment_files(self, directory: str):
+    def find_experiment_files(self, directory: str) -> list:
         all_files = os.listdir(directory)
         python_files = [os.path.join(directory, file) for file in all_files if file.endswith(".py")]
         
@@ -321,7 +665,7 @@ class FileFunctions:
         # Iterate through each file and search for the string "class Experiment"
         for file_path in python_files:
             try:
-                with open(file_path, 'r', encoding = 'utf-8') as f:
+                with open(file_path, "r", encoding = "utf-8") as f:
                     if "class Experiment" in f.read():
                         found_files.append(os.path.basename(file_path)[:-3])
             except Exception as e:
@@ -350,26 +694,23 @@ class FileFunctions:
     # Misc
     def split_physical_quantity(self, text: str) -> tuple:
         error = False
-        quantity = False
-        unit = False
+        quantity = None
+        unit = None
         backward = False
-
-        pattern = r"(.+?) \((.*?)\)" # Like 'X (m)' or 'current (pA)' ...
+        first_bracket_index = None
         
         try:
-            matches = re.findall(pattern, text)
+            split_text = text.split()
+            for index, text_item in enumerate(split_text):
+                if text_item.startswith("(") | text_item.startswith("["):
+                    if not first_bracket_index: first_bracket_index = index
+                    if text_item[1:-1] in {"bwd", "backward"}: backward = True
+                    if text_item[1:-1] not in {"fwd", "forward", "bwd", "backward"}: unit = text_item[1:-1]
+            quantity = " ".join(split_text[:first_bracket_index])
 
-            if matches:
-                quantity = matches[0][0]
-                unit = matches[0][1]
-                
-                if quantity.endswith(" [bwd]"):
-                    quantity = quantity[: -6]
-                    backward = True
-                
+            return (quantity, unit, backward, error)
         except:
-            error = True
-        
+            error = True        
         return (quantity, unit, backward, error)
 
     def convert_data_to_unit(self, data: np.ndarray, quantity: str, target_unit: str = None) -> str:
