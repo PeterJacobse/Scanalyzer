@@ -1,4 +1,6 @@
 .vscode/launch.json
+Tests.ipynb
+dev.ipynb
 scanalyzer/config.yml
 scanalyzer/__pycache__/__init__.cpython-36.pyc
 scanalyzer/__pycache__/__init__.cpython-312.pyc
