@@ -16,4 +16,8 @@ dependencies = [
     "pyqtgraph>=0.14.0",
     "pyyaml>=6.0.3",
     "scipy>=1.16.3",
+    "spmh5 @ git+https://github.com/PeterJacobse/SPMH5.git",
 ]
+
+[tool.uv.sources]
+spmh5 = { git = "https://github.com/PeterJacobse/SPMH5.git" }
